@@ -31,3 +31,17 @@ The 500,000-document mixed run reinforces the shape of the result. With 70% sear
 For a catalog workload dominated by imports, synchronous writes, or strict read-after-write requirements, native Elasticsearch remains the safer baseline. For a product experience dominated by retrieval—especially when updates can flow through an event queue or tolerate a short freshness delay—the gateway becomes increasingly attractive.
 
 The next production decision should be based on the application’s freshness contract: measure the acceptable update-to-search delay, then place the workload on this curve using the same query mix and concurrency as the real service.
+
+## Additional corpus scaling points
+
+To make the bubble chart less dependent on the two original points, the same mixed workload was repeated at four smaller corpus sizes. These runs used the current gateway build, 50 concurrent clients, 1,000 mixed requests, and the existing 70% read/search versus 30% update/delete composition.
+
+| Corpus | Elasticsearch throughput | Qdrant gateway throughput | Elasticsearch mixed search p95 | Qdrant gateway mixed search p95 |
+|---:|---:|---:|---:|---:|
+| 10,000 | 749.48 req/s | 1,192.41 req/s | 125.06 ms | 97.10 ms |
+| 25,000 | 982.57 req/s | 1,011.40 req/s | 101.34 ms | 97.23 ms |
+| 50,000 | 1,037.89 req/s | 1,010.64 req/s | 96.90 ms | 101.20 ms |
+| 100,000 | 935.91 req/s | 986.74 req/s | 103.94 ms | 102.97 ms |
+| 500,000 | 77.42 req/s | 263.32 req/s | 4,213.60 ms | 305.82 ms |
+
+The 10k–100k points were collected in the local four-CPU container profile. The 500k point is the previously captured production-shaped run, so it is useful for scale context but should not be treated as a perfectly controlled continuation of the smaller points. That distinction is called out directly in the chart.
