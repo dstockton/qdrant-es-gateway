@@ -807,13 +807,29 @@ fn collect_patterns(q: &Value, patterns: &mut Vec<GatewayPattern>) -> Result<(),
             }
             "bool" => {
                 if let Some(bool_query) = value.as_object() {
-                    for key in ["must", "filter", "should", "must_not"] {
+                    for key in ["must", "filter"] {
                         if let Some(clauses) = bool_query.get(key).and_then(Value::as_array) {
                             for clause in clauses {
                                 collect_patterns(clause, patterns)?;
                             }
                         } else if let Some(clause) = bool_query.get(key) {
                             collect_patterns(clause, patterns)?;
+                        }
+                    }
+                    for key in ["should", "must_not"] {
+                        let mut nested = Vec::new();
+                        if let Some(clauses) = bool_query.get(key).and_then(Value::as_array) {
+                            for clause in clauses {
+                                collect_patterns(clause, &mut nested)?;
+                            }
+                        } else if let Some(clause) = bool_query.get(key) {
+                            collect_patterns(clause, &mut nested)?;
+                        }
+                        if !nested.is_empty() {
+                            return Err(GatewayError::bad(
+                                format!("query.bool.{key}"),
+                                "gateway-side pattern clauses are supported only in must/filter",
+                            ));
                         }
                     }
                 }
