@@ -7,6 +7,7 @@ use axum::{
     Json, Router,
 };
 use futures_util::future::try_join_all;
+use regex::Regex;
 use reqwest::Client;
 use rusqlite::{params, Connection};
 use serde_json::{json, Map, Value};
@@ -762,6 +763,107 @@ fn term_condition(field: &str, v: &Value) -> Value {
 }
 type FilterResult = (Option<Value>, Vec<(String, String)>);
 
+#[derive(Clone)]
+enum GatewayPattern {
+    Regex { field: String, pattern: String },
+    Prefix { field: String, prefix: String },
+    Wildcard { field: String, pattern: String },
+}
+
+fn collect_patterns(q: &Value, patterns: &mut Vec<GatewayPattern>) -> Result<(), GatewayError> {
+    let object = q
+        .as_object()
+        .ok_or_else(|| GatewayError::bad("query", "query clause must be an object"))?;
+    for (kind, value) in object {
+        match kind.as_str() {
+            "regexp" | "prefix" | "wildcard" => {
+                let (field, raw) = value
+                    .as_object()
+                    .and_then(|o| o.iter().next())
+                    .ok_or_else(|| GatewayError::bad(kind, "pattern query requires a field"))?;
+                let pattern = raw
+                    .as_str()
+                    .or_else(|| raw.get("value").and_then(Value::as_str))
+                    .ok_or_else(|| GatewayError::bad(kind, "pattern must be a string"))?;
+                let pattern = match kind.as_str() {
+                    "regexp" => GatewayPattern::Regex {
+                        field: field.clone(),
+                        pattern: pattern.into(),
+                    },
+                    "prefix" => GatewayPattern::Prefix {
+                        field: field.clone(),
+                        prefix: pattern.into(),
+                    },
+                    _ => GatewayPattern::Wildcard {
+                        field: field.clone(),
+                        pattern: pattern.into(),
+                    },
+                };
+                if let GatewayPattern::Regex { pattern, .. } = &pattern {
+                    Regex::new(pattern)
+                        .map_err(|e| GatewayError::bad("query.regexp", e.to_string()))?;
+                }
+                patterns.push(pattern);
+            }
+            "bool" => {
+                if let Some(bool_query) = value.as_object() {
+                    for key in ["must", "filter", "should", "must_not"] {
+                        if let Some(clauses) = bool_query.get(key).and_then(Value::as_array) {
+                            for clause in clauses {
+                                collect_patterns(clause, patterns)?;
+                            }
+                        } else if let Some(clause) = bool_query.get(key) {
+                            collect_patterns(clause, patterns)?;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn source_field<'a>(source: &'a Value, field: &str) -> Option<&'a Value> {
+    field
+        .split('.')
+        .try_fold(source, |value, part| value.get(part))
+}
+
+fn wildcard_regex(pattern: &str) -> Result<Regex, GatewayError> {
+    let mut expression = String::from("^");
+    for piece in pattern.split('*') {
+        if !expression.ends_with('^') {
+            expression.push_str(".*");
+        }
+        let mut escaped = String::new();
+        for c in piece.chars() {
+            if c == '?' {
+                escaped.push('.');
+            } else {
+                escaped.push_str(&regex::escape(&c.to_string()));
+            }
+        }
+        expression.push_str(&escaped);
+    }
+    expression.push('$');
+    Regex::new(&expression).map_err(|e| GatewayError::Internal(e.to_string()))
+}
+
+fn pattern_matches(source: &Value, pattern: &GatewayPattern) -> bool {
+    match pattern {
+        GatewayPattern::Regex { field, pattern } => source_field(source, field)
+            .and_then(Value::as_str)
+            .is_some_and(|value| Regex::new(pattern).is_ok_and(|r| r.is_match(value))),
+        GatewayPattern::Prefix { field, prefix } => source_field(source, field)
+            .and_then(Value::as_str)
+            .is_some_and(|value| value.starts_with(prefix)),
+        GatewayPattern::Wildcard { field, pattern } => source_field(source, field)
+            .and_then(Value::as_str)
+            .is_some_and(|value| wildcard_regex(pattern).is_ok_and(|r| r.is_match(value))),
+    }
+}
+
 fn query_filter(q: &Value) -> Result<FilterResult, GatewayError> {
     let mut must = Vec::new();
     let mut must_not = Vec::new();
@@ -897,10 +999,10 @@ fn query_filter(q: &Value) -> Result<FilterResult, GatewayError> {
                     }
                 }
                 "prefix" => {
-                    return Err(GatewayError::bad(
-                        "query.prefix",
-                        "prefix queries are not supported in the safe MVP",
-                    ))
+                    // Evaluated against hydrated source documents by the gateway.
+                }
+                "regexp" | "wildcard" => {
+                    // Evaluated against hydrated source documents by the gateway.
                 }
                 other => {
                     return Err(GatewayError::bad(
@@ -1042,6 +1144,8 @@ async fn search(
         .get("query")
         .cloned()
         .unwrap_or_else(|| json!({"match_all":{}}));
+    let mut patterns = Vec::new();
+    collect_patterns(&query, &mut patterns)?;
     if body.get("search_after").is_some() {
         return Err(GatewayError::bad(
             "search_after",
@@ -1076,7 +1180,7 @@ async fn search(
             if !vectors.contains(&vecname) && vecname != "text_all" {
                 return None;
             }
-            let payload_fields = if state.cfg.document_projection { json!(["_es_id"]) } else { json!(["_es_id","_source"]) };
+            let payload_fields = if state.cfg.document_projection && patterns.is_empty() { json!(["_es_id"]) } else { json!(["_es_id","_source"]) };
             let mut req = json!({"query":{"text":text,"model":"qdrant/bm25"},"using":vecname,"limit":(from+size).max(1),"with_payload":{"include":payload_fields}});
             if let Some(f) = &filter {
                 req["filter"] = f.clone();
@@ -1099,31 +1203,54 @@ async fn search(
             }
         }
     } else {
-        let payload_fields = if state.cfg.document_projection {
+        let payload_fields = if state.cfg.document_projection && patterns.is_empty() {
             json!(["_es_id"])
         } else {
             json!(["_es_id", "_source"])
         };
-        let mut req = json!({"limit":from+size,"with_payload":{"include":payload_fields}});
-        if let Some(f) = filter {
-            req["filter"] = f;
-        }
-        let r = state
-            .qdrant
-            .request(
-                Method::POST,
-                &format!("/collections/{}/points/scroll", coll),
-                Some(req),
-            )
-            .await?;
-        if let Some(arr) = r
-            .get("result")
-            .and_then(|x| x.get("points"))
-            .and_then(Value::as_array)
-        {
-            for p in arr {
-                let pay = p.get("payload").cloned().unwrap_or(json!({}));
-                hits.push(json!({"_index":index,"_id":pay.get("_es_id").cloned().unwrap_or(json!("")),"_score":Value::Null,"_source":pay.get("_source").cloned().unwrap_or(json!({}))}));
+        let mut offset = Value::Null;
+        loop {
+            let mut req = json!({"limit":if patterns.is_empty() { from + size } else { state.cfg.max_page_size },"with_payload":{"include":payload_fields}});
+            if let Some(f) = &filter {
+                req["filter"] = f.clone();
+            }
+            if !offset.is_null() {
+                req["offset"] = offset.clone();
+            }
+            let r = state
+                .qdrant
+                .request(
+                    Method::POST,
+                    &format!("/collections/{}/points/scroll", coll),
+                    Some(req),
+                )
+                .await?;
+            if let Some(arr) = r
+                .get("result")
+                .and_then(|x| x.get("points"))
+                .and_then(Value::as_array)
+            {
+                for p in arr {
+                    let pay = p.get("payload").cloned().unwrap_or(json!({}));
+                    let source = pay.get("_source").cloned().unwrap_or(json!({}));
+                    if patterns
+                        .iter()
+                        .all(|pattern| pattern_matches(&source, pattern))
+                    {
+                        hits.push(json!({"_index":index,"_id":pay.get("_es_id").cloned().unwrap_or(json!("")),"_score":Value::Null,"_source":source}));
+                    }
+                }
+                let next = r
+                    .get("result")
+                    .and_then(|x| x.get("next_page_offset"))
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                if next.is_null() || patterns.is_empty() {
+                    break;
+                }
+                offset = next;
+            } else {
+                break;
             }
         }
     }
@@ -1170,6 +1297,14 @@ async fn search(
             } else {
                 false
             }
+        });
+    }
+    if !patterns.is_empty() {
+        hits.retain(|hit| {
+            let source = hit.get("_source").cloned().unwrap_or_else(|| json!({}));
+            patterns
+                .iter()
+                .all(|pattern| pattern_matches(&source, pattern))
         });
     }
     if let Some(sort) = body.get("sort").and_then(Value::as_array) {
@@ -1775,5 +1910,34 @@ mod tests {
         assert_eq!(filter["must"].as_array().unwrap().len(), 2);
         assert_eq!(filter["must"][0]["key"], "status");
         assert_eq!(filter["must"][1]["range"]["gte"], 10);
+    }
+
+    #[test]
+    fn gateway_patterns_match_keyword_values() {
+        let source = json!({"sku":"ABC-100"});
+        assert!(pattern_matches(
+            &source,
+            &GatewayPattern::Prefix {
+                field: "sku".into(),
+                prefix: "ABC-".into()
+            }
+        ));
+        assert!(pattern_matches(
+            &source,
+            &GatewayPattern::Wildcard {
+                field: "sku".into(),
+                pattern: "ABC-*00".into()
+            }
+        ));
+        assert!(pattern_matches(
+            &source,
+            &GatewayPattern::Regex {
+                field: "sku".into(),
+                pattern: "ABC-[12]00".into()
+            }
+        ));
+        let mut patterns = Vec::new();
+        collect_patterns(&json!({"prefix":{"sku":"ABC-"}}), &mut patterns).unwrap();
+        assert_eq!(patterns.len(), 1);
     }
 }

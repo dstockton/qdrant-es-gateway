@@ -30,7 +30,8 @@ The root endpoint includes `X-Elastic-Product: Elasticsearch` and an 8.x-compati
 | field sorting | ⚠️ | Safe basic response sorting; Qdrant-native ordering is preferred for large data |
 | terms aggregations | ⚠️ | Native Qdrant facet over indexed keyword fields only |
 | aliases | ⚠️ | Durable gateway aliases; native atomic switching is future work |
-| fuzzy, regexp, wildcard, scripts, scroll, arbitrary aggs | ❌ | Clear structured 400 errors |
+| regexp, wildcard, prefix | ⚠️ | Gateway-side Rust matching; supports ordinary fields and bool/filter combinations, but scans candidate documents and is not suitable for unbounded high-cardinality pattern queries |
+| fuzzy, scripts, scroll, arbitrary aggs | ❌ | Clear structured 400 errors |
 
 See [docs/compatibility.md](docs/compatibility.md) for semantic differences and [docs/architecture.md](docs/architecture.md) for the design.
 
