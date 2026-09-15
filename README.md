@@ -38,6 +38,8 @@ See [docs/compatibility.md](docs/compatibility.md) for semantic differences and 
 
 Copy `.env.example` to `.env`. `QDRANT_URL`, `QDRANT_API_KEY`, `LISTEN_ADDR`, `LOG_LEVEL`, `ES_COMPAT_VERSION`, and `COMPATIBILITY_ANALYTICS` are the important settings. Secrets are only sent as the Qdrant `api-key` header and are never logged.
 
+For write-heavy catalogues, set `DOCUMENT_PROJECTION=true`. Each ES index then gets a second Qdrant collection named `es_<index>_documents`. It has no payload indexes and is the durable source for GETs and full `_source` responses; the normal collection remains the searchable projection. Set `ASYNC_SEARCH_PROJECTION=true` to wait for the source write but let the search projection converge with Qdrant's asynchronous operation acknowledgement. This preserves a stateless gateway tier, but production deployments should pair it with a durable projection worker/reconciliation process rather than relying on an in-process queue. Fields used for filters or sorts remain mirrored in the search projection; unmapped metadata-only updates avoid sparse-index work.
+
 ## Official client example
 
 ```python
@@ -59,7 +61,7 @@ docker compose up --build
 make integration-test
 ```
 
-The metadata database is gateway-owned and should be persisted alongside the deployment. Qdrant remains the source of document and search state. The gateway deterministically maps each `(index, Elasticsearch _id)` to a UUID-shaped Qdrant point ID and stores the original `_id` in payload, so arbitrary Unicode and long IDs survive restarts without an in-memory lookup.
+The metadata database is gateway-owned and should be persisted alongside the deployment. Qdrant remains the source of document and search state. The gateway deterministically maps each `(index, Elasticsearch _id)` to a UUID-shaped Qdrant point ID and stores the original `_id` in payload, so arbitrary Unicode and long IDs survive restarts without an in-memory lookup. With `DOCUMENT_PROJECTION=true`, the gateway retrieves search hits' sources in one batch from the document collection, avoiding an N+1 fetch pattern.
 
 ## Honest limitations
 

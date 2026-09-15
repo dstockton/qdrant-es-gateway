@@ -36,6 +36,8 @@ services:
       MAX_BULK_BYTES: 268435456
       MAX_PAGE_SIZE: 1000
       ASYNC_PAYLOAD_WRITES: ${ASYNC_PAYLOAD_WRITES:-false}
+      DOCUMENT_PROJECTION: ${DOCUMENT_PROJECTION:-false}
+      ASYNC_SEARCH_PROJECTION: ${ASYNC_SEARCH_PROJECTION:-false}
     cpus: "1.0"
     mem_limit: 2g
     volumes:

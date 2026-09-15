@@ -31,6 +31,8 @@ struct Config {
     max_bulk_bytes: usize,
     max_page_size: u64,
     async_payload_writes: bool,
+    document_projection: bool,
+    async_search_projection: bool,
 }
 
 impl Config {
@@ -59,6 +61,12 @@ impl Config {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(1000),
             async_payload_writes: env::var("ASYNC_PAYLOAD_WRITES")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false),
+            document_projection: env::var("DOCUMENT_PROJECTION")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false),
+            async_search_projection: env::var("ASYNC_SEARCH_PROJECTION")
                 .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                 .unwrap_or(false),
         }
@@ -228,6 +236,10 @@ fn collection(index: &str) -> String {
         )
     )
 }
+
+fn document_collection(index: &str) -> String {
+    format!("{}_documents", collection(index))
+}
 fn get_index(state: &AppState, name: &str) -> Result<(String, Value, Vec<String>), GatewayError> {
     let db = state
         .db
@@ -358,6 +370,19 @@ async fn create_index(
             Some(json!({"sparse_vectors": sparse})),
         )
         .await?;
+    if state.cfg.document_projection {
+        state
+            .qdrant
+            .request(
+                Method::PUT,
+                &format!("/collections/{}", document_collection(&index)),
+                // Qdrant 1.15 requires a vector field on each point. A
+                // one-dimensional on-disk vector with m=0 keeps this
+                // collection payload-first and disables HNSW construction.
+                Some(json!({"vectors":{"size":1,"distance":"Dot","on_disk":true},"hnsw_config":{"m":0},"optimizers_config":{"indexing_threshold":0}})),
+            )
+            .await?;
+    }
     if let Some(props) = mapping.get("properties").and_then(Value::as_object) {
         for (field, spec) in props {
             let schema = match spec.get("type").and_then(Value::as_str) {
@@ -398,6 +423,16 @@ async fn delete_index(
             None,
         )
         .await?;
+    if state.cfg.document_projection {
+        state
+            .qdrant
+            .request(
+                Method::DELETE,
+                &format!("/collections/{}", document_collection(&index)),
+                None,
+            )
+            .await?;
+    }
     let db = state
         .db
         .lock()
@@ -430,6 +465,42 @@ fn qdrant_payload(source: &Value, id: &str, index: &str) -> Value {
     Value::Object(p)
 }
 
+fn source_point(source: &Value, id: &str, index: &str) -> Value {
+    json!({"id":point_id(index,id),"vector":[0.0],"payload":qdrant_payload(source,id,index)})
+}
+
+async fn retrieve_sources(
+    state: &AppState,
+    index: &str,
+    ids: &[String],
+) -> Result<HashMap<String, Value>, GatewayError> {
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let result = state
+        .qdrant
+        .request(
+            Method::POST,
+            &format!("/collections/{}/points", document_collection(index)),
+            Some(json!({"ids":ids,"with_payload":true,"with_vector":false})),
+        )
+        .await?;
+    let mut sources = HashMap::new();
+    if let Some(points) = result.get("result").and_then(Value::as_array) {
+        for point in points {
+            if let Some(payload) = point.get("payload") {
+                if let Some(id) = payload.get("_es_id").and_then(Value::as_str) {
+                    sources.insert(
+                        id.to_string(),
+                        payload.get("_source").cloned().unwrap_or_else(|| json!({})),
+                    );
+                }
+            }
+        }
+    }
+    Ok(sources)
+}
+
 async fn write_docs(
     State(state): State<AppState>,
     index: String,
@@ -442,12 +513,26 @@ async fn write_docs(
         for (name, text) in texts { vector.insert(name, json!({"text":text,"model":"qdrant/bm25"})); }
         json!({"id":point_id(&index,id),"vector":vector,"payload":qdrant_payload(source,id,&index)})
     }).collect::<Vec<_>>();
+    if state.cfg.document_projection {
+        let source_points = docs
+            .iter()
+            .map(|(id, source)| source_point(source, id, &index))
+            .collect::<Vec<_>>();
+        state
+            .qdrant
+            .request(
+                Method::PUT,
+                &format!("/collections/{}/points", document_collection(&index)),
+                Some(json!({"points":source_points,"wait":true})),
+            )
+            .await?;
+    }
     state
         .qdrant
         .request(
             Method::PUT,
             &format!("/collections/{}/points", coll),
-            Some(json!({"points":points,"wait":true})),
+            Some(json!({"points":points,"wait":!state.cfg.async_search_projection})),
         )
         .await?;
     let (id, _) = docs
@@ -472,6 +557,15 @@ async fn get_doc(
     Path((index, id)): Path<(String, String)>,
 ) -> Result<Response, GatewayError> {
     let (coll, _, _) = get_index(&state, &index)?;
+    if state.cfg.document_projection {
+        let sources = retrieve_sources(&state, &index, &[point_id(&index, &id)]).await?;
+        return Ok(es_ok(match sources.get(&id) {
+            Some(source) => {
+                json!({"_index":index,"_id":id,"found":true,"_source":source,"_version":1})
+            }
+            None => json!({"_index":index,"_id":id,"found":false}),
+        }));
+    }
     let p = state
         .qdrant
         .request(
@@ -499,6 +593,12 @@ async fn head_doc(
     let Ok((coll, _, _)) = get_index(&state, &index) else {
         return StatusCode::NOT_FOUND.into_response();
     };
+    if state.cfg.document_projection {
+        return match retrieve_sources(&state, &index, &[point_id(&index, &id)]).await {
+            Ok(sources) if sources.contains_key(&id) => StatusCode::OK.into_response(),
+            _ => StatusCode::NOT_FOUND.into_response(),
+        };
+    }
     match state
         .qdrant
         .request(
@@ -523,16 +623,23 @@ async fn delete_doc(
     Path((index, id)): Path<(String, String)>,
 ) -> Result<Response, GatewayError> {
     let (coll, _, _) = get_index(&state, &index)?;
-    let path = format!("/collections/{}/points/delete", coll);
-    let body = json!({"points":[point_id(&index,&id)],"wait":!state.cfg.async_payload_writes});
-    if state.cfg.async_payload_writes {
-        state.qdrant.spawn_request(Method::POST, path, body);
-    } else {
+    let point = point_id(&index, &id);
+    if state.cfg.document_projection {
         state
             .qdrant
-            .request(Method::POST, &path, Some(body))
+            .request(
+                Method::POST,
+                &format!("/collections/{}/points/delete", document_collection(&index)),
+                Some(json!({"points":[point],"wait":true})),
+            )
             .await?;
     }
+    let path = format!("/collections/{}/points/delete", coll);
+    let body = json!({"points":[point],"wait":!state.cfg.async_search_projection && !state.cfg.async_payload_writes});
+    state
+        .qdrant
+        .request(Method::POST, &path, Some(body))
+        .await?;
     Ok(es_ok(
         json!({"_index":index,"_id":id,"_version":1,"result":"deleted","_shards":{"total":1,"successful":1,"failed":0}}),
     ))
@@ -549,7 +656,59 @@ async fn update_doc(
     if !doc.is_object() {
         return Err(GatewayError::bad("body.doc", "doc must be an object"));
     }
-    let (coll, _, vectors) = get_index(&state, &index)?;
+    let (coll, mapping, vectors) = get_index(&state, &index)?;
+    if state.cfg.document_projection {
+        let point = point_id(&index, &id);
+        let current = retrieve_sources(&state, &index, std::slice::from_ref(&point)).await?;
+        let source = current.get(&id).cloned().unwrap_or_else(|| json!({}));
+        let mut obj = source.as_object().cloned().unwrap_or_default();
+        for (k, v) in doc.as_object().unwrap() {
+            obj.insert(k.clone(), v.clone());
+        }
+        let merged = Value::Object(obj);
+        let changed_text = doc.as_object().unwrap().keys().any(|field| {
+            field == "_all" || vectors.contains(&format!("text_{}", field.replace('.', "_")))
+        });
+        if changed_text {
+            return write_doc(State(state), Path((index, id)), Json(merged)).await;
+        }
+
+        // Metadata-only updates can stay off the sparse index. Fields used by
+        // filters/sorts are mirrored cheaply; unmapped fields only need the
+        // authoritative document projection.
+        let mapped_non_text = doc.as_object().unwrap().keys().any(|field| {
+            mapping
+                .get("properties")
+                .and_then(Value::as_object)
+                .and_then(|properties| properties.get(field))
+                .and_then(|spec| spec.get("type"))
+                .and_then(Value::as_str)
+                .is_some_and(|kind| kind != "text")
+        });
+        state
+            .qdrant
+            .request(
+                Method::PUT,
+                &format!("/collections/{}/points", document_collection(&index)),
+                Some(json!({"points":[source_point(&merged,&id,&index)],"wait":true})),
+            )
+            .await?;
+        if mapped_non_text {
+            let mut payload = doc.as_object().cloned().unwrap_or_default();
+            payload.insert("_source".into(), merged);
+            state
+                .qdrant
+                .request(
+                    Method::POST,
+                    &format!("/collections/{}/points/payload", coll),
+                    Some(json!({"payload":payload,"points":[point],"wait":!state.cfg.async_search_projection})),
+                )
+                .await?;
+        }
+        return Ok(es_ok(
+            json!({"_index":index,"_id":id,"_version":1,"result":"updated","_shards":{"total":1,"successful":1,"failed":0}}),
+        ));
+    }
     let changes_text = doc.as_object().unwrap().keys().any(|field| {
         field == "_all" || vectors.contains(&format!("text_{}", field.replace('.', "_")))
     });
@@ -917,7 +1076,8 @@ async fn search(
             if !vectors.contains(&vecname) && vecname != "text_all" {
                 return None;
             }
-            let mut req = json!({"query":{"text":text,"model":"qdrant/bm25"},"using":vecname,"limit":(from+size).max(1),"with_payload":{"include":["_es_id","_source"]}});
+            let payload_fields = if state.cfg.document_projection { json!(["_es_id"]) } else { json!(["_es_id","_source"]) };
+            let mut req = json!({"query":{"text":text,"model":"qdrant/bm25"},"using":vecname,"limit":(from+size).max(1),"with_payload":{"include":payload_fields}});
             if let Some(f) = &filter {
                 req["filter"] = f.clone();
             }
@@ -939,7 +1099,12 @@ async fn search(
             }
         }
     } else {
-        let mut req = json!({"limit":from+size,"with_payload":{"include":["_es_id","_source"]}});
+        let payload_fields = if state.cfg.document_projection {
+            json!(["_es_id"])
+        } else {
+            json!(["_es_id", "_source"])
+        };
+        let mut req = json!({"limit":from+size,"with_payload":{"include":payload_fields}});
         if let Some(f) = filter {
             req["filter"] = f;
         }
@@ -987,6 +1152,26 @@ async fn search(
         }
     }
     let mut hits: Vec<_> = unique.into_values().collect();
+    if state.cfg.document_projection {
+        let ids = hits
+            .iter()
+            .filter_map(|hit| {
+                hit.get("_id")
+                    .and_then(Value::as_str)
+                    .map(|id| point_id(&index, id))
+            })
+            .collect::<Vec<_>>();
+        let sources = retrieve_sources(&state, &index, &ids).await?;
+        hits.retain_mut(|hit| {
+            let id = hit.get("_id").and_then(Value::as_str).unwrap_or("");
+            if let Some(source) = sources.get(id) {
+                hit["_source"] = source.clone();
+                true
+            } else {
+                false
+            }
+        });
+    }
     if let Some(sort) = body.get("sort").and_then(Value::as_array) {
         for s in sort.iter().rev() {
             let (field, dir) = s
