@@ -11,3 +11,5 @@ DOCS=50000 BATCH=500 ./run.sh
 Results are written to `results/benchmark.json` and `results/resources.txt`. Set `ES_HEAP=1g` (or another explicit value) to control the Elasticsearch JVM heap. Record machine, filesystem, Docker version, image digests, CPU/memory limits, warm-up state, and relevance before comparing runs. The result includes indexing and update time, throughput, p50, p95, p99, min, and max latency, mixed operation breakdowns, source-response checks, and memory snapshots.
 
 Set `REPEATS=2` to repeat each ingest within the same service lifetime; the JSON then includes `index_runs_seconds`, which helps distinguish service startup from steady-state bulk-ingest behaviour.
+
+To benchmark the stateless two-collection source projection, run the same client unchanged with `DOCUMENT_PROJECTION=true`. Add `ASYNC_SEARCH_PROJECTION=true` to measure the write-heavy eventual-consistency profile: the authoritative document write is waited on, while sparse search projection work is accepted asynchronously. The benchmark should record source freshness separately from request latency when using this mode.

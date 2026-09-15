@@ -19,6 +19,8 @@ services:
       METADATA_DB: /data/gateway.db
       LOG_LEVEL: ${LOG_LEVEL:-info}
       COMPATIBILITY_ANALYTICS: ${COMPATIBILITY_ANALYTICS:-true}
+      DOCUMENT_PROJECTION: ${DOCUMENT_PROJECTION:-false}
+      ASYNC_SEARCH_PROJECTION: ${ASYNC_SEARCH_PROJECTION:-false}
     volumes:
       - gateway_data:/data
     depends_on:
