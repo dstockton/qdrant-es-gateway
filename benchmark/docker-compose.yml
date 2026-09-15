@@ -1,0 +1,71 @@
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.security.enrollment.enabled: "false"
+      ES_JAVA_OPTS: -Xms${ES_HEAP:-1g} -Xmx${ES_HEAP:-1g}
+    cpus: "1.5"
+    mem_limit: 8g
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/ >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 40
+  qdrant:
+    image: qdrant/qdrant:v1.15.3
+    cpus: "1.0"
+    mem_limit: 4g
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  gateway:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      METADATA_DB: /data/gateway.db
+      MAX_BULK_BYTES: 268435456
+      MAX_PAGE_SIZE: 1000
+      ASYNC_PAYLOAD_WRITES: ${ASYNC_PAYLOAD_WRITES:-false}
+    cpus: "1.0"
+    mem_limit: 2g
+    volumes:
+      - gateway_data:/data
+    depends_on:
+      qdrant:
+        condition: service_healthy
+  runner:
+    build: .
+    environment:
+      ES_URL: http://elasticsearch:9200
+      GATEWAY_URL: http://gateway:9200
+      DOCS: ${DOCS:-50000}
+      CONCURRENCY: ${CONCURRENCY:-1,10,50}
+      REPEATS: ${REPEATS:-1}
+      UPDATE_DOCS: ${UPDATE_DOCS:-5000}
+      MIXED_REQUESTS: ${MIXED_REQUESTS:-1000}
+      WARMUP_SECONDS: ${WARMUP_SECONDS:-15}
+      BATCH: ${BATCH:-500}
+      OUTPUT: /results/benchmark.json
+    cpus: "0.5"
+    mem_limit: 1g
+    volumes:
+      - ./results:/results
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      gateway:
+        condition: service_started
+volumes:
+  elasticsearch_data:
+  qdrant_data:
+  gateway_data:

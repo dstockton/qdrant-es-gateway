@@ -1,0 +1,10 @@
+/target
+/gateway.db
+/.env
+*.log
+
+# Generated benchmark and video artifacts
+/benchmark/results/
+/demo/
+__pycache__/
+*.pyc

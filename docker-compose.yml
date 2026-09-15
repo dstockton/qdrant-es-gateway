@@ -1,0 +1,29 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.15.3
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  gateway:
+    build: .
+    ports:
+      - "9200:9200"
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      METADATA_DB: /data/gateway.db
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      COMPATIBILITY_ANALYTICS: ${COMPATIBILITY_ANALYTICS:-true}
+    volumes:
+      - gateway_data:/data
+    depends_on:
+      qdrant:
+        condition: service_healthy
+volumes:
+  qdrant_data:
+  gateway_data:
