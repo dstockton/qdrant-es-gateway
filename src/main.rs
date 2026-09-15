@@ -6,6 +6,7 @@ use axum::{
     routing::any,
     Json, Router,
 };
+use futures_util::future::try_join_all;
 use reqwest::Client;
 use rusqlite::{params, Connection};
 use serde_json::{json, Map, Value};
@@ -15,7 +16,7 @@ use std::{
     env,
     net::SocketAddr,
     sync::{Arc, Mutex},
-    time::Instant,
+    time::{Duration, Instant},
 };
 use tracing::info;
 
@@ -106,11 +107,12 @@ impl Qdrant {
             .await
             .map_err(|e| GatewayError::upstream(e.to_string()))?;
         let status = response.status();
-        let text = response
-            .text()
+        let bytes = response
+            .bytes()
             .await
             .map_err(|e| GatewayError::upstream(e.to_string()))?;
-        let value: Value = serde_json::from_str(&text).unwrap_or_else(|_| json!({"status": text}));
+        let value: Value = serde_json::from_slice(&bytes)
+            .unwrap_or_else(|_| json!({"status": String::from_utf8_lossy(&bytes)}));
         if !status.is_success() || value.get("status").and_then(Value::as_str) == Some("error") {
             return Err(GatewayError::upstream(format!(
                 "Qdrant returned {}: {}",
@@ -494,10 +496,26 @@ async fn head_doc(
     State(state): State<AppState>,
     Path((index, id)): Path<(String, String)>,
 ) -> Response {
-    match get_doc(State(state), Path((index, id))).await {
-        Ok(r) if r.status() == StatusCode::OK => r,
-        Ok(_) => StatusCode::NOT_FOUND.into_response(),
-        Err(_) => StatusCode::NOT_FOUND.into_response(),
+    let Ok((coll, _, _)) = get_index(&state, &index) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    match state
+        .qdrant
+        .request(
+            Method::GET,
+            &format!(
+                "/collections/{}/points/{}?with_payload=false",
+                coll,
+                point_id(&index, &id)
+            ),
+            None,
+        )
+        .await
+    {
+        Ok(result) if !result.get("result").is_some_and(Value::is_null) => {
+            StatusCode::OK.into_response()
+        }
+        _ => StatusCode::NOT_FOUND.into_response(),
     }
 }
 async fn delete_doc(
@@ -873,6 +891,7 @@ async fn search(
     }
     let (filter, _) = query_filter(&query)?;
     let text = pick_text(&query);
+    let has_text = text.is_some();
     let from = body.get("from").and_then(Value::as_u64).unwrap_or(0);
     let size = body
         .get("size")
@@ -887,27 +906,27 @@ async fn search(
     }
     let mut hits: Vec<Value> = Vec::new();
     if let Some((text, fields)) = text {
-        for (field, boost) in fields {
+        let requests = fields
+            .into_iter()
+            .filter_map(|(field, boost)| {
             let vecname = if field == "_all" {
                 "text_all".into()
             } else {
                 format!("text_{}", field.replace('.', "_"))
             };
             if !vectors.contains(&vecname) && vecname != "text_all" {
-                continue;
+                return None;
             }
-            let mut req = json!({"query":{"text":text,"model":"qdrant/bm25"},"using":vecname,"limit":(from+size).max(1),"with_payload":true});
+            let mut req = json!({"query":{"text":text,"model":"qdrant/bm25"},"using":vecname,"limit":(from+size).max(1),"with_payload":{"include":["_es_id","_source"]}});
             if let Some(f) = &filter {
                 req["filter"] = f.clone();
             }
-            let r = state
-                .qdrant
-                .request(
-                    Method::POST,
-                    &format!("/collections/{}/points/query", coll),
-                    Some(req),
-                )
-                .await?;
+            let qdrant = state.qdrant.clone();
+            let path = format!("/collections/{}/points/query", coll);
+            Some(async move { Ok::<_, GatewayError>((qdrant.request(Method::POST, &path, Some(req)).await?, boost)) })
+        })
+        .collect::<Vec<_>>();
+        for (r, boost) in try_join_all(requests).await? {
             if let Some(arr) = r
                 .get("result")
                 .and_then(|x| x.get("points"))
@@ -920,7 +939,7 @@ async fn search(
             }
         }
     } else {
-        let mut req = json!({"limit":from+size,"with_payload":true});
+        let mut req = json!({"limit":from+size,"with_payload":{"include":["_es_id","_source"]}});
         if let Some(f) = filter {
             req["filter"] = f;
         }
@@ -950,7 +969,22 @@ async fn search(
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
-        unique.entry(id).or_insert(h);
+        match unique.entry(id) {
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(h);
+            }
+            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                let new_score = h.get("_score").and_then(Value::as_f64).unwrap_or(0.0);
+                let old_score = entry
+                    .get()
+                    .get("_score")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(0.0);
+                if new_score > old_score {
+                    entry.insert(h);
+                }
+            }
+        }
     }
     let mut hits: Vec<_> = unique.into_values().collect();
     if let Some(sort) = body.get("sort").and_then(Value::as_array) {
@@ -979,6 +1013,14 @@ async fn search(
                 }
             });
         }
+    } else if has_text {
+        hits.sort_by(|a, b| {
+            let ascore = a.get("_score").and_then(Value::as_f64).unwrap_or(0.0);
+            let bscore = b.get("_score").and_then(Value::as_f64).unwrap_or(0.0);
+            bscore
+                .partial_cmp(&ascore)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
     }
     let total = hits.len();
     let page = hits
@@ -1062,6 +1104,34 @@ async fn count(
     Path(index): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Response, GatewayError> {
+    let (coll, _, _) = get_index(&state, &index)?;
+    let query = body
+        .get("query")
+        .cloned()
+        .unwrap_or_else(|| json!({"match_all": {}}));
+    if pick_text(&query).is_none() {
+        let (filter, _) = query_filter(&query)?;
+        let mut request = json!({"exact":true});
+        if let Some(filter) = filter {
+            request["filter"] = filter;
+        }
+        let result = state
+            .qdrant
+            .request(
+                Method::POST,
+                &format!("/collections/{}/points/count", coll),
+                Some(request),
+            )
+            .await?;
+        let count = result
+            .get("result")
+            .and_then(|r| r.get("count"))
+            .cloned()
+            .unwrap_or_else(|| json!(0));
+        return Ok(es_ok(
+            json!({"count":count,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0}}),
+        ));
+    }
     let mut b = body;
     b["size"] = json!(10000);
     let r = search(State(state), Path(index), Json(b)).await?;
@@ -1432,7 +1502,12 @@ async fn main() -> anyhow::Result<()> {
     let cfg = Config::from_env();
     let state = AppState {
         qdrant: Qdrant {
-            client: Client::new(),
+            client: Client::builder()
+                .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(180))
+                .tcp_nodelay(true)
+                .pool_max_idle_per_host(128)
+                .build()?,
             base: cfg.qdrant_url.clone(),
             key: cfg.qdrant_api_key.clone(),
         },
