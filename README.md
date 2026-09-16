@@ -37,6 +37,8 @@ The root endpoint includes `X-Elastic-Product: Elasticsearch` and an 8.x-compati
 
 See [docs/compatibility.md](docs/compatibility.md) for semantic differences and [docs/architecture.md](docs/architecture.md) for the design.
 
+Measured storage trade-offs for the two-collection projection are documented in [docs/storage-findings.md](docs/storage-findings.md).
+
 For a deterministic, endpoint-only application workflow covering catalogue search, facets, source responses, updates, deletes, and pattern queries, see [validation/README.md](validation/README.md). The published application-target research and staged Spinscale/AWS Retail validation plan are in [docs/application-validation.md](docs/application-validation.md).
 
 ## Configuration
