@@ -759,7 +759,8 @@ async fn update_doc(
 }
 
 fn term_condition(field: &str, v: &Value) -> Value {
-    json!({"key":field,"match":{"value":v}})
+    let value = v.get("value").unwrap_or(v);
+    json!({"key":field,"match":{"value":value}})
 }
 type FilterResult = (Option<Value>, Vec<(String, String)>);
 
@@ -880,6 +881,88 @@ fn pattern_matches(source: &Value, pattern: &GatewayPattern) -> bool {
     }
 }
 
+fn source_matches_query(source: &Value, query: &Value) -> bool {
+    let Some(object) = query.as_object() else {
+        return false;
+    };
+    if object.contains_key("match_all") {
+        return true;
+    }
+    if let Some(term) = object.get("term").and_then(Value::as_object) {
+        return term.iter().next().is_some_and(|(field, value)| {
+            source_field(source, field.strip_suffix(".keyword").unwrap_or(field))
+                .is_some_and(|actual| actual == value.get("value").unwrap_or(value))
+        });
+    }
+    if let Some(terms) = object.get("terms").and_then(Value::as_object) {
+        return terms.iter().next().is_some_and(|(field, values)| {
+            let Some(values) = values.as_array() else {
+                return false;
+            };
+            source_field(source, field.strip_suffix(".keyword").unwrap_or(field))
+                .is_some_and(|actual| values.iter().any(|value| value == actual))
+        });
+    }
+    if let Some(range) = object.get("range").and_then(Value::as_object) {
+        return range.iter().next().is_some_and(|(field, bounds)| {
+            let Some(actual) = source_field(source, field).and_then(Value::as_f64) else {
+                return false;
+            };
+            bounds.as_object().is_some_and(|bounds| {
+                ["gt", "gte", "lt", "lte"].iter().all(|op| {
+                    match bounds.get(*op).and_then(Value::as_f64) {
+                        None => true,
+                        Some(bound) => match *op {
+                            "gt" => actual > bound,
+                            "gte" => actual >= bound,
+                            "lt" => actual < bound,
+                            "lte" => actual <= bound,
+                            _ => true,
+                        },
+                    }
+                })
+            })
+        });
+    }
+    if let Some(exists) = object.get("exists") {
+        return exists
+            .get("field")
+            .and_then(Value::as_str)
+            .is_some_and(|field| source_field(source, field).is_some());
+    }
+    if let Some(bool_query) = object.get("bool").and_then(Value::as_object) {
+        let clauses = |key: &str| -> Vec<&Value> {
+            match bool_query.get(key) {
+                Some(value) => value
+                    .as_array()
+                    .map(|values| values.iter().collect())
+                    .unwrap_or_else(|| vec![value]),
+                None => Vec::new(),
+            }
+        };
+        let must = clauses("must")
+            .into_iter()
+            .chain(clauses("filter"))
+            .all(|clause| source_matches_query(source, clause));
+        let must_not = clauses("must_not")
+            .into_iter()
+            .all(|clause| !source_matches_query(source, clause));
+        let should = clauses("should");
+        let minimum = bool_query
+            .get("minimum_should_match")
+            .and_then(Value::as_u64)
+            .unwrap_or(if should.is_empty() { 0 } else { 1 }) as usize;
+        return must
+            && must_not
+            && should
+                .iter()
+                .filter(|clause| source_matches_query(source, clause))
+                .count()
+                >= minimum;
+    }
+    false
+}
+
 fn query_filter(q: &Value) -> Result<FilterResult, GatewayError> {
     let mut must = Vec::new();
     let mut must_not = Vec::new();
@@ -898,8 +981,17 @@ fn query_filter(q: &Value) -> Result<FilterResult, GatewayError> {
         for (kind, v) in o {
             match kind.as_str() {
                 "match_all" => {}
-                "match" | "match_phrase" => text.push(v.clone()),
-                "multi_match" => text.push(v.clone()),
+                "match" | "match_phrase" | "match_bool_prefix" => text.push(v.clone()),
+                "multi_match" | "fuzzy" => text.push(v.clone()),
+                "dis_max" => {
+                    for clause in v
+                        .get("queries")
+                        .and_then(Value::as_array)
+                        .ok_or_else(|| GatewayError::bad("dis_max", "queries must be an array"))?
+                    {
+                        walk(clause, must, must_not, text, _sorts)?;
+                    }
+                }
                 "term" => {
                     let (f, val) = v
                         .as_object()
@@ -939,6 +1031,27 @@ fn query_filter(q: &Value) -> Result<FilterResult, GatewayError> {
                             "gte" => "gte",
                             "lt" => "lt",
                             "lte" => "lte",
+                            "from" => {
+                                if r.get("include_lower")
+                                    .and_then(Value::as_bool)
+                                    .unwrap_or(true)
+                                {
+                                    "gte"
+                                } else {
+                                    "gt"
+                                }
+                            }
+                            "to" => {
+                                if r.get("include_upper")
+                                    .and_then(Value::as_bool)
+                                    .unwrap_or(true)
+                                {
+                                    "lte"
+                                } else {
+                                    "lt"
+                                }
+                            }
+                            "include_lower" | "include_upper" | "boost" => continue,
                             _ => {
                                 return Err(GatewayError::bad(
                                     format!("range.{}", k),
@@ -992,8 +1105,19 @@ fn query_filter(q: &Value) -> Result<FilterResult, GatewayError> {
                         }
                         let minimum = b
                             .get("minimum_should_match")
-                            .and_then(Value::as_u64)
-                            .unwrap_or(1);
+                            .and_then(|value| {
+                                value.as_u64().or_else(|| {
+                                    value.as_str().and_then(|text| {
+                                        text.strip_suffix('%').and_then(|number| {
+                                            number.parse::<u64>().ok().map(|percent| {
+                                                ((clauses.len() as u64 * percent) + 99) / 100
+                                            })
+                                        })
+                                    })
+                                })
+                            })
+                            .unwrap_or(1)
+                            .min(clauses.len() as u64);
                         let mut should = Vec::new();
                         for clause in clauses {
                             let mut cm = Vec::new();
@@ -1011,7 +1135,7 @@ fn query_filter(q: &Value) -> Result<FilterResult, GatewayError> {
                                 should.push(json!({"must":cm}));
                             }
                         }
-                        must.push(json!({"should":should,"min_should":minimum}));
+                        must.push(json!({"min_should":{"conditions":should,"min_count":minimum}}));
                     }
                 }
                 "prefix" => {
@@ -1057,7 +1181,36 @@ fn pick_text(q: &Value) -> Option<(String, Vec<(String, f32)>)> {
     }
     if let Some(m) = q.get("match_phrase") {
         let (f, v) = m.as_object()?.iter().next()?;
-        return Some((v.as_str()?.into(), vec![(f.clone(), 1.0)]));
+        return Some((
+            v.as_str()
+                .or_else(|| v.get("query").and_then(Value::as_str))?
+                .into(),
+            vec![(f.clone(), 1.0)],
+        ));
+    }
+    if let Some(m) = q.get("match_bool_prefix") {
+        let (f, v) = m.as_object()?.iter().next()?;
+        return Some((
+            v.as_str()
+                .or_else(|| v.get("query").and_then(Value::as_str))?
+                .into(),
+            vec![(
+                f.clone(),
+                v.get("boost").and_then(Value::as_f64).unwrap_or(1.0) as f32,
+            )],
+        ));
+    }
+    if let Some(m) = q.get("fuzzy") {
+        let (f, v) = m.as_object()?.iter().next()?;
+        return Some((
+            v.as_str()
+                .or_else(|| v.get("value").and_then(Value::as_str))?
+                .into(),
+            vec![(
+                f.clone(),
+                v.get("boost").and_then(Value::as_f64).unwrap_or(1.0) as f32,
+            )],
+        ));
     }
     if let Some(m) = q.get("multi_match") {
         let text = m.get("query")?.as_str()?.into();
@@ -1075,6 +1228,18 @@ fn pick_text(q: &Value) -> Option<(String, Vec<(String, f32)>)> {
             })
             .collect();
         return Some((text, fs));
+    }
+    if let Some(d) = q.get("dis_max") {
+        let mut combined = None;
+        for clause in d.get("queries")?.as_array()? {
+            if let Some((text, fields)) = pick_text(clause) {
+                if combined.is_none() {
+                    combined = Some((text, Vec::new()));
+                }
+                combined.as_mut()?.1.extend(fields);
+            }
+        }
+        return combined;
     }
     if let Some(b) = q.get("bool").and_then(Value::as_object) {
         for key in ["must", "filter"] {
@@ -1323,6 +1488,12 @@ async fn search(
                 .all(|pattern| pattern_matches(&source, pattern))
         });
     }
+    if let Some(post_filter) = body.get("post_filter") {
+        hits.retain(|hit| {
+            hit.get("_source")
+                .is_some_and(|source| source_matches_query(source, post_filter))
+        });
+    }
     if let Some(sort) = body.get("sort").and_then(Value::as_array) {
         for s in sort.iter().rev() {
             let (field, dir) = s
@@ -1360,6 +1531,7 @@ async fn search(
     }
     let total = hits.len();
     let page = hits
+        .clone()
         .into_iter()
         .skip(from as usize)
         .take(size as usize)
@@ -1388,41 +1560,87 @@ async fn search(
             .as_object()
             .ok_or_else(|| GatewayError::bad("aggs", "aggregations must be an object"))?
         {
-            let terms = spec.get("terms").ok_or_else(|| {
-                GatewayError::bad(
-                    format!("aggs.{}.terms", name),
-                    "only terms aggregations are supported",
-                )
-            })?;
-            let requested = terms.get("field").and_then(Value::as_str).ok_or_else(|| {
-                GatewayError::bad(
-                    format!("aggs.{}.terms.field", name),
-                    "terms aggregation requires field",
-                )
-            })?;
-            let field = requested.strip_suffix(".keyword").unwrap_or(requested);
-            let limit = terms
-                .get("size")
-                .and_then(Value::as_u64)
-                .unwrap_or(10)
-                .min(1000);
-            let mut req = json!({"key":field,"limit":limit});
-            if let Some(f) = query_filter(&query)?.0 {
-                req["filter"] = f;
+            if let Some(terms) = spec.get("terms") {
+                let requested = terms.get("field").and_then(Value::as_str).ok_or_else(|| {
+                    GatewayError::bad(
+                        format!("aggs.{}.terms.field", name),
+                        "terms aggregation requires field",
+                    )
+                })?;
+                let field = requested.strip_suffix(".keyword").unwrap_or(requested);
+                let limit = terms
+                    .get("size")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(10)
+                    .min(1000);
+                let mut req = json!({"key":field,"limit":limit});
+                if let Some(f) = query_filter(&query)?.0 {
+                    req["filter"] = f;
+                }
+                let facet = state
+                    .qdrant
+                    .request(
+                        Method::POST,
+                        &format!("/collections/{}/facet", coll),
+                        Some(req),
+                    )
+                    .await?;
+                let buckets = facet.get("result").and_then(|r| r.get("hits")).and_then(Value::as_array).cloned().unwrap_or_default().into_iter().map(|h| json!({"key":h.get("value").cloned().unwrap_or(Value::Null),"doc_count":h.get("count").cloned().unwrap_or(json!(0))})).collect::<Vec<_>>();
+                agg_result.insert(name.clone(), json!({"doc_count_error_upper_bound":0,"sum_other_doc_count":0,"buckets":buckets}));
+            } else if let Some(metric) = spec.get("min").or_else(|| spec.get("max")) {
+                let field = metric.get("field").and_then(Value::as_str).ok_or_else(|| {
+                    GatewayError::bad(
+                        format!("aggs.{}.metric.field", name),
+                        "metric aggregation requires field",
+                    )
+                })?;
+                let mut values = hits
+                    .iter()
+                    .filter_map(|hit| {
+                        hit.get("_source")
+                            .and_then(|source| source_field(source, field))
+                            .and_then(Value::as_f64)
+                    })
+                    .collect::<Vec<_>>();
+                values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                let value = if spec.get("min").is_some() {
+                    values.first().copied()
+                } else {
+                    values.last().copied()
+                };
+                agg_result.insert(name.clone(), json!({"value":value}));
+            } else if let Some(filters) = spec
+                .get("filters")
+                .and_then(|v| v.get("filters"))
+                .and_then(Value::as_object)
+            {
+                let mut buckets = Map::new();
+                for (key, filter_query) in filters {
+                    let count = hits
+                        .iter()
+                        .filter(|hit| {
+                            hit.get("_source")
+                                .is_some_and(|source| source_matches_query(source, filter_query))
+                        })
+                        .count();
+                    buckets.insert(key.clone(), json!({"doc_count":count}));
+                }
+                agg_result.insert(name.clone(), json!({"buckets":buckets}));
+            } else if let Some(filter_query) = spec.get("filter") {
+                let count = hits
+                    .iter()
+                    .filter(|hit| {
+                        hit.get("_source")
+                            .is_some_and(|source| source_matches_query(source, filter_query))
+                    })
+                    .count();
+                agg_result.insert(name.clone(), json!({"doc_count":count}));
+            } else {
+                return Err(GatewayError::bad(
+                    format!("aggs.{}", name),
+                    "supported aggregations are terms, min, max, filters, and filter",
+                ));
             }
-            let facet = state
-                .qdrant
-                .request(
-                    Method::POST,
-                    &format!("/collections/{}/facet", coll),
-                    Some(req),
-                )
-                .await?;
-            let buckets = facet.get("result").and_then(|r| r.get("hits")).and_then(Value::as_array).cloned().unwrap_or_default().into_iter().map(|h| json!({"key":h.get("value").cloned().unwrap_or(Value::Null),"doc_count":h.get("count").cloned().unwrap_or(json!(0))})).collect::<Vec<_>>();
-            agg_result.insert(
-                name.clone(),
-                json!({"doc_count_error_upper_bound":0,"sum_other_doc_count":0,"buckets":buckets}),
-            );
         }
         output.insert("aggregations".into(), Value::Object(agg_result));
     }
@@ -1913,7 +2131,7 @@ mod tests {
             &json!({"bool":{"should":[{"term":{"status":"live"}},{"term":{"status":"draft"}}]}}),
         )
         .unwrap();
-        assert_eq!(filter.unwrap()["must"][0]["min_should"], 1);
+        assert_eq!(filter.unwrap()["must"][0]["min_should"]["min_count"], 1);
     }
 
     #[test]
@@ -1926,6 +2144,46 @@ mod tests {
         assert_eq!(filter["must"].as_array().unwrap().len(), 2);
         assert_eq!(filter["must"][0]["key"], "status");
         assert_eq!(filter["must"][1]["range"]["gte"], 10);
+    }
+
+    #[test]
+    fn query_filter_accepts_java_range_and_object_terms() {
+        let (filter, _) = query_filter(&json!({"bool":{"must":[
+            {"term":{"brand.keyword":{"value":"Acme","boost":1.0}}},
+            {"range":{"price":{"from":10,"to":50,"include_lower":true,"include_upper":false,"boost":1.0}}}
+        ]}})).unwrap();
+        let filter = filter.unwrap();
+        assert_eq!(filter["must"][0]["match"]["value"], "Acme");
+        assert_eq!(filter["must"][1]["range"]["gte"], 10);
+        assert_eq!(filter["must"][1]["range"]["lt"], 50);
+    }
+
+    #[test]
+    fn text_queries_accept_dis_max_prefix_and_fuzzy_shapes() {
+        let (text, fields) = pick_text(&json!({"dis_max":{"queries":[
+            {"match_bool_prefix":{"name":{"query":"back","boost":1.2}}},
+            {"fuzzy":{"description":{"value":"backpack","fuzziness":"AUTO"}}}
+        ]}}))
+        .unwrap();
+        assert_eq!(text, "back");
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0].0, "name");
+    }
+
+    #[test]
+    fn post_filter_predicate_handles_catalogue_ranges() {
+        let source = json!({"brand":"Acme","price":25,"stock":3});
+        assert!(source_matches_query(
+            &source,
+            &json!({"bool":{"must":[
+                {"term":{"brand":{"value":"Acme"}}},
+                {"range":{"price":{"lt":50}}}
+            ]}})
+        ));
+        assert!(!source_matches_query(
+            &source,
+            &json!({"range":{"price":{"gt":50}}})
+        ));
     }
 
     #[test]

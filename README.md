@@ -31,7 +31,9 @@ The root endpoint includes `X-Elastic-Product: Elasticsearch` and an 8.x-compati
 | terms aggregations | ⚠️ | Native Qdrant facet over indexed keyword fields only |
 | aliases | ⚠️ | Durable gateway aliases; native atomic switching is future work |
 | regexp, wildcard, prefix | ⚠️ | Gateway-side Rust matching in positive must/filter clauses; scans candidate documents and is not suitable for unbounded high-cardinality pattern queries |
-| fuzzy, scripts, scroll, arbitrary aggs | ❌ | Clear structured 400 errors |
+| `dis_max`, `match_bool_prefix`, fuzzy-shaped queries | ⚠️ | Accepted through the lexical path; ranking and typo/prefix behavior are approximate |
+| `post_filter`, min/max/filter aggregations | ⚠️ | Supported for simple clauses over bounded retrieved candidates |
+| scripts, scroll, arbitrary aggs | ❌ | Clear structured 400 errors |
 
 See [docs/compatibility.md](docs/compatibility.md) for semantic differences and [docs/architecture.md](docs/architecture.md) for the design.
 
