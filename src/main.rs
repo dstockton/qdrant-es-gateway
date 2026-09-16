@@ -508,12 +508,23 @@ async fn write_docs(
     docs: Vec<(String, Value)>,
 ) -> Result<Response, GatewayError> {
     let (coll, _, vectors) = get_index(&state, &index)?;
-    let points = docs.iter().map(|(id, source)| {
-        let texts = flatten_text(source, &vectors);
-        let mut vector = Map::new();
-        for (name, text) in texts { vector.insert(name, json!({"text":text,"model":"qdrant/bm25"})); }
-        json!({"id":point_id(&index,id),"vector":vector,"payload":qdrant_payload(source,id,&index)})
-    }).collect::<Vec<_>>();
+    let points = docs
+        .iter()
+        .map(|(id, source)| {
+            let texts = flatten_text(source, &vectors);
+            let mut vector = Map::new();
+            for (name, text) in texts {
+                vector.insert(name, json!({"text":text,"model":"qdrant/bm25"}));
+            }
+            let mut payload = qdrant_payload(source, id, &index);
+            if state.cfg.document_projection {
+                if let Some(payload) = payload.as_object_mut() {
+                    payload.remove("_source");
+                }
+            }
+            json!({"id":point_id(&index,id),"vector":vector,"payload":payload})
+        })
+        .collect::<Vec<_>>();
     if state.cfg.document_projection {
         let source_points = docs
             .iter()
@@ -1259,6 +1270,64 @@ fn pick_text(q: &Value) -> Option<(String, Vec<(String, f32)>)> {
     None
 }
 
+async fn expand_more_like_this(
+    state: &AppState,
+    index: &str,
+    query: Value,
+) -> Result<Value, GatewayError> {
+    let Some(mlt) = query.get("more_like_this") else {
+        return Ok(query);
+    };
+    let id = mlt
+        .get("like")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+        .and_then(|item| item.get("_id"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            GatewayError::bad(
+                "more_like_this.like",
+                "expected a document reference with _id",
+            )
+        })?;
+    let fields = mlt
+        .get("fields")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let (coll, _, _) = get_index(state, index)?;
+    let point = state
+        .qdrant
+        .request(
+            Method::GET,
+            &format!(
+                "/collections/{}/points/{}?with_payload=true",
+                coll,
+                point_id(index, id)
+            ),
+            None,
+        )
+        .await?;
+    let source = point
+        .get("result")
+        .and_then(|result| result.get("payload"))
+        .and_then(|payload| payload.get("_source"))
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let text = fields
+        .iter()
+        .filter_map(|field| source_field(&source, field).and_then(Value::as_str))
+        .collect::<Vec<_>>()
+        .join(" ");
+    Ok(json!({"multi_match":{"query":text,"fields":fields}}))
+}
+
 fn project_source(source: &Value, spec: Option<&Value>) -> Option<Value> {
     let Some(spec) = spec else {
         return Some(source.clone());
@@ -1321,10 +1390,11 @@ async fn search(
 ) -> Result<Response, GatewayError> {
     let started = Instant::now();
     let (coll, _, vectors) = get_index(&state, &index)?;
-    let query = body
+    let mut query = body
         .get("query")
         .cloned()
         .unwrap_or_else(|| json!({"match_all":{}}));
+    query = expand_more_like_this(&state, &index, query).await?;
     let mut patterns = Vec::new();
     collect_patterns(&query, &mut patterns)?;
     if body.get("search_after").is_some() {
@@ -1528,6 +1598,44 @@ async fn search(
                 .partial_cmp(&ascore)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
+    }
+    if let Some(collapse) = body.get("collapse") {
+        let requested_field = collapse
+            .get("field")
+            .and_then(Value::as_str)
+            .ok_or_else(|| GatewayError::bad("collapse.field", "collapse requires field"))?;
+        let field = requested_field
+            .strip_suffix(".keyword")
+            .unwrap_or(requested_field);
+        let mut groups: Vec<(String, Vec<Value>)> = Vec::new();
+        for hit in hits {
+            let key = hit
+                .get("_source")
+                .and_then(|source| source_field(source, field))
+                .map(ToString::to_string)
+                .unwrap_or_else(|| "null".into());
+            if let Some((_, group)) = groups.iter_mut().find(|(group_key, _)| group_key == &key) {
+                group.push(hit);
+            } else {
+                groups.push((key, vec![hit]));
+            }
+        }
+        hits = groups
+            .into_iter()
+            .map(|(_, group)| {
+                let mut primary = group[0].clone();
+                if let Some(inner) = collapse.get("inner_hits").and_then(Value::as_object) {
+                    let mut inner_hits = Map::new();
+                    for (name, spec) in inner {
+                        let requested_size = spec.get("size").and_then(Value::as_u64).unwrap_or(3) as usize;
+                        let selected = group.iter().take(requested_size).cloned().collect::<Vec<_>>();
+                        inner_hits.insert(name.clone(), json!({"hits":{"total":{"value":group.len(),"relation":"eq"},"max_score":selected.iter().filter_map(|hit| hit.get("_score").and_then(Value::as_f64)).fold(0.0,f64::max),"hits":selected}}));
+                    }
+                    primary["inner_hits"] = Value::Object(inner_hits);
+                }
+                primary
+            })
+            .collect();
     }
     let total = hits.len();
     let page = hits
