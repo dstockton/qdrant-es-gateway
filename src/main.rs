@@ -1302,24 +1302,31 @@ async fn expand_more_like_this(
         })
         .unwrap_or_default();
     let (coll, _, _) = get_index(state, index)?;
-    let point = state
-        .qdrant
-        .request(
-            Method::GET,
-            &format!(
-                "/collections/{}/points/{}?with_payload=true",
-                coll,
-                point_id(index, id)
-            ),
-            None,
-        )
-        .await?;
-    let source = point
-        .get("result")
-        .and_then(|result| result.get("payload"))
-        .and_then(|payload| payload.get("_source"))
-        .cloned()
-        .unwrap_or_else(|| json!({}));
+    let source = if state.cfg.document_projection {
+        retrieve_sources(state, index, &[point_id(index, id)])
+            .await?
+            .remove(id)
+            .unwrap_or_else(|| json!({}))
+    } else {
+        let point = state
+            .qdrant
+            .request(
+                Method::GET,
+                &format!(
+                    "/collections/{}/points/{}?with_payload=true",
+                    coll,
+                    point_id(index, id)
+                ),
+                None,
+            )
+            .await?;
+        point
+            .get("result")
+            .and_then(|result| result.get("payload"))
+            .and_then(|payload| payload.get("_source"))
+            .cloned()
+            .unwrap_or_else(|| json!({}))
+    };
     let text = fields
         .iter()
         .filter_map(|field| source_field(&source, field).and_then(Value::as_str))
