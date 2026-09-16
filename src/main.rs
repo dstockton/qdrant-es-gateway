@@ -1121,7 +1121,7 @@ fn query_filter(q: &Value) -> Result<FilterResult, GatewayError> {
                                     value.as_str().and_then(|text| {
                                         text.strip_suffix('%').and_then(|number| {
                                             number.parse::<u64>().ok().map(|percent| {
-                                                ((clauses.len() as u64 * percent) + 99) / 100
+                                                (clauses.len() as u64 * percent).div_ceil(100)
                                             })
                                         })
                                     })
@@ -1373,6 +1373,191 @@ fn project_source(source: &Value, spec: Option<&Value>) -> Option<Value> {
     Some(Value::Object(result))
 }
 
+fn words(value: &str) -> Vec<String> {
+    value
+        .split_whitespace()
+        .map(|word| word.to_lowercase())
+        .collect()
+}
+
+fn field_text(source: &Value, field: &str) -> String {
+    source_field(source, field.strip_suffix(".keyword").unwrap_or(field))
+        .map(|value| match value {
+            Value::String(text) => text.clone(),
+            Value::Array(values) => values
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(" "),
+            _ => value.to_string(),
+        })
+        .unwrap_or_default()
+        .to_lowercase()
+}
+
+fn edit_distance(left: &str, right: &str) -> usize {
+    let mut row: Vec<usize> = (0..=right.chars().count()).collect();
+    for (i, left_char) in left.chars().enumerate() {
+        let mut next = vec![i + 1];
+        for (j, right_char) in right.chars().enumerate() {
+            next.push(if left_char == right_char {
+                row[j]
+            } else {
+                1 + row[j].min(row[j + 1]).min(next[j])
+            });
+        }
+        row = next;
+    }
+    row[right.chars().count()]
+}
+
+fn fuzzy_matches(text: &str, query: &str) -> bool {
+    let candidates = words(text);
+    words(query).into_iter().all(|term| {
+        let maximum = if term.chars().count() <= 2 {
+            0
+        } else if term.chars().count() <= 5 {
+            1
+        } else {
+            2
+        };
+        candidates
+            .iter()
+            .any(|candidate| edit_distance(&term, candidate) <= maximum)
+    })
+}
+
+fn text_query_matches(source: &Value, query: &Value) -> bool {
+    let Some(object) = query.as_object() else {
+        return false;
+    };
+    if object.contains_key("match_all") {
+        return true;
+    }
+    if let Some(match_query) = object.get("match") {
+        return match_query
+            .as_object()
+            .and_then(|items| items.iter().next())
+            .is_some_and(|(field, value)| {
+                let query = value
+                    .as_str()
+                    .or_else(|| value.get("query").and_then(Value::as_str))
+                    .unwrap_or("");
+                words(query).iter().all(|term| {
+                    field_text(source, field)
+                        .split_whitespace()
+                        .any(|candidate| candidate == term)
+                })
+            });
+    }
+    if let Some(prefix_query) = object.get("match_bool_prefix") {
+        return prefix_query
+            .as_object()
+            .and_then(|items| items.iter().next())
+            .is_some_and(|(field, value)| {
+                let query = value
+                    .as_str()
+                    .or_else(|| value.get("query").and_then(Value::as_str))
+                    .unwrap_or("");
+                let terms = words(query);
+                let candidates = field_text(source, field)
+                    .split_whitespace()
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>();
+                terms.last().is_some_and(|last| {
+                    terms[..terms.len().saturating_sub(1)]
+                        .iter()
+                        .all(|term| candidates.iter().any(|candidate| candidate == term))
+                        && candidates
+                            .iter()
+                            .any(|candidate| candidate.starts_with(last))
+                })
+            });
+    }
+    if let Some(fuzzy_query) = object.get("fuzzy") {
+        return fuzzy_query
+            .as_object()
+            .and_then(|items| items.iter().next())
+            .is_some_and(|(field, value)| {
+                let query = value
+                    .as_str()
+                    .or_else(|| value.get("value").and_then(Value::as_str))
+                    .unwrap_or("");
+                fuzzy_matches(&field_text(source, field), query)
+            });
+    }
+    if let Some(multi_match) = object.get("multi_match") {
+        let query = multi_match
+            .get("query")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        return multi_match
+            .get("fields")
+            .and_then(Value::as_array)
+            .is_some_and(|fields| {
+                fields.iter().filter_map(Value::as_str).any(|field| {
+                    let text = field_text(source, field);
+                    words(query)
+                        .iter()
+                        .all(|term| text.split_whitespace().any(|candidate| candidate == term))
+                })
+            });
+    }
+    if let Some(dis_max) = object.get("dis_max") {
+        return dis_max
+            .get("queries")
+            .and_then(Value::as_array)
+            .is_some_and(|queries| {
+                queries
+                    .iter()
+                    .any(|query| text_query_matches(source, query))
+            });
+    }
+    if let Some(bool_query) = object.get("bool").and_then(Value::as_object) {
+        let clauses = |key: &str| {
+            bool_query
+                .get(key)
+                .map(|value| {
+                    value
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_else(|| vec![value.clone()])
+                })
+                .unwrap_or_default()
+        };
+        let must = clauses("must")
+            .into_iter()
+            .chain(clauses("filter"))
+            .all(|clause| text_query_matches(source, &clause));
+        let must_not = clauses("must_not")
+            .into_iter()
+            .all(|clause| !text_query_matches(source, &clause));
+        let should = clauses("should");
+        let minimum = bool_query
+            .get("minimum_should_match")
+            .and_then(Value::as_u64)
+            .unwrap_or(if should.is_empty() { 0 } else { 1 }) as usize;
+        return must
+            && must_not
+            && should
+                .iter()
+                .filter(|clause| text_query_matches(source, clause))
+                .count()
+                >= minimum;
+    }
+    false
+}
+
+fn contains_approx_text_query(query: &Value) -> bool {
+    let Some(object) = query.as_object() else {
+        return false;
+    };
+    if object.contains_key("match_bool_prefix") || object.contains_key("fuzzy") {
+        return true;
+    }
+    object.values().any(contains_approx_text_query)
+}
+
 fn value_cmp(left: &Value, right: &Value) -> std::cmp::Ordering {
     match (left.as_f64(), right.as_f64()) {
         (Some(a), Some(b)) => a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal),
@@ -1406,6 +1591,7 @@ async fn search(
     let (filter, _) = query_filter(&query)?;
     let text = pick_text(&query);
     let has_text = text.is_some();
+    let approximate_text = contains_approx_text_query(&query);
     let from = body.get("from").and_then(Value::as_u64).unwrap_or(0);
     let size = body
         .get("size")
@@ -1419,7 +1605,53 @@ async fn search(
         ));
     }
     let mut hits: Vec<Value> = Vec::new();
-    if let Some((text, fields)) = text {
+    if approximate_text {
+        let scan_collection = if state.cfg.document_projection {
+            document_collection(&index)
+        } else {
+            coll.clone()
+        };
+        let mut offset = Value::Null;
+        loop {
+            let mut request = json!({"limit":state.cfg.max_page_size,"with_payload":{"include":["_es_id","_source"]}});
+            if let Some(filter) = &filter {
+                request["filter"] = filter.clone();
+            }
+            if !offset.is_null() {
+                request["offset"] = offset.clone();
+            }
+            let response = state
+                .qdrant
+                .request(
+                    Method::POST,
+                    &format!("/collections/{}/points/scroll", scan_collection),
+                    Some(request),
+                )
+                .await?;
+            if let Some(points) = response
+                .get("result")
+                .and_then(|result| result.get("points"))
+                .and_then(Value::as_array)
+            {
+                for point in points {
+                    let payload = point.get("payload").cloned().unwrap_or_else(|| json!({}));
+                    let source = payload.get("_source").cloned().unwrap_or_else(|| json!({}));
+                    if text_query_matches(&source, &query) {
+                        hits.push(json!({"_index":index,"_id":payload.get("_es_id").cloned().unwrap_or_else(|| json!("")),"_score":1.0,"_source":source}));
+                    }
+                }
+            }
+            let next = response
+                .get("result")
+                .and_then(|result| result.get("next_page_offset"))
+                .cloned()
+                .unwrap_or(Value::Null);
+            if next.is_null() {
+                break;
+            }
+            offset = next;
+        }
+    } else if let Some((text, fields)) = text {
         let requests = fields
             .into_iter()
             .filter_map(|(field, boost)| {
@@ -2291,6 +2523,23 @@ mod tests {
         assert!(!source_matches_query(
             &source,
             &json!({"range":{"price":{"gt":50}}})
+        ));
+    }
+
+    #[test]
+    fn approximate_text_queries_match_prefixes_and_typos() {
+        let source = json!({"name":"Red backpack"});
+        assert!(text_query_matches(
+            &source,
+            &json!({"match_bool_prefix":{"name":{"query":"red back"}}})
+        ));
+        assert!(text_query_matches(
+            &source,
+            &json!({"fuzzy":{"name":{"value":"backpak","fuzziness":"AUTO"}}})
+        ));
+        assert!(!text_query_matches(
+            &source,
+            &json!({"match_bool_prefix":{"name":{"query":"blue"}}})
         ));
     }
 
