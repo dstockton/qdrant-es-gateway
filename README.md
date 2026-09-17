@@ -2,6 +2,10 @@
 
 `qdrant-es-gateway` exposes a deliberately useful subset of the Elasticsearch REST API backed by Qdrant. It targets ordinary application search—catalogues, documentation, jobs, tickets, and content—not Kibana, logging, or complete Elasticsearch replacement.
 
+[![Launch video](docs/assets/qdrant-es-gateway-launch.jpg)](docs/assets/qdrant-es-gateway-launch.mp4)
+
+See the [launch video](docs/assets/qdrant-es-gateway-launch.mp4) for the endpoint-only migration story and measured 500,000-product comparison.
+
 ## Five-minute quickstart
 
 ```bash
