@@ -124,8 +124,7 @@ impl Qdrant {
             .unwrap_or_else(|_| json!({"status": String::from_utf8_lossy(&bytes)}));
         if !status.is_success() || value.get("status").and_then(Value::as_str) == Some("error") {
             return Err(GatewayError::upstream(format!(
-                "Qdrant returned {}: {}",
-                status, value
+                "Qdrant returned {status}: {value}"
             )));
         }
         Ok(value)
@@ -255,7 +254,7 @@ fn get_index(state: &AppState, name: &str) -> Result<(String, Value, Vec<String>
             let v: String = r.get(1)?;
             Ok((m, v))
         })
-        .map_err(|_| GatewayError::NotFound(format!("no such index [{}]", name)))?;
+        .map_err(|_| GatewayError::NotFound(format!("no such index [{name}]")))?;
     let vectors =
         serde_json::from_str(&row.1).map_err(|e| GatewayError::Internal(e.to_string()))?;
     Ok((
@@ -566,7 +565,7 @@ async fn write_docs(
         .qdrant
         .request(
             Method::PUT,
-            &format!("/collections/{}/points", coll),
+            &format!("/collections/{coll}/points"),
             Some(json!({"points":points,"wait":!state.cfg.async_search_projection})),
         )
         .await?;
@@ -669,7 +668,7 @@ async fn delete_doc(
             )
             .await?;
     }
-    let path = format!("/collections/{}/points/delete", coll);
+    let path = format!("/collections/{coll}/points/delete");
     let body = json!({"points":[point],"wait":!state.cfg.async_search_projection && !state.cfg.async_payload_writes});
     state
         .qdrant
@@ -734,7 +733,7 @@ async fn update_doc(
                 .qdrant
                 .request(
                     Method::POST,
-                    &format!("/collections/{}/points/payload", coll),
+                    &format!("/collections/{coll}/points/payload"),
                     Some(json!({"payload":payload,"points":[point],"wait":!state.cfg.async_search_projection})),
                 )
                 .await?;
@@ -747,7 +746,7 @@ async fn update_doc(
         field == "_all" || vectors.contains(&format!("text_{}", field.replace('.', "_")))
     });
     if !changes_text {
-        let path = format!("/collections/{}/points/payload", coll);
+        let path = format!("/collections/{coll}/points/payload");
         let body = json!({
             "payload": doc,
             "points": [point_id(&index, &id)],
@@ -1087,7 +1086,7 @@ fn query_filter(q: &Value) -> Result<FilterResult, GatewayError> {
                             "include_lower" | "include_upper" | "boost" => continue,
                             _ => {
                                 return Err(GatewayError::bad(
-                                    format!("range.{}", k),
+                                    format!("range.{k}"),
                                     "unsupported range operator",
                                 ))
                             }
@@ -1179,8 +1178,8 @@ fn query_filter(q: &Value) -> Result<FilterResult, GatewayError> {
                 }
                 other => {
                     return Err(GatewayError::bad(
-                        format!("query.{}", other),
-                        format!("{} queries are not supported", other),
+                        format!("query.{other}"),
+                        format!("{other} queries are not supported"),
                     ))
                 }
             }
@@ -1653,7 +1652,7 @@ async fn search(
                 .qdrant
                 .request(
                     Method::POST,
-                    &format!("/collections/{}/points/scroll", scan_collection),
+                    &format!("/collections/{scan_collection}/points/scroll"),
                     Some(request),
                 )
                 .await?;
@@ -1698,7 +1697,7 @@ async fn search(
                 req["filter"] = f.clone();
             }
             let qdrant = state.qdrant.clone();
-            let path = format!("/collections/{}/points/query", coll);
+            let path = format!("/collections/{coll}/points/query");
             Some(async move { Ok::<_, GatewayError>((qdrant.request(Method::POST, &path, Some(req)).await?, boost)) })
         })
         .collect::<Vec<_>>();
@@ -1733,7 +1732,7 @@ async fn search(
                 .qdrant
                 .request(
                     Method::POST,
-                    &format!("/collections/{}/points/scroll", coll),
+                    &format!("/collections/{coll}/points/scroll"),
                     Some(req),
                 )
                 .await?;
@@ -1932,7 +1931,7 @@ async fn search(
             if let Some(terms) = spec.get("terms") {
                 let requested = terms.get("field").and_then(Value::as_str).ok_or_else(|| {
                     GatewayError::bad(
-                        format!("aggs.{}.terms.field", name),
+                        format!("aggs.{name}.terms.field"),
                         "terms aggregation requires field",
                     )
                 })?;
@@ -1950,7 +1949,7 @@ async fn search(
                     .qdrant
                     .request(
                         Method::POST,
-                        &format!("/collections/{}/facet", coll),
+                        &format!("/collections/{coll}/facet"),
                         Some(req),
                     )
                     .await?;
@@ -1959,7 +1958,7 @@ async fn search(
             } else if let Some(metric) = spec.get("min").or_else(|| spec.get("max")) {
                 let field = metric.get("field").and_then(Value::as_str).ok_or_else(|| {
                     GatewayError::bad(
-                        format!("aggs.{}.metric.field", name),
+                        format!("aggs.{name}.metric.field"),
                         "metric aggregation requires field",
                     )
                 })?;
@@ -2006,7 +2005,7 @@ async fn search(
                 agg_result.insert(name.clone(), json!({"doc_count":count}));
             } else {
                 return Err(GatewayError::bad(
-                    format!("aggs.{}", name),
+                    format!("aggs.{name}"),
                     "supported aggregations are terms, min, max, filters, and filter",
                 ));
             }
@@ -2042,7 +2041,7 @@ async fn count(
             .qdrant
             .request(
                 Method::POST,
-                &format!("/collections/{}/points/count", coll),
+                &format!("/collections/{coll}/points/count"),
                 Some(request),
             )
             .await?;
@@ -2157,7 +2156,7 @@ async fn bulk(
             .await
             .map(|_| json!({"update":{"_index":idx,"_id":id,"status":200}})),
             _ => Err(GatewayError::bad(
-                format!("_bulk.{}", kind),
+                format!("_bulk.{kind}"),
                 "unsupported bulk action",
             )),
         };
@@ -2216,7 +2215,7 @@ async fn alias_get(
             params![&alias],
             |r| r.get(0),
         )
-        .map_err(|_| GatewayError::NotFound(format!("no such alias [{}]", alias)))?;
+        .map_err(|_| GatewayError::NotFound(format!("no such alias [{alias}]")))?;
     Ok(es_ok(json!({alias.clone():{"aliases":{alias:{}}}})))
 }
 
@@ -2408,11 +2407,7 @@ async fn dispatch(
             .await
             .unwrap_or_else(IntoResponse::into_response);
     }
-    GatewayError::bad(
-        "endpoint",
-        format!("unsupported endpoint {} {}", method, path),
-    )
-    .into_response()
+    GatewayError::bad("endpoint", format!("unsupported endpoint {method} {path}")).into_response()
 }
 
 #[tokio::main]
