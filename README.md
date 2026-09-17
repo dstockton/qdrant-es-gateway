@@ -69,7 +69,7 @@ The SDK is not required by the gateway. It is a compatibility target; mappings a
 
 ## Production readiness and launch
 
-The repository includes CI, multi-architecture GHCR publishing, Helm packaging, non-root container defaults, Dependabot updates, SBOM generation, signed attestations, and Trivy scanning. See [docs/evangelism-plan.md](docs/evangelism-plan.md) for the evidence-led Hacker News, Reddit, YouTube, and short-form content plan.
+The repository includes CI, multi-architecture GHCR publishing, Helm packaging, non-root container defaults, Dependabot updates, SBOM generation, signed attestations, and Trivy scanning.
 
 ## Development
 
