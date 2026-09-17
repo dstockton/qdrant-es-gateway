@@ -1,10 +1,14 @@
 # qdrant-es-gateway
 
+[![CI](https://github.com/dstockton/qdrant-es-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/dstockton/qdrant-es-gateway/actions/workflows/ci.yml) [![GHCR](https://ghcr-badge.egpl.dev/dstockton/qdrant-es-gateway/latest_tag?trim=major&label=ghcr)](https://github.com/dstockton/qdrant-es-gateway/pkgs/container/qdrant-es-gateway)
+
 `qdrant-es-gateway` exposes a deliberately useful subset of the Elasticsearch REST API backed by Qdrant. It targets ordinary application search—catalogues, documentation, jobs, tickets, and content—not Kibana, logging, or complete Elasticsearch replacement.
 
 [![Launch video](docs/assets/qdrant-es-gateway-launch.jpg)](docs/assets/qdrant-es-gateway-launch.mp4)
 
 See the [launch video](docs/assets/qdrant-es-gateway-launch.mp4) for the endpoint-only migration story and measured 500,000-product comparison.
+
+For production packaging, see the [production deployment guide](docs/production.md) and [Helm chart](deploy/helm/qdrant-es-gateway). Versioned container images are published to `ghcr.io/dstockton/qdrant-es-gateway`; releases include an SPDX SBOM, image provenance, SBOM attestation, and vulnerability-scan results.
 
 ## Five-minute quickstart
 
@@ -62,6 +66,10 @@ print(client.search(index="products", query={"match": {"title": "charger"}}))
 ```
 
 The SDK is not required by the gateway. It is a compatibility target; mappings and unsupported features should be checked against the matrix before migration.
+
+## Production readiness and launch
+
+The repository includes CI, multi-architecture GHCR publishing, Helm packaging, non-root container defaults, Dependabot updates, SBOM generation, signed attestations, and Trivy scanning. See [docs/evangelism-plan.md](docs/evangelism-plan.md) for the evidence-led Hacker News, Reddit, YouTube, and short-form content plan.
 
 ## Development
 

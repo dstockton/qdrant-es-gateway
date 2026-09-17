@@ -1,0 +1,72 @@
+replicaCount: 2
+
+image:
+  repository: ghcr.io/dstockton/qdrant-es-gateway
+  pullPolicy: IfNotPresent
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  automount: false
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+
+service:
+  type: ClusterIP
+  port: 9200
+
+qdrant:
+  url: http://qdrant:6333
+  apiKey: ""
+  existingSecret: ""
+  existingSecretKey: qdrant-api-key
+
+gateway:
+  logLevel: info
+  esCompatVersion: "8.15.0"
+  compatibilityAnalytics: false
+  documentProjection: true
+  asyncSearchProjection: true
+  asyncPayloadWrites: true
+  maxBodyBytes: 268435456
+  maxBulkBytes: 268435456
+  maxPageSize: 1000
+
+persistence:
+  enabled: true
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 1Gi
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 2
+    memory: 2Gi
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
