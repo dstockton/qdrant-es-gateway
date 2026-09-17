@@ -7,6 +7,7 @@ RUN cargo build --release
 FROM debian:bookworm-slim
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --create-home --uid 10001 gateway
 WORKDIR /app
