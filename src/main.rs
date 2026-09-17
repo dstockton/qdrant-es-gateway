@@ -285,10 +285,6 @@ fn mapping_vectors(body: &Value) -> (Value, Vec<String>) {
     (mapping, vectors)
 }
 
-fn source_props(source: &Value) -> Map<String, Value> {
-    source.as_object().cloned().unwrap_or_default()
-}
-
 fn flatten_text(source: &Value, fields: &[String]) -> HashMap<String, String> {
     let obj = source.as_object().cloned().unwrap_or_default();
     let mut out = HashMap::new();
@@ -458,16 +454,44 @@ async fn head_index(State(state): State<AppState>, Path(index): Path<String>) ->
     }
 }
 
-fn qdrant_payload(source: &Value, id: &str, index: &str) -> Value {
-    let mut p = source_props(source);
-    p.insert("_es_id".into(), json!(id));
-    p.insert("_es_index".into(), json!(index));
+fn qdrant_payload(source: &Value, id: &str, index: &str, mapping: &Value) -> Value {
+    let mut p = projected_search_payload(source, id, index, mapping)
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
     p.insert("_source".into(), source.clone());
     Value::Object(p)
 }
 
+fn projected_search_payload(source: &Value, id: &str, index: &str, mapping: &Value) -> Value {
+    let mut p = Map::new();
+    p.insert("_es_id".into(), json!(id));
+    p.insert("_es_index".into(), json!(index));
+    if let (Some(source), Some(properties)) = (
+        source.as_object(),
+        mapping.get("properties").and_then(Value::as_object),
+    ) {
+        for (field, spec) in properties {
+            let is_searchable_payload_field = spec
+                .get("type")
+                .and_then(Value::as_str)
+                .is_some_and(|kind| kind != "text");
+            if is_searchable_payload_field {
+                if let Some(value) = source.get(field) {
+                    p.insert(field.clone(), value.clone());
+                }
+            }
+        }
+    }
+    Value::Object(p)
+}
+
+fn source_payload(source: &Value, id: &str, index: &str) -> Value {
+    json!({"_es_id":id,"_es_index":index,"_source":source})
+}
+
 fn source_point(source: &Value, id: &str, index: &str) -> Value {
-    json!({"id":point_id(index,id),"vector":[0.0],"payload":qdrant_payload(source,id,index)})
+    json!({"id":point_id(index,id),"vector":[0.0],"payload":source_payload(source,id,index)})
 }
 
 async fn retrieve_sources(
@@ -507,7 +531,7 @@ async fn write_docs(
     index: String,
     docs: Vec<(String, Value)>,
 ) -> Result<Response, GatewayError> {
-    let (coll, _, vectors) = get_index(&state, &index)?;
+    let (coll, mapping, vectors) = get_index(&state, &index)?;
     let points = docs
         .iter()
         .map(|(id, source)| {
@@ -516,12 +540,11 @@ async fn write_docs(
             for (name, text) in texts {
                 vector.insert(name, json!({"text":text,"model":"qdrant/bm25"}));
             }
-            let mut payload = qdrant_payload(source, id, &index);
-            if state.cfg.document_projection {
-                if let Some(payload) = payload.as_object_mut() {
-                    payload.remove("_source");
-                }
-            }
+            let payload = if state.cfg.document_projection {
+                projected_search_payload(source, id, &index, &mapping)
+            } else {
+                qdrant_payload(source, id, &index, &mapping)
+            };
             json!({"id":point_id(&index,id),"vector":vector,"payload":payload})
         })
         .collect::<Vec<_>>();
@@ -706,8 +729,7 @@ async fn update_doc(
             )
             .await?;
         if mapped_non_text {
-            let mut payload = doc.as_object().cloned().unwrap_or_default();
-            payload.insert("_source".into(), merged);
+            let payload = projected_search_payload(&merged, &id, &index, &mapping);
             state
                 .qdrant
                 .request(
@@ -2470,6 +2492,27 @@ mod tests {
         );
         assert_eq!(mapping["properties"]["title"]["type"], "text");
         assert_eq!(vectors, vec!["text_all", "text_body", "text_title"]);
+    }
+
+    #[test]
+    fn projected_payload_keeps_only_filterable_fields() {
+        let mapping = json!({"properties": {
+            "title": {"type":"text"},
+            "brand": {"type":"keyword"},
+            "price": {"type":"float"}
+        }});
+        let payload = projected_search_payload(
+            &json!({"title":"headphones","brand":"Acme","price":99,"description":"long text"}),
+            "p-1",
+            "products",
+            &mapping,
+        );
+        assert_eq!(payload["_es_id"], "p-1");
+        assert_eq!(payload["brand"], "Acme");
+        assert_eq!(payload["price"], 99);
+        assert!(payload.get("_source").is_none());
+        assert!(payload.get("title").is_none());
+        assert!(payload.get("description").is_none());
     }
 
     #[test]

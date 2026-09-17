@@ -18,6 +18,30 @@ The complete gateway footprint was therefore approximately 43.1× the native Ela
 
 The same run measured 46.689 seconds versus 105.141 seconds for bulk setup, 191.52 ms versus 986.63 ms search P95 at 50 clients, and 522.68 versus 95.60 requests/second for the mixed workload. Single-document updates remained slower on the gateway. Both paths returned full source responses, but the top-ranked IDs were not identical.
 
+## Payload minimization iteration
+
+The projection layout was tightened after inspecting the payloads. The searchable collection no longer stores the full top-level source: it stores only the ID, index name, and mapped non-text fields needed by filters, sorts, and aggregations. The durable source collection stores only the ID, index name, and `_source`. Text remains in the sparse representation, and response hydration is unchanged.
+
+A fresh 10,000-document run with the same benchmark client measured:
+
+| Gateway layout | Qdrant data | Bulk setup | Single updates |
+|---|---:|---:|---:|
+| Two collections, minimized payloads | 15.9 MiB | 1.083 s | 1.210 s |
+| One collection, source payload plus mapped filters | 13.6 MiB | 0.842 s | 0.814 s |
+
+The one-collection profile is smaller for this tiny schema because it avoids the second collection's fixed segment overhead, but it gives up the source/search write separation. The minimized two-collection profile passed the same filter, GET, update, delete, source-response, and mixed-workload checks. The gateway now applies the same payload de-duplication principle to one-collection mode as well: only mapped non-text fields are mirrored beside `_source`. It is the better default when the goal is high read/mixed throughput and asynchronous projection updates; one collection remains a sensible option when disk footprint and update simplicity dominate.
+
+The final 50,000-document scale check used the same client, 1,000 updates, 500 mixed requests, and 20 concurrent search clients:
+
+| Profile | Qdrant data | Bulk setup | Updates | Search P95 | Mixed throughput |
+|---|---:|---:|---:|---:|---:|
+| One collection | 60.6 MiB | 4.56 s | 1.88 s | 102.5 ms | 302 req/s |
+| Two collections, minimized payloads | 73.8 MiB | 6.72 s | 2.81 s | 68.0 ms | 353 req/s |
+
+This confirms the expected trade-off at a larger corpus: one collection saves about 18% of Qdrant storage and has a cheaper write path, while two collections deliver about 34% lower search P95 and 17% higher mixed throughput in this run.
+
+This result also clarifies the tuning boundary: `on_disk` vectors and `m=0` are useful for keeping the source projection lightweight in memory, but they do not make Qdrant's segment representation smaller than Elasticsearch for this corpus. `on_disk_payload` can reduce resident memory pressure, but it is not expected to reduce durable bytes and may increase read latency. Payload indexes should therefore be created only for fields the application actually filters, sorts, or aggregates on.
+
 ## Design implication
 
 The current recommendation is workload-dependent:
