@@ -453,6 +453,20 @@ async fn head_index(State(state): State<AppState>, Path(index): Path<String>) ->
     }
 }
 
+async fn index_control(
+    State(state): State<AppState>,
+    Path(index): Path<String>,
+    action: &'static str,
+) -> Result<Response, GatewayError> {
+    get_index(&state, &index)?;
+    Ok(es_ok(json!({
+        "acknowledged": true,
+        "shards_acknowledged": true,
+        "index": index,
+        "action": action
+    })))
+}
+
 fn qdrant_payload(source: &Value, id: &str, index: &str, mapping: &Value) -> Value {
     let mut p = projected_search_payload(source, id, index, mapping)
         .as_object()
@@ -877,6 +891,10 @@ fn source_field<'a>(source: &'a Value, field: &str) -> Option<&'a Value> {
     field
         .split('.')
         .try_fold(source, |value, part| value.get(part))
+}
+
+fn sortable_source_field<'a>(source: &'a Value, field: &str) -> Option<&'a Value> {
+    source_field(source, field.strip_suffix(".keyword").unwrap_or(field))
 }
 
 fn wildcard_regex(pattern: &str) -> Result<Regex, GatewayError> {
@@ -1610,12 +1628,6 @@ async fn search(
     query = expand_more_like_this(&state, &index, query).await?;
     let mut patterns = Vec::new();
     collect_patterns(&query, &mut patterns)?;
-    if body.get("search_after").is_some() {
-        return Err(GatewayError::bad(
-            "search_after",
-            "search_after is not yet implemented; use from/size within the configured page limit",
-        ));
-    }
     let (filter, _) = query_filter(&query)?;
     let text = pick_text(&query);
     let has_text = text.is_some();
@@ -1824,6 +1836,22 @@ async fn search(
                 .is_some_and(|source| source_matches_query(source, post_filter))
         });
     }
+    let sort_specs = body
+        .get("sort")
+        .and_then(Value::as_array)
+        .map(|sort| {
+            sort.iter()
+                .map(|s| {
+                    s.as_object()
+                        .and_then(|o| o.iter().next())
+                        .map(|(field, value)| {
+                            (field.clone(), value.as_str().unwrap_or("asc").to_string())
+                        })
+                        .unwrap_or(("_score".into(), "desc".into()))
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
     if let Some(sort) = body.get("sort").and_then(Value::as_array) {
         for s in sort.iter().rev() {
             let (field, dir) = s
@@ -1834,12 +1862,12 @@ async fn search(
             hits.sort_by(|a, b| {
                 let av = a
                     .get("_source")
-                    .and_then(|x| x.get(&field))
+                    .and_then(|x| sortable_source_field(x, &field))
                     .cloned()
                     .unwrap_or(Value::Null);
                 let bv = b
                     .get("_source")
-                    .and_then(|x| x.get(&field))
+                    .and_then(|x| sortable_source_field(x, &field))
                     .cloned()
                     .unwrap_or(Value::Null);
                 let ord = value_cmp(&av, &bv);
@@ -1898,6 +1926,44 @@ async fn search(
             .collect();
     }
     let total = hits.len();
+    if let Some(cursor) = body.get("search_after").and_then(Value::as_array) {
+        if sort_specs.is_empty() || cursor.len() != sort_specs.len() {
+            return Err(GatewayError::bad(
+                "search_after",
+                "search_after must contain one value for every sort field",
+            ));
+        }
+        let mut after = false;
+        hits.retain(|hit| {
+            if after {
+                return true;
+            }
+            for ((field, direction), cursor_value) in sort_specs.iter().zip(cursor) {
+                let hit_value = if field == "_score" {
+                    hit.get("_score").cloned().unwrap_or(Value::Null)
+                } else if field == "_id" {
+                    hit.get("_id").cloned().unwrap_or(Value::Null)
+                } else {
+                    hit.get("_source")
+                        .and_then(|source| sortable_source_field(source, field))
+                        .cloned()
+                        .unwrap_or(Value::Null)
+                };
+                let ordering = value_cmp(&hit_value, cursor_value);
+                if ordering == std::cmp::Ordering::Equal {
+                    continue;
+                }
+                let is_after = if direction == "desc" {
+                    ordering == std::cmp::Ordering::Less
+                } else {
+                    ordering == std::cmp::Ordering::Greater
+                };
+                after = is_after;
+                return is_after;
+            }
+            false
+        });
+    }
     let page = hits
         .clone()
         .into_iter()
@@ -1909,6 +1975,23 @@ async fn search(
         .into_iter()
         .map(|mut h| {
             let current = h.get("_source").cloned().unwrap_or_else(|| json!({}));
+            if !sort_specs.is_empty() {
+                let values = sort_specs
+                    .iter()
+                    .map(|(field, _)| {
+                        if field == "_score" {
+                            h.get("_score").cloned().unwrap_or(Value::Null)
+                        } else if field == "_id" {
+                            h.get("_id").cloned().unwrap_or(Value::Null)
+                        } else {
+                            sortable_source_field(&current, field)
+                                .cloned()
+                                .unwrap_or(Value::Null)
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                h["sort"] = Value::Array(values);
+            }
             match project_source(&current, source) {
                 Some(projected) => {
                     h["_source"] = projected;
@@ -2019,6 +2102,51 @@ async fn search(
         }
     }
     Ok(es_ok(response))
+}
+
+async fn msearch(
+    State(state): State<AppState>,
+    default_index: Option<String>,
+    body: String,
+) -> Result<Response, GatewayError> {
+    let lines = body
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect::<Vec<_>>();
+    if lines.len() % 2 != 0 {
+        return Err(GatewayError::bad(
+            "_msearch",
+            "NDJSON must contain alternating header and query lines",
+        ));
+    }
+    let mut responses = Vec::with_capacity(lines.len() / 2);
+    for pair in lines.chunks(2) {
+        let header: Value = serde_json::from_str(pair[0])
+            .map_err(|e| GatewayError::bad("_msearch.header", e.to_string()))?;
+        let query: Value = serde_json::from_str(pair[1])
+            .map_err(|e| GatewayError::bad("_msearch.query", e.to_string()))?;
+        let index = header
+            .get("index")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| default_index.clone())
+            .ok_or_else(|| GatewayError::bad("_msearch.header.index", "an index is required"))?;
+        let result = match search(State(state.clone()), Path(index), Json(query)).await {
+            Ok(response) => response,
+            Err(error) => error.into_response(),
+        };
+        let status = result.status();
+        let bytes = axum::body::to_bytes(result.into_body(), state.cfg.max_body_bytes)
+            .await
+            .map_err(|e| GatewayError::Internal(e.to_string()))?;
+        let mut value: Value =
+            serde_json::from_slice(&bytes).map_err(|e| GatewayError::Internal(e.to_string()))?;
+        if !status.is_success() && !value.is_object() {
+            value = json!({"error":value});
+        }
+        responses.push(value);
+    }
+    Ok(es_ok(json!({"responses": responses})))
 }
 
 async fn count(
@@ -2275,6 +2403,16 @@ async fn dispatch(
             .await
             .unwrap_or_else(IntoResponse::into_response);
     }
+    if method == Method::POST && (path == "/_msearch" || path.ends_with("/_msearch")) {
+        let default_index = path
+            .strip_prefix('/')
+            .and_then(|p| p.strip_suffix("/_msearch"))
+            .filter(|p| !p.is_empty())
+            .map(str::to_owned);
+        return msearch(State(state), default_index, body)
+            .await
+            .unwrap_or_else(IntoResponse::into_response);
+    }
     let json_body = if body.trim().is_empty() {
         json!({})
     } else {
@@ -2324,6 +2462,29 @@ async fn dispatch(
     }
     if parts.len() == 1 && method == Method::HEAD {
         return head_index(State(state), Path(parts[0].into())).await;
+    }
+    if parts.len() == 2 && parts[1] == "_refresh" && method == Method::POST {
+        return index_control(State(state), Path(parts[0].into()), "refresh")
+            .await
+            .unwrap_or_else(IntoResponse::into_response);
+    }
+    if parts.len() == 2 && parts[1] == "_open" && method == Method::POST {
+        return index_control(State(state), Path(parts[0].into()), "open")
+            .await
+            .unwrap_or_else(IntoResponse::into_response);
+    }
+    if parts.len() == 2 && parts[1] == "_close" && method == Method::POST {
+        return index_control(State(state), Path(parts[0].into()), "close")
+            .await
+            .unwrap_or_else(IntoResponse::into_response);
+    }
+    if parts.len() == 2
+        && parts[1] == "_settings"
+        && (method == Method::GET || method == Method::PUT)
+    {
+        return index_control(State(state), Path(parts[0].into()), "settings")
+            .await
+            .unwrap_or_else(IntoResponse::into_response);
     }
     if parts.len() == 1 && method == Method::GET {
         return get_index_info(State(state), Path(parts[0].into()))

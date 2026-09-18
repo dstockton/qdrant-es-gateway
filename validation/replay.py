@@ -78,6 +78,16 @@ def run_endpoint(base, index):
     prefix = do(f"/{index}/_search", "POST", json.dumps({"query": {"prefix": {"title": "wire"}}, "size": 10}))
     wildcard = do(f"/{index}/_search", "POST", json.dumps({"query": {"wildcard": {"title": "*keyboard*"}}, "size": 10}))
     regexp = do(f"/{index}/_search", "POST", json.dumps({"query": {"regexp": {"sku": "p-00[12]"}}, "size": 10}))
+    msearch = do(
+        f"/{index}/_msearch",
+        "POST",
+        "{}\n" + json.dumps({"query": {"match": {"title": "charger"}}, "size": 2}) + "\n"
+        + "{}\n" + json.dumps({"query": {"term": {"brand": "Acme"}}, "size": 2}) + "\n",
+        "application/x-ndjson",
+    )
+    first_page = do(f"/{index}/_search", "POST", json.dumps({"query": {"match_all": {}}, "sort": [{"price": "asc"}], "size": 2}))
+    cursor = ((first_page.get("body") or {}).get("hits", {}).get("hits", [{}])[-1].get("sort") or [None])
+    second_page = do(f"/{index}/_search", "POST", json.dumps({"query": {"match_all": {}}, "sort": [{"price": "asc"}], "search_after": cursor, "size": 2}))
     fetched = do(f"/{index}/_doc/p-001")
     updated = do(f"/{index}/_update/p-001", "POST", json.dumps({"doc": {"price": 119.0, "stock": 40}}))
     refreshed = do(f"/{index}/_refresh", "POST")
@@ -90,6 +100,9 @@ def run_endpoint(base, index):
         "prefix": prefix.get("body") if prefix.get("status") else None,
         "wildcard": wildcard.get("body") if wildcard.get("status") else None,
         "regexp": regexp.get("body") if regexp.get("status") else None,
+        "msearch": msearch.get("body") if msearch.get("status") else None,
+        "first_page": first_page.get("body") if first_page.get("status") else None,
+        "second_page": second_page.get("body") if second_page.get("status") else None,
         "fetched": fetched.get("body") if fetched.get("status") else None,
         "after_update": after_update.get("body") if after_update.get("status") else None,
         "count": count.get("body") if count.get("status") else None,
@@ -112,6 +125,11 @@ def compare(native, gateway):
     for name in ("prefix", "wildcard", "regexp"):
         ni, gi = set(ids(nr.get(name) or {})), set(ids(gr.get(name) or {}))
         check(name + " result IDs", ni == gi, {"native": sorted(ni), "gateway": sorted(gi)})
+    nm = nr.get("msearch") or {}
+    gm = gr.get("msearch") or {}
+    check("multi-search response count", len(nm.get("responses", [])) == len(gm.get("responses", [])) == 2, {"native": nm, "gateway": gm})
+    nsecond, gsecond = ids(nr.get("second_page") or {}), ids(gr.get("second_page") or {})
+    check("search_after page overlap", bool(set(nsecond) & set(gsecond)), {"native": nsecond, "gateway": gsecond})
     nfacet, gfacet = nr.get("facet") or {}, gr.get("facet") or {}
     nb = [b.get("key") for b in nfacet.get("aggregations", {}).get("brands", {}).get("buckets", [])]
     gb = [b.get("key") for b in gfacet.get("aggregations", {}).get("brands", {}).get("buckets", [])]

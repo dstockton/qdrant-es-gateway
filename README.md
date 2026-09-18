@@ -27,14 +27,16 @@ The root endpoint includes `X-Elastic-Product: Elasticsearch` and an 8.x-compati
 |---|---:|---|
 | Root, cluster health, healthz/readyz | ✅ | Health reflects Qdrant connectivity |
 | Index lifecycle and mappings | ✅ | Mapping metadata is durable in SQLite |
+| `_refresh`, `_open`, `_close`, basic `_settings` lifecycle calls | ⚠️ | Accepted for client/application lifecycle compatibility; Qdrant remains continuously available and analyzer/settings semantics are not emulated |
 | CRUD and `_update` doc subset | ✅ | Script updates rejected |
 | `_bulk` index/create/update/delete | ✅ | NDJSON, batched at the API boundary |
+| `_msearch` | ✅ | NDJSON header/query pairs; each sub-search uses the same client request shape |
 | `match`, `match_phrase` | ⚠️ | Native Qdrant BM25; phrase is lexical, not Lucene-identical |
 | `multi_match` with boosts | ⚠️ | One named sparse representation per text field, merged in gateway |
 | `term`, `terms`, `range`, `exists`, `ids` | ✅ | Qdrant payload filters |
 | bool must/filter/must_not/should | ✅ | Filter-only `should` with `minimum_should_match` is supported |
 | from/size, source filtering | ✅ | Supports `_source:false`, includes, and excludes; deep pagination is capped |
-| search_after | ❌ | Explicit structured 400; use bounded `from`/`size` |
+| search_after | ✅ | Explicit sort fields, returned `sort` cursors, stable while the result set is unchanged |
 | field sorting | ⚠️ | Safe basic response sorting; Qdrant-native ordering is preferred for large data |
 | terms aggregations | ⚠️ | Native Qdrant facet over indexed keyword fields only |
 | aliases | ⚠️ | Durable gateway aliases; native atomic switching is future work |
@@ -65,7 +67,7 @@ client.index(index="products", id="a2", document={"title": "USB-C charger"})
 print(client.search(index="products", query={"match": {"title": "charger"}}))
 ```
 
-The SDK is not required by the gateway. It is a compatibility target; mappings and unsupported features should be checked against the matrix before migration.
+The SDK is not required by the gateway. It is a compatibility target; mappings and unsupported features should be checked against the matrix before migration. The request-level audit for the AWS Retail Demo Store and Spinscale catalogue app is in [docs/demo-app-compatibility.md](docs/demo-app-compatibility.md).
 
 ## Production readiness and launch
 

@@ -1,0 +1,12 @@
+title: Qdrant ES Gateway
+description: Elasticsearch-compatible application search backed by Qdrant
+theme: minima
+markdown: kramdown
+permalink: /:categories/:year/:month/:day/:title/
+header_pages:
+  - compatibility.md
+  - production.md
+  - blog.md
+exclude:
+  - assets
+

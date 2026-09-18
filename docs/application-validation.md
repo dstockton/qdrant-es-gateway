@@ -19,6 +19,8 @@ The smallest credible sequence is:
 3. run the AWS search container locally and capture its real HTTP requests;
 4. replay those requests against both endpoints, measuring result equivalence separately from ranking quality.
 
+The current request-level audit is maintained in [demo-app-compatibility.md](demo-app-compatibility.md). It separates transport/response compatibility from semantic equivalence so “the application can make the request” is not confused with “the two engines rank and aggregate identically.”
+
 Do not compare raw `_score` values. Compare exact sources for the same IDs where ordering is not the product contract, and use top-k overlap, nDCG, zero-result rate, facet equality, and pagination continuity for ranked results.
 
 ## Performance protocol
