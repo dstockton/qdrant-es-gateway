@@ -12,5 +12,3 @@ header_pages:
   - compatibility.md
   - production.md
   - blog.md
-exclude:
-  - assets
