@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://dstockton.github.io/qdrant-es-gateway/sitemap.xml

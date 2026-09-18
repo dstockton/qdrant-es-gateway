@@ -2,6 +2,11 @@ title: Qdrant ES Gateway
 description: Elasticsearch-compatible application search backed by the Qdrant engine
 theme: minima
 markdown: kramdown
+url: https://dstockton.github.io
+baseurl: /qdrant-es-gateway
+plugins:
+  - jekyll-seo-tag
+  - jekyll-sitemap
 permalink: /:categories/:year/:month/:day/:title/
 header_pages:
   - compatibility.md
