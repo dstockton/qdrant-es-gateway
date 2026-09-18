@@ -51,6 +51,9 @@ services:
       ES_URL: http://elasticsearch:9200
       GATEWAY_URL: http://gateway:9200
       DOCS: ${DOCS:-50000}
+      DATASET_JSONL: ${DATASET_JSONL:-}
+      SEARCH_TERM: ${SEARCH_TERM:-wireless headphones}
+      ES_BULK_REFRESH: ${ES_BULK_REFRESH-wait_for}
       CONCURRENCY: ${CONCURRENCY:-1,10,50}
       REPEATS: ${REPEATS:-1}
       UPDATE_DOCS: ${UPDATE_DOCS:-5000}
@@ -62,6 +65,7 @@ services:
     mem_limit: 1g
     volumes:
       - ./results:/results
+      - ./datasets:/datasets:ro
     depends_on:
       elasticsearch:
         condition: service_healthy

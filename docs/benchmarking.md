@@ -8,3 +8,5 @@ DOCS=50000 BATCH=500 ./run.sh
 ```
 
 Results are written to `benchmark/results/benchmark.json` and `benchmark/results/resources.txt`. Re-run with the same corpus, image versions, warm-up behaviour, and host profile when comparing changes.
+
+For a real product corpus, see the external-dataset workflow in [`benchmark/README.md`](../benchmark/README.md). It downloads the public H&M catalogue, converts selected product fields to JSONL, mounts that generated file read-only into the runner, and executes the same benchmark client against both endpoints.

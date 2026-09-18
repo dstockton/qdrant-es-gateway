@@ -10,6 +10,7 @@ The project is aimed at teams that want to keep the Elasticsearch client and req
 ## Start here
 
 - [Compatibility matrix]({{ "/compatibility/" | relative_url }})
+- [External corpus results](external-corpus-results.md)
 - [Blog]({{ "/blog/" | relative_url }})
 - [Five-minute quickstart](https://github.com/dstockton/qdrant-es-gateway#five-minute-quickstart)
 - [Production deployment]({{ "/production/" | relative_url }})

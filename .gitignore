@@ -5,6 +5,7 @@
 
 # Generated benchmark and video artifacts
 /benchmark/results/
+/benchmark/datasets/
 /demo/
 /brag-output*/
 __pycache__/

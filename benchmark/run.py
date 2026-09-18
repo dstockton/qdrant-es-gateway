@@ -15,6 +15,9 @@ UPDATE_DOCS = int(os.environ.get("UPDATE_DOCS", "1000"))
 MIXED_REQUESTS = int(os.environ.get("MIXED_REQUESTS", "500"))
 WARMUP_SECONDS = int(os.environ.get("WARMUP_SECONDS", "15"))
 OUTPUT = os.environ.get("OUTPUT", "/results/benchmark.json")
+DATASET_JSONL = os.environ.get("DATASET_JSONL", "")
+SEARCH_TERM = os.environ.get("SEARCH_TERM", "wireless headphones")
+ES_BULK_REFRESH = os.environ.get("ES_BULK_REFRESH", "wait_for")
 
 ES_INDEX = "bench_native"
 GW_INDEX = "bench_gateway"
@@ -29,6 +32,12 @@ def request(base, path, method="GET", body=None, content_type="application/json"
         return r.read().decode()
 
 def documents():
+    if DATASET_JSONL:
+        with open(DATASET_JSONL, encoding="utf-8") as source_file:
+            for line in source_file:
+                record = json.loads(line)
+                yield record["_id"], record["_source"]
+        return
     for i in range(DOCS):
         title, description, category = PRODUCTS[i % len(PRODUCTS)]
         yield f"product-{i:07d}", {"title": title, "description": description, "brand": BRANDS[i % len(BRANDS)], "price": 19 + (i * 17) % 480, "category": category}
@@ -42,22 +51,22 @@ def load(base, index):
     for doc_id, source in documents():
         batch.extend((json.dumps({"index": {"_id": doc_id}}), json.dumps(source)))
         if len(batch) >= BATCH * 2:
-            suffix = "?refresh=wait_for" if base == ES else ""
+            suffix = f"?refresh={ES_BULK_REFRESH}" if base == ES and ES_BULK_REFRESH else ""
             request(base, f"/{index}/_bulk{suffix}", "POST", "\n".join(batch) + "\n", "application/x-ndjson")
             batch = []
     if batch:
-        suffix = "?refresh=wait_for" if base == ES else ""
+        suffix = f"?refresh={ES_BULK_REFRESH}" if base == ES and ES_BULK_REFRESH else ""
         request(base, f"/{index}/_bulk{suffix}", "POST", "\n".join(batch) + "\n", "application/x-ndjson")
     return round(time.perf_counter() - started, 3)
 
 def query(base, index):
-    body = {"query": {"bool": {"must": {"match": {"title": "wireless headphones"}}, "filter": [{"term": {"brand": "Acme"}}, {"range": {"price": {"lte": 400}}}]}}, "size": 10}
+    body = {"query": {"match": {"title": SEARCH_TERM}}, "size": 10}
     started = time.perf_counter()
     value = json.loads(request(base, f"/{index}/_search", "POST", json.dumps(body)))
     return (time.perf_counter() - started) * 1000, len(value.get("hits", {}).get("hits", []))
 
 def quality_check(base, index):
-    body = {"query": {"match": {"title": "wireless headphones"}}, "size": 10}
+    body = {"query": {"match": {"title": SEARCH_TERM}}, "size": 10}
     value = json.loads(request(base, f"/{index}/_search", "POST", json.dumps(body)))
     hits = value.get("hits", {}).get("hits", [])
     return {"ids": [hit.get("_id") for hit in hits], "sources": [hit.get("_source") for hit in hits], "all_have_source": all(bool(hit.get("_source")) for hit in hits)}
