@@ -6,7 +6,7 @@ This is a reproducible snapshot, not a capacity promise. It records the first ex
 
 Source: [Qdrant's `hm_ecommerce_products` dataset](https://huggingface.co/datasets/Qdrant/hm_ecommerce_products), 105,126 product records in the downloaded parquet snapshot, published under CC BY 4.0. The repository stores only the importer and benchmark instructions; the parquet and generated JSONL remain local and are not redistributed here.
 
-The benchmark ran native Elasticsearch 8.15.0 and the Rust gateway backed by Qdrant 1.15.3 in Docker Desktop, with the repository's approximate 1.5 CPU / 8 GB Elasticsearch, 1 CPU / 4 GB Qdrant, 1 CPU / 2 GB gateway and 0.5 CPU / 1 GB runner limits. It used identical JSONL batches and client code; only the ES-compatible endpoint changed. The query was a title match for `dress`, with 1,000 updates and 500 mixed requests at concurrency 10.
+The benchmark ran native Elasticsearch 8.15.0 and the Rust gateway backed by the Qdrant engine 1.15.3 in Docker Desktop, with the repository's approximate 1.5 CPU / 8 GB Elasticsearch, 1 CPU / 4 GB Qdrant, 1 CPU / 2 GB gateway and 0.5 CPU / 1 GB runner limits. It used identical JSONL batches and client code; only the ES-compatible endpoint changed. The query was a title match for `dress`, with 1,000 updates and 500 mixed requests at concurrency 10.
 
 | Profile | Native Elasticsearch | Qdrant gateway | Gateway relative result |
 |---|---:|---:|---:|

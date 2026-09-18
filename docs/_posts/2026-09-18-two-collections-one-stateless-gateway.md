@@ -7,7 +7,7 @@ categories: [operations]
 
 Reading a product's current source and finding it through search are different operations. Qdrant ES Gateway can store the source separately from its searchable projection, allowing a write to wait for durable source storage while the search projection converges asynchronously.
 
-With `DOCUMENT_PROJECTION=true`, Qdrant ES Gateway keeps a searchable collection and a durable document collection named `es_<index>_documents` for each Elasticsearch index. The document collection has no payload indexes and supplies GETs and full `_source` responses. The searchable collection carries the fields needed for retrieval, filters, and sorts. Search hits' sources are fetched from the document collection in one batch.
+With `DOCUMENT_PROJECTION=true`, Qdrant ES Gateway uses the Qdrant engine to keep a searchable collection and a durable document collection named `es_<index>_documents` for each Elasticsearch index. The document collection has no payload indexes and supplies GETs and full `_source` responses. The searchable collection carries the fields needed for retrieval, filters, and sorts. Search hits' sources are fetched from the document collection in one batch.
 
 Asynchronous projection is a separate choice: set `ASYNC_SEARCH_PROJECTION=true` to wait for the source write while using Qdrant's asynchronous operation acknowledgement for the search projection. A successful source write does not imply that search has caught up. Unmapped metadata-only updates can avoid sparse-index work, while fields used for filters or sorts remain mirrored in the search projection.
 

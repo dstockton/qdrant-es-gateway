@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/dstockton/qdrant-es-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/dstockton/qdrant-es-gateway/actions/workflows/ci.yml) [![GHCR](https://ghcr-badge.egpl.dev/dstockton/qdrant-es-gateway/latest_tag?trim=major&label=ghcr)](https://github.com/dstockton/qdrant-es-gateway/pkgs/container/qdrant-es-gateway)
 
-`qdrant-es-gateway` exposes a deliberately useful subset of the Elasticsearch REST API backed by Qdrant. It targets ordinary application search—catalogues, documentation, jobs, tickets, and content—not Kibana, logging, or complete Elasticsearch replacement.
+`qdrant-es-gateway` exposes a deliberately useful subset of the Elasticsearch REST API backed by the Qdrant engine. It targets ordinary application search—catalogues, documentation, jobs, tickets, and content—not Kibana, logging, or complete Elasticsearch replacement.
 
 [![Launch video](docs/assets/qdrant-es-gateway-launch.jpg)](docs/assets/qdrant-es-gateway-launch.mp4)
 

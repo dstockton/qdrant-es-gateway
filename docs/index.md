@@ -3,7 +3,7 @@ layout: home
 title: Qdrant ES Gateway
 ---
 
-An Elasticsearch-compatible application-search gateway backed by Qdrant.
+An Elasticsearch-compatible application-search gateway backed by the Qdrant engine.
 
 The project is aimed at teams that want to keep the Elasticsearch client and request shapes already embedded in an application while using Qdrant for the search and storage engine underneath.
 
