@@ -53,7 +53,7 @@ For a deterministic, endpoint-only application workflow covering catalogue searc
 
 ## Configuration
 
-Copy `.env.example` to `.env`. `QDRANT_URL`, `QDRANT_API_KEY`, `LISTEN_ADDR`, `LOG_LEVEL`, `ES_COMPAT_VERSION`, and `COMPATIBILITY_ANALYTICS` are the important settings. Secrets are only sent as the Qdrant `api-key` header and are never logged.
+Copy `.env.example` to `.env`. `QDRANT_URL`, `QDRANT_API_KEY`, `QDRANT_REPLICATION_FACTOR`, `LISTEN_ADDR`, `LOG_LEVEL`, `ES_COMPAT_VERSION`, and `COMPATIBILITY_ANALYTICS` are the important settings. Set `QDRANT_REPLICATION_FACTOR` when creating indices in a distributed Qdrant cluster; it is applied to both the searchable and durable document collections. Secrets are only sent as the Qdrant `api-key` header and are never logged.
 
 For write-heavy catalogues, set `DOCUMENT_PROJECTION=true`. Each ES index then gets a second Qdrant collection named `es_<index>_documents`. It has no payload indexes and is the durable source for GETs and full `_source` responses; the normal collection remains the searchable projection. Set `ASYNC_SEARCH_PROJECTION=true` to wait for the source write but let the search projection converge with Qdrant's asynchronous operation acknowledgement. This preserves a stateless gateway tier, but production deployments should pair it with a durable projection worker/reconciliation process rather than relying on an in-process queue. Fields used for filters or sorts remain mirrored in the search projection; unmapped metadata-only updates avoid sparse-index work.
 

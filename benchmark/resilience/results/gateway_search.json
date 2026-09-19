@@ -1,0 +1,19 @@
+{
+  "scenario": "search",
+  "duration_seconds": 12.01,
+  "concurrency": 6,
+  "requests": 15144,
+  "failures": 10,
+  "throughput_rps": 1261.27,
+  "failure_after_seconds": 3.0,
+  "recovery_after_seconds": 4.53,
+  "operations": {
+    "search": {
+      "requests": 15144,
+      "successes": 15134,
+      "p50_ms": 2.24,
+      "p95_ms": 3.22,
+      "max_ms": 4003.2
+    }
+  }
+}

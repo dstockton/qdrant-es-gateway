@@ -34,6 +34,7 @@ struct Config {
     async_payload_writes: bool,
     document_projection: bool,
     async_search_projection: bool,
+    qdrant_replication_factor: Option<u64>,
 }
 
 impl Config {
@@ -70,6 +71,10 @@ impl Config {
             async_search_projection: env::var("ASYNC_SEARCH_PROJECTION")
                 .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                 .unwrap_or(false),
+            qdrant_replication_factor: env::var("QDRANT_REPLICATION_FACTOR")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .filter(|v| *v > 0),
         }
     }
 }
@@ -358,15 +363,25 @@ async fn create_index(
     for v in &vectors {
         sparse.insert(v.clone(), json!({}));
     }
+    let mut collection_config = json!({"sparse_vectors": sparse});
+    if let Some(replication_factor) = state.cfg.qdrant_replication_factor {
+        collection_config["replication_factor"] = json!(replication_factor);
+        collection_config["shard_number"] = json!(replication_factor);
+    }
     state
         .qdrant
         .request(
             Method::PUT,
             &format!("/collections/{}", collection(&index)),
-            Some(json!({"sparse_vectors": sparse})),
+            Some(collection_config),
         )
         .await?;
     if state.cfg.document_projection {
+        let mut document_config = json!({"vectors":{"size":1,"distance":"Dot","on_disk":true},"hnsw_config":{"m":0},"optimizers_config":{"indexing_threshold":0}});
+        if let Some(replication_factor) = state.cfg.qdrant_replication_factor {
+            document_config["replication_factor"] = json!(replication_factor);
+            document_config["shard_number"] = json!(replication_factor);
+        }
         state
             .qdrant
             .request(
@@ -375,7 +390,7 @@ async fn create_index(
                 // Qdrant 1.15 requires a vector field on each point. A
                 // one-dimensional on-disk vector with m=0 keeps this
                 // collection payload-first and disables HNSW construction.
-                Some(json!({"vectors":{"size":1,"distance":"Dot","on_disk":true},"hnsw_config":{"m":0},"optimizers_config":{"indexing_threshold":0}})),
+                Some(document_config),
             )
             .await?;
     }

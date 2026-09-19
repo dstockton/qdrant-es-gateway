@@ -1,0 +1,19 @@
+{
+  "scenario": "insert",
+  "duration_seconds": 12.02,
+  "concurrency": 6,
+  "requests": 7992,
+  "failures": 0,
+  "throughput_rps": 664.64,
+  "failure_after_seconds": 3.0,
+  "recovery_after_seconds": 4.39,
+  "operations": {
+    "insert": {
+      "requests": 7992,
+      "successes": 7992,
+      "p50_ms": 5.61,
+      "p95_ms": 23.35,
+      "max_ms": 115.02
+    }
+  }
+}

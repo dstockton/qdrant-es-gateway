@@ -34,4 +34,17 @@ Open Food Facts is a second, much larger option: its food split is about 4.7 mil
 
 To benchmark the stateless two-collection source projection, run the same client unchanged with `DOCUMENT_PROJECTION=true`. Add `ASYNC_SEARCH_PROJECTION=true` to measure the write-heavy eventual-consistency profile: the authoritative document write is waited on, while sparse search projection work is accepted asynchronously. The benchmark should record source freshness separately from request latency when using this mode.
 
+## Three-node resilience profile
+
+The `resilience/` profile compares three Elasticsearch nodes with three Qdrant nodes plus three gateway replicas behind HAProxy. It uses the same Elasticsearch-shaped client requests for both paths, creates replicated collections (`QDRANT_REPLICATION_FACTOR=3` for the gateway), and hard-kills one storage node during sustained search, insert, update, delete, and mixed traffic before starting it again. The runner records throughput, failed requests, p50/p95/max latency, and recovery time.
+
+Run the small local profile with:
+
+```bash
+cd resilience
+DOCS=1000 DURATION=12 FAIL_AFTER=3 FAIL_FOR=4 CONCURRENCY=6 ./run-resilience.sh
+```
+
+The profile is intentionally a failure-injection harness, not a production sizing claim. Its gateway replicas use a shared SQLite metadata volume so all replicas see the same index mapping; this keeps the data-plane comparison reproducible while making the remaining control-plane statefulness explicit.
+
 The gateway's two collections have different jobs. The searchable collection carries sparse text vectors and filter payloads; the optional `<index>_documents` collection is a low-overhead durable source store with a single zero vector and no payload indexes. This preserves a stateless gateway tier and makes the storage trade-off visible instead of hiding source data in a local cache. Compare both gateway directories together against Elasticsearch's data directory, then also show the searchable-only subtotal when the source already exists in another system.

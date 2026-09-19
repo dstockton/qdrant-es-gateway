@@ -1,0 +1,19 @@
+{
+  "scenario": "delete",
+  "duration_seconds": 12.01,
+  "concurrency": 6,
+  "requests": 17016,
+  "failures": 8,
+  "throughput_rps": 1417.26,
+  "failure_after_seconds": 3.0,
+  "recovery_after_seconds": 4.67,
+  "operations": {
+    "delete": {
+      "requests": 17016,
+      "successes": 17008,
+      "p50_ms": 2.03,
+      "p95_ms": 2.91,
+      "max_ms": 4003.06
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "scenario": "update",
+  "duration_seconds": 12.0,
+  "concurrency": 6,
+  "requests": 23424,
+  "failures": 0,
+  "throughput_rps": 1951.92,
+  "failure_after_seconds": 3.0,
+  "recovery_after_seconds": 4.47,
+  "operations": {
+    "update": {
+      "requests": 23424,
+      "successes": 23424,
+      "p50_ms": 1.77,
+      "p95_ms": 6.4,
+      "max_ms": 80.26
+    }
+  }
+}

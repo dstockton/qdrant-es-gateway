@@ -7,6 +7,7 @@ metadata:
 data:
   LISTEN_ADDR: 0.0.0.0:9200
   QDRANT_URL: {{ .Values.qdrant.url | quote }}
+  QDRANT_REPLICATION_FACTOR: {{ .Values.qdrant.replicationFactor | quote }}
   LOG_LEVEL: {{ .Values.gateway.logLevel | quote }}
   ES_COMPAT_VERSION: {{ .Values.gateway.esCompatVersion | quote }}
   COMPATIBILITY_ANALYTICS: {{ .Values.gateway.compatibilityAnalytics | quote }}

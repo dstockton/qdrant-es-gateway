@@ -1,0 +1,40 @@
+{
+  "scenario": "mixed",
+  "duration_seconds": 12.0,
+  "concurrency": 6,
+  "requests": 15552,
+  "failures": 11,
+  "throughput_rps": 1295.86,
+  "failure_after_seconds": 3.0,
+  "recovery_after_seconds": 4.65,
+  "operations": {
+    "search": {
+      "requests": 6222,
+      "successes": 6218,
+      "p50_ms": 2.32,
+      "p95_ms": 3.27,
+      "max_ms": 4003.17
+    },
+    "read": {
+      "requests": 4665,
+      "successes": 4661,
+      "p50_ms": 1.89,
+      "p95_ms": 2.83,
+      "max_ms": 4002.55
+    },
+    "update": {
+      "requests": 3110,
+      "successes": 3108,
+      "p50_ms": 2.14,
+      "p95_ms": 3.14,
+      "max_ms": 4002.63
+    },
+    "delete": {
+      "requests": 1555,
+      "successes": 1554,
+      "p50_ms": 2.1,
+      "p95_ms": 3.08,
+      "max_ms": 4002.95
+    }
+  }
+}

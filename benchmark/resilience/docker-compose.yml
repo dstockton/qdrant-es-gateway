@@ -1,0 +1,97 @@
+services:
+  es1:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    environment: &es-env
+      cluster.name: resilience-es
+      node.name: es1
+      discovery.seed_hosts: es1,es2,es3
+      cluster.initial_master_nodes: es1,es2,es3
+      xpack.security.enabled: "false"
+      xpack.security.enrollment.enabled: "false"
+      ES_JAVA_OPTS: -Xms256m -Xmx256m
+    volumes: [es1_data:/usr/share/elasticsearch/data]
+    mem_limit: 768m
+    cpus: "1.0"
+    healthcheck: {test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health?wait_for_status=yellow >/dev/null"], interval: 10s, timeout: 5s, retries: 60}
+  es2:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    environment:
+      <<: *es-env
+      node.name: es2
+    volumes: [es2_data:/usr/share/elasticsearch/data]
+    mem_limit: 768m
+    cpus: "1.0"
+    healthcheck: {test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health?wait_for_status=yellow >/dev/null"], interval: 10s, timeout: 5s, retries: 60}
+  es3:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    environment:
+      <<: *es-env
+      node.name: es3
+    volumes: [es3_data:/usr/share/elasticsearch/data]
+    mem_limit: 768m
+    cpus: "1.0"
+    healthcheck: {test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health?wait_for_status=yellow >/dev/null"], interval: 10s, timeout: 5s, retries: 60}
+  es-lb:
+    image: haproxy:3.1-alpine
+    ports: ["19200:9200"]
+    volumes: [./haproxy-es.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro]
+    depends_on: {es1: {condition: service_healthy}, es2: {condition: service_healthy}, es3: {condition: service_healthy}}
+
+  qdrant1:
+    image: qdrant/qdrant:v1.15.3
+    command: ["./qdrant", "--uri", "http://qdrant1:6335"]
+    environment: {QDRANT__CLUSTER__ENABLED: "true"}
+    volumes: [qdrant1_data:/qdrant/storage]
+    mem_limit: 384m
+    cpus: "0.75"
+  qdrant2:
+    image: qdrant/qdrant:v1.15.3
+    command: ["./qdrant", "--bootstrap", "http://qdrant1:6335"]
+    environment: {QDRANT__CLUSTER__ENABLED: "true"}
+    volumes: [qdrant2_data:/qdrant/storage]
+    mem_limit: 384m
+    cpus: "0.75"
+    depends_on: [qdrant1]
+  qdrant3:
+    image: qdrant/qdrant:v1.15.3
+    command: ["./qdrant", "--bootstrap", "http://qdrant1:6335"]
+    environment: {QDRANT__CLUSTER__ENABLED: "true"}
+    volumes: [qdrant3_data:/qdrant/storage]
+    mem_limit: 384m
+    cpus: "0.75"
+    depends_on: [qdrant1]
+  qdrant-lb:
+    image: haproxy:3.1-alpine
+    volumes: [./haproxy-qdrant.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro]
+    depends_on: [qdrant1, qdrant2, qdrant3]
+
+  gateway1: &gateway
+    build: ../..
+    environment: &gateway-env
+      QDRANT_URL: http://qdrant-lb:6333
+      METADATA_DB: /data/gateway.db
+      QDRANT_REPLICATION_FACTOR: "3"
+      MAX_BULK_BYTES: 268435456
+      MAX_PAGE_SIZE: 1000
+    volumes: [gateway_metadata:/data]
+    mem_limit: 384m
+    cpus: "0.5"
+    depends_on: [qdrant-lb]
+  gateway2:
+    <<: *gateway
+  gateway3:
+    <<: *gateway
+  gateway-lb:
+    image: haproxy:3.1-alpine
+    ports: ["19201:9200"]
+    volumes: [./haproxy-gateway.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro]
+    depends_on: [gateway1, gateway2, gateway3]
+
+volumes:
+  es1_data: {}
+  es2_data: {}
+  es3_data: {}
+  qdrant1_data: {}
+  qdrant2_data: {}
+  qdrant3_data: {}
+  gateway_metadata: {}
