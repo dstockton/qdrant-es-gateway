@@ -2399,6 +2399,18 @@ async fn mapping(
     Ok(es_ok(json!({index:{"mappings":m}})))
 }
 
+fn is_bulk_request(method: &Method, path: &str) -> bool {
+    method == Method::POST && (path == "/_bulk" || path.ends_with("/_bulk"))
+}
+
+fn request_body_limit(cfg: &Config, method: &Method, path: &str) -> usize {
+    if is_bulk_request(method, path) {
+        cfg.max_bulk_bytes
+    } else {
+        cfg.max_body_bytes
+    }
+}
+
 async fn dispatch(
     state: AppState,
     method: Method,
@@ -2406,10 +2418,17 @@ async fn dispatch(
     _headers: HeaderMap,
     body: String,
 ) -> Response {
-    if body.len() > state.cfg.max_body_bytes {
-        return GatewayError::bad("request", "request body exceeds MAX_BODY_BYTES").into_response();
+    let body_limit = request_body_limit(&state.cfg, &method, &path);
+    if body.len() > body_limit {
+        let setting = if is_bulk_request(&method, &path) {
+            "MAX_BULK_BYTES"
+        } else {
+            "MAX_BODY_BYTES"
+        };
+        return GatewayError::bad("request", format!("request body exceeds {setting}"))
+            .into_response();
     }
-    if method == Method::POST && (path == "/_bulk" || path.ends_with("/_bulk")) {
+    if is_bulk_request(&method, &path) {
         let default = path
             .strip_prefix('/')
             .and_then(|p| p.strip_suffix("/_bulk"))
@@ -2616,7 +2635,8 @@ async fn main() -> anyhow::Result<()> {
              uri: axum::http::Uri,
              headers: HeaderMap,
              body: Body| async move {
-                let bytes = match axum::body::to_bytes(body, state.cfg.max_body_bytes).await {
+                let body_limit = request_body_limit(&state.cfg, &method, uri.path());
+                let bytes = match axum::body::to_bytes(body, body_limit).await {
                     Ok(b) => b,
                     Err(e) => {
                         return GatewayError::bad("request.body", e.to_string()).into_response()
@@ -2654,6 +2674,24 @@ mod tests {
         assert_eq!(a, point_id("products", "普通話/very-long-id"));
         assert_eq!(a.len(), 36);
         assert_ne!(a, point_id("products", "other"));
+    }
+
+    #[test]
+    fn bulk_requests_use_the_dedicated_body_limit() {
+        let mut cfg = Config::from_env();
+        cfg.max_body_bytes = 10;
+        cfg.max_bulk_bytes = 50;
+
+        assert_eq!(request_body_limit(&cfg, &Method::POST, "/_bulk"), 50);
+        assert_eq!(
+            request_body_limit(&cfg, &Method::POST, "/products/_bulk"),
+            50
+        );
+        assert_eq!(
+            request_body_limit(&cfg, &Method::POST, "/products/_search"),
+            10
+        );
+        assert_eq!(request_body_limit(&cfg, &Method::GET, "/_bulk"), 10);
     }
 
     #[test]

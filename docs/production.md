@@ -42,7 +42,7 @@ Before exposing the service:
 - `/readyz` checks Qdrant connectivity and should gate traffic.
 - `GET /` exposes the compatibility/version response.
 - Watch Qdrant segment growth, optimizer backlog, disk utilization, search latency, and projection lag.
-- Keep request and bulk limits bounded; do not expose the service directly to the public internet.
+- Keep request and bulk limits bounded; request bodies are buffered in memory, and each concurrent `POST /_bulk` or `POST /<index>/_bulk` may consume up to `MAX_BULK_BYTES` before parsing. Do not expose the service directly to the public internet.
 - Test the actual mappings and unsupported-query behavior before migration.
 
 ## Release process
