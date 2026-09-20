@@ -2210,6 +2210,13 @@ async fn count(
     ))
 }
 
+fn bulk_response_has_errors(items: &[Value]) -> bool {
+    items.iter().any(|item| {
+        item.as_object()
+            .is_some_and(|actions| actions.values().any(|result| result.get("error").is_some()))
+    })
+}
+
 async fn bulk(
     State(state): State<AppState>,
     index: Option<Path<String>>,
@@ -2306,9 +2313,8 @@ async fn bulk(
         match result { Ok(v) => items.push(v), Err(e) => items.push(json!({kind.clone():{"_index":idx,"_id":id,"status":e.status().as_u16(),"error":e.body()["error"].clone()}})) }
         cursor += 1;
     }
-    Ok(es_ok(
-        json!({"took":0,"errors":items.iter().any(|x|x.get("error").is_some()),"items":items}),
-    ))
+    let errors = bulk_response_has_errors(&items);
+    Ok(es_ok(json!({"took":0,"errors":errors,"items":items})))
 }
 
 async fn aliases(
@@ -2692,6 +2698,20 @@ mod tests {
             10
         );
         assert_eq!(request_body_limit(&cfg, &Method::GET, "/_bulk"), 10);
+    }
+
+    #[test]
+    fn bulk_response_reports_nested_item_errors() {
+        let successful_items = [json!({"index":{"_index":"products","_id":"1","status":201}})];
+        let failed_items = [json!({"update":{
+            "_index":"products",
+            "_id":"missing",
+            "status":404,
+            "error":{"type":"document_missing_exception"}
+        }})];
+
+        assert!(!bulk_response_has_errors(&successful_items));
+        assert!(bulk_response_has_errors(&failed_items));
     }
 
     #[test]
