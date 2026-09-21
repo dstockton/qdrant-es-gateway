@@ -82,7 +82,7 @@ docker compose up --build
 make integration-test
 ```
 
-The metadata database is gateway-owned and should be persisted alongside the deployment. Qdrant remains the source of document and search state. The gateway deterministically maps each `(index, Elasticsearch _id)` to a UUID-shaped Qdrant point ID and stores the original `_id` in payload, so arbitrary Unicode and long IDs survive restarts without an in-memory lookup. With `DOCUMENT_PROJECTION=true`, the gateway retrieves search hits' sources in one batch from the document collection, avoiding an N+1 fetch pattern.
+The metadata database is gateway-owned and should be persisted alongside the deployment. Qdrant remains the source of document and search state. The gateway decodes each URL path segment before deterministically mapping `(index, Elasticsearch _id)` to a UUID-shaped Qdrant point ID and stores the original `_id` in payload, so encoded slashes, arbitrary Unicode, and long IDs survive restarts without an in-memory lookup. With `DOCUMENT_PROJECTION=true`, the gateway retrieves search hits' sources in one batch from the document collection, avoiding an N+1 fetch pattern.
 
 ## Honest limitations
 

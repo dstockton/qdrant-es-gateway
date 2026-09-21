@@ -7,6 +7,7 @@ use axum::{
     Json, Router,
 };
 use futures_util::future::try_join_all;
+use percent_encoding::percent_decode_str;
 use regex::Regex;
 use reqwest::Client;
 use rusqlite::{params, Connection};
@@ -2417,6 +2418,18 @@ fn request_body_limit(cfg: &Config, method: &Method, path: &str) -> usize {
     }
 }
 
+fn decode_path_segments(path: &str) -> Result<Vec<String>, GatewayError> {
+    path.trim_matches('/')
+        .split('/')
+        .map(|segment| {
+            percent_decode_str(segment)
+                .decode_utf8()
+                .map(|decoded| decoded.into_owned())
+                .map_err(|_| GatewayError::bad("request.path", "path is not valid UTF-8"))
+        })
+        .collect()
+}
+
 async fn dispatch(
     state: AppState,
     method: Method,
@@ -2461,7 +2474,10 @@ async fn dispatch(
             Err(e) => return GatewayError::bad("request.body", e.to_string()).into_response(),
         }
     };
-    let parts: Vec<&str> = path.trim_matches('/').split('/').collect();
+    let parts = match decode_path_segments(&path) {
+        Ok(parts) => parts,
+        Err(error) => return error.into_response(),
+    };
     if path == "/" && method == Method::GET {
         return root(State(state)).await;
     }
@@ -2483,38 +2499,38 @@ async fn dispatch(
             .unwrap_or_else(IntoResponse::into_response);
     }
     if parts.len() == 2 && parts[0] == "_alias" && method == Method::GET {
-        return alias_get(State(state), Path(parts[1].into()))
+        return alias_get(State(state), Path(parts[1].clone()))
             .await
             .unwrap_or_else(IntoResponse::into_response);
     }
     if parts.len() == 2 && parts[0] == "_alias" && method == Method::HEAD {
-        return alias_head(State(state), Path(parts[1].into())).await;
+        return alias_head(State(state), Path(parts[1].clone())).await;
     }
     if parts.len() == 1 && method == Method::PUT {
-        return create_index(State(state), Path(parts[0].into()), Json(json_body))
+        return create_index(State(state), Path(parts[0].clone()), Json(json_body))
             .await
             .unwrap_or_else(IntoResponse::into_response);
     }
     if parts.len() == 1 && (method == Method::DELETE) {
-        return delete_index(State(state), Path(parts[0].into()))
+        return delete_index(State(state), Path(parts[0].clone()))
             .await
             .unwrap_or_else(IntoResponse::into_response);
     }
     if parts.len() == 1 && method == Method::HEAD {
-        return head_index(State(state), Path(parts[0].into())).await;
+        return head_index(State(state), Path(parts[0].clone())).await;
     }
     if parts.len() == 2 && parts[1] == "_refresh" && method == Method::POST {
-        return index_control(State(state), Path(parts[0].into()), "refresh")
+        return index_control(State(state), Path(parts[0].clone()), "refresh")
             .await
             .unwrap_or_else(IntoResponse::into_response);
     }
     if parts.len() == 2 && parts[1] == "_open" && method == Method::POST {
-        return index_control(State(state), Path(parts[0].into()), "open")
+        return index_control(State(state), Path(parts[0].clone()), "open")
             .await
             .unwrap_or_else(IntoResponse::into_response);
     }
     if parts.len() == 2 && parts[1] == "_close" && method == Method::POST {
-        return index_control(State(state), Path(parts[0].into()), "close")
+        return index_control(State(state), Path(parts[0].clone()), "close")
             .await
             .unwrap_or_else(IntoResponse::into_response);
     }
@@ -2522,12 +2538,12 @@ async fn dispatch(
         && parts[1] == "_settings"
         && (method == Method::GET || method == Method::PUT)
     {
-        return index_control(State(state), Path(parts[0].into()), "settings")
+        return index_control(State(state), Path(parts[0].clone()), "settings")
             .await
             .unwrap_or_else(IntoResponse::into_response);
     }
     if parts.len() == 1 && method == Method::GET {
-        return get_index_info(State(state), Path(parts[0].into()))
+        return get_index_info(State(state), Path(parts[0].clone()))
             .await
             .unwrap_or_else(IntoResponse::into_response);
     }
@@ -2537,7 +2553,7 @@ async fn dispatch(
     {
         return mapping(
             State(state),
-            Path(parts[0].into()),
+            Path(parts[0].clone()),
             method,
             Some(Json(json_body)),
         )
@@ -2547,7 +2563,7 @@ async fn dispatch(
     if parts.len() == 3 && parts[1] == "_doc" && method == Method::PUT {
         return write_doc(
             State(state),
-            Path((parts[0].into(), parts[2].into())),
+            Path((parts[0].clone(), parts[2].clone())),
             Json(json_body),
         )
         .await
@@ -2556,36 +2572,36 @@ async fn dispatch(
     if parts.len() == 2 && parts[1] == "_doc" && method == Method::POST {
         return write_doc(
             State(state),
-            Path((parts[0].into(), uuid::Uuid::new_v4().to_string())),
+            Path((parts[0].clone(), uuid::Uuid::new_v4().to_string())),
             Json(json_body),
         )
         .await
         .unwrap_or_else(IntoResponse::into_response);
     }
     if parts.len() == 3 && parts[1] == "_doc" && method == Method::GET {
-        return get_doc(State(state), Path((parts[0].into(), parts[2].into())))
+        return get_doc(State(state), Path((parts[0].clone(), parts[2].clone())))
             .await
             .unwrap_or_else(IntoResponse::into_response);
     }
     if parts.len() == 3 && parts[1] == "_doc" && method == Method::HEAD {
-        return head_doc(State(state), Path((parts[0].into(), parts[2].into()))).await;
+        return head_doc(State(state), Path((parts[0].clone(), parts[2].clone()))).await;
     }
     if parts.len() == 3 && parts[1] == "_doc" && method == Method::DELETE {
-        return delete_doc(State(state), Path((parts[0].into(), parts[2].into())))
+        return delete_doc(State(state), Path((parts[0].clone(), parts[2].clone())))
             .await
             .unwrap_or_else(IntoResponse::into_response);
     }
     if parts.len() == 3 && parts[1] == "_update" && method == Method::POST {
         return update_doc(
             State(state),
-            Path((parts[0].into(), parts[2].into())),
+            Path((parts[0].clone(), parts[2].clone())),
             Json(json_body),
         )
         .await
         .unwrap_or_else(IntoResponse::into_response);
     }
     if parts.len() == 2 && parts[1] == "_bulk" && method == Method::POST {
-        return bulk(State(state), Some(Path(parts[0].into())), body)
+        return bulk(State(state), Some(Path(parts[0].clone())), body)
             .await
             .unwrap_or_else(IntoResponse::into_response);
     }
@@ -2593,13 +2609,13 @@ async fn dispatch(
         && parts[1] == "_search"
         && (method == Method::GET || method == Method::POST)
     {
-        return search(State(state), Path(parts[0].into()), Json(json_body))
+        return search(State(state), Path(parts[0].clone()), Json(json_body))
             .await
             .unwrap_or_else(IntoResponse::into_response);
     }
     if parts.len() == 2 && parts[1] == "_count" && (method == Method::GET || method == Method::POST)
     {
-        return count(State(state), Path(parts[0].into()), Json(json_body))
+        return count(State(state), Path(parts[0].clone()), Json(json_body))
             .await
             .unwrap_or_else(IntoResponse::into_response);
     }
@@ -2680,6 +2696,27 @@ mod tests {
         assert_eq!(a, point_id("products", "普通話/very-long-id"));
         assert_eq!(a.len(), 36);
         assert_ne!(a, point_id("products", "other"));
+    }
+
+    #[test]
+    fn path_segments_decode_document_ids_without_splitting_encoded_slashes() {
+        let parts =
+            decode_path_segments("/products/_doc/order%2F%E6%99%AE%E9%80%9A%20%E8%A9%B1").unwrap();
+
+        assert_eq!(
+            parts,
+            ["products", "_doc", "order/\u{666e}\u{901a} \u{8a71}"]
+        );
+    }
+
+    #[test]
+    fn path_segments_reject_non_utf8_percent_encoding() {
+        let error = decode_path_segments("/products/_doc/%FF").unwrap_err();
+
+        assert!(matches!(
+            error,
+            GatewayError::Bad { ref feature, .. } if feature == "request.path"
+        ));
     }
 
     #[test]

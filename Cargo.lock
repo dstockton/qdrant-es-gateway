@@ -817,6 +817,7 @@ dependencies = [
  "dotenvy",
  "futures-util",
  "http",
+ "percent-encoding",
  "regex",
  "reqwest",
  "rusqlite",
