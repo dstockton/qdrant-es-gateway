@@ -5,7 +5,7 @@ date: 2026-09-19
 categories: [production, compatibility]
 ---
 
-The gateway has separate request-size controls for ordinary JSON requests and bulk NDJSON: `MAX_BODY_BYTES` defaults to 10 MiB, while `MAX_BULK_BYTES` defaults to 50 MiB. That distinction matters because a useful bulk batch is often much larger than a search or single-document request.
+The gateway has separate request-size controls for ordinary JSON requests and bulk NDJSON: `MAX_BODY_BYTES` defaults to 10 MiB, while `MAX_BULK_BYTES` defaults to 50 MiB. A useful bulk batch is often much larger than a search or single-document request.
 
 Until now, the HTTP body reader applied `MAX_BODY_BYTES` before routing the request. The bulk handler did check `MAX_BULK_BYTES`, but it could never see a request larger than the general limit. With the defaults, a 10–50 MiB bulk request was therefore rejected before the bulk-specific check ran.
 

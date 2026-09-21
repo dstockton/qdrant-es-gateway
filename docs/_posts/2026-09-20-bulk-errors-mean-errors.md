@@ -19,4 +19,4 @@ cargo test
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-This change only corrects the summary flag. It does not add rollback or atomicity: bulk requests remain a sequence of operations, callers must still inspect failed items, and retry policy remains the caller's responsibility.
+This change only corrects the summary flag. It does not add rollback or atomicity: bulk requests remain a sequence of operations, callers must still inspect failed items, and callers still own retry policy.

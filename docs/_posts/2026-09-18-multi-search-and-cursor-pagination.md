@@ -11,4 +11,4 @@ The `_msearch` endpoint accepts Elasticsearch-style NDJSON header/query pairs. E
 
 For ordered pages, `search_after` requires explicit sort fields. Each returned hit includes the corresponding `sort` values, which the client can pass as `search_after` from the last hit when requesting the next page. The cursor is stable only while the ordered result set is unchanged; changes to documents or their ordering between requests can affect pagination.
 
-These features support existing batching and pagination request shapes, but do not imply full Elasticsearch compatibility. Field sorting has limits, deep pagination is capped, and deep scored pagination remains outside the supported scope. Applications should check their queries and pagination needs against the gateway’s compatibility documentation before migration.
+These features support existing batching and pagination request shapes, but do not provide full Elasticsearch compatibility. Field sorting has limits, deep pagination is capped, and deep scored pagination is outside the supported scope. Check the application’s queries and pagination needs against the compatibility documentation before migration.

@@ -13,4 +13,4 @@ Asynchronous projection is a separate choice: set `ASYNC_SEARCH_PROJECTION=true`
 
 The stateless gateway tier still depends on persisted state. Qdrant holds the documents and search projection, and the gateway-owned SQLite metadata database must also be persisted. For production asynchronous projection, the [production guide]({{ "/production/" | relative_url }}) recommends a durable projection worker or reconciliation process rather than relying on an in-process queue.
 
-For a write-heavy catalogue, this design makes source durability and search freshness separate deployment concerns. It does not provide Elasticsearch-identical refresh, version, or sequence semantics; those remain approximations to evaluate against the application's requirements.
+For a write-heavy catalogue, this design makes source durability and search freshness separate deployment concerns. It does not provide Elasticsearch-identical refresh, version, or sequence semantics. Test those differences against the application's requirements.
