@@ -15,4 +15,4 @@ The project is aimed at teams that want to keep the Elasticsearch client and req
 - [Five-minute quickstart](https://github.com/dstockton/qdrant-es-gateway#five-minute-quickstart)
 - [Production deployment]({{ "/production/" | relative_url }})
 
-The honest boundary is important: this is an application-search gateway, not a drop-in replacement for Kibana, log analytics, Lucene scoring, or every Elasticsearch administration API.
+This is an application-search gateway, not a drop-in replacement for Kibana, log analytics, Lucene scoring, or every Elasticsearch administration API.
