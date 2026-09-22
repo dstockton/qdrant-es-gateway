@@ -1,4 +1,6 @@
-replicaCount: 2
+# Gateway metadata is stored in SQLite on the data volume. Keep the safe
+# default at one replica; see the chart README before scaling horizontally.
+replicaCount: 1
 
 image:
   repository: ghcr.io/dstockton/qdrant-es-gateway

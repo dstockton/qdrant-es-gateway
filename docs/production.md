@@ -32,7 +32,7 @@ Before exposing the service:
 1. Configure ingress TLS and client authentication.
 2. Create a Kubernetes NetworkPolicy allowing egress only to Qdrant and DNS.
 3. Set resource requests and limits from workload measurements.
-4. Use a StorageClass/PVC with appropriate SQLite locking semantics. For multiple gateway replicas, use shared metadata storage or move the small metadata catalog to a replicated control-plane store before relying on concurrent writers.
+4. Keep the gateway at one replica with the default local SQLite metadata catalog. Horizontal replicas require shared storage with SQLite-compatible locking and `ReadWriteMany` access, plus external serialization of index and alias administration; moving the small catalog to a replicated control-plane store is the safer long-term design.
 5. Configure Qdrant replication, snapshots, monitoring, and disk alerts independently.
 6. Enable `DOCUMENT_PROJECTION=true` and `ASYNC_SEARCH_PROJECTION=true` only with a durable reconciliation process for projection lag or failed asynchronous operations.
 

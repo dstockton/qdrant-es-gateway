@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Default the Helm deployment to one replica so its SQLite metadata catalog and `ReadWriteOnce` volume are not presented as a safe horizontally scaled control plane.
 - Publish index metadata only after Qdrant setup succeeds, and clean up collections after partial creation failures.
 - Decode percent-encoded route segments so document IDs containing slashes, spaces, or Unicode retain their Elasticsearch identity.
 - Add GitHub Pages documentation with reviewed architecture, operations, lifecycle, pattern-query, and pagination articles.

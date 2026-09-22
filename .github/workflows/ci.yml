@@ -30,6 +30,8 @@ jobs:
       - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
       - run: helm lint deploy/helm/qdrant-es-gateway
       - run: helm template smoke deploy/helm/qdrant-es-gateway >/dev/null
+      - name: Keep the SQLite-backed default single-replica
+        run: helm template smoke deploy/helm/qdrant-es-gateway --show-only templates/deployment.yaml | grep -q '^  replicas: 1$'
 
   container:
     runs-on: ubuntu-24.04
