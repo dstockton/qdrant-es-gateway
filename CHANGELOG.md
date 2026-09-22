@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Publish index metadata only after Qdrant setup succeeds, and clean up collections after partial creation failures.
 - Decode percent-encoded route segments so document IDs containing slashes, spaces, or Unicode retain their Elasticsearch identity.
 - Add GitHub Pages documentation with reviewed architecture, operations, lifecycle, pattern-query, and pagination articles.
 - Add `_msearch`, `search_after` cursors with returned sort values, and common `_refresh`, `_open`, `_close`, and `_settings` lifecycle request compatibility.

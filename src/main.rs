@@ -20,7 +20,7 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-use tracing::info;
+use tracing::{info, warn};
 
 #[derive(Clone)]
 struct Config {
@@ -345,21 +345,6 @@ async fn create_index(
     Json(body): Json<Value>,
 ) -> Result<Response, GatewayError> {
     let (mapping, vectors) = mapping_vectors(&body);
-    {
-        let db = state
-            .db
-            .lock()
-            .map_err(|e| GatewayError::Internal(e.to_string()))?;
-        db.execute(
-            "INSERT OR REPLACE INTO indices(name,mapping,vectors) VALUES (?1,?2,?3)",
-            params![
-                index,
-                mapping.to_string(),
-                serde_json::to_string(&vectors).unwrap()
-            ],
-        )
-        .map_err(|e| GatewayError::Internal(e.to_string()))?;
-    }
     let mut sparse = Map::new();
     for v in &vectors {
         sparse.insert(v.clone(), json!({}));
@@ -383,7 +368,7 @@ async fn create_index(
             document_config["replication_factor"] = json!(replication_factor);
             document_config["shard_number"] = json!(replication_factor);
         }
-        state
+        if let Err(error) = state
             .qdrant
             .request(
                 Method::PUT,
@@ -393,7 +378,11 @@ async fn create_index(
                 // collection payload-first and disables HNSW construction.
                 Some(document_config),
             )
-            .await?;
+            .await
+        {
+            cleanup_failed_index_creation(&state, &index, false).await;
+            return Err(error);
+        }
     }
     if let Some(props) = mapping.get("properties").and_then(Value::as_object) {
         for (field, spec) in props {
@@ -406,20 +395,62 @@ async fn create_index(
                 _ => None,
             };
             if let Some(schema) = schema {
-                state
+                if let Err(error) = state
                     .qdrant
                     .request(
                         Method::PUT,
                         &format!("/collections/{}/index", collection(&index)),
                         Some(json!({"field_name":field,"field_schema":schema,"wait":true})),
                     )
-                    .await?;
+                    .await
+                {
+                    cleanup_failed_index_creation(&state, &index, state.cfg.document_projection)
+                        .await;
+                    return Err(error);
+                }
             }
         }
+    }
+    let metadata_result = state
+        .db
+        .lock()
+        .map_err(|e| GatewayError::Internal(e.to_string()))
+        .and_then(|db| {
+            db.execute(
+                "INSERT OR REPLACE INTO indices(name,mapping,vectors) VALUES (?1,?2,?3)",
+                params![
+                    index,
+                    mapping.to_string(),
+                    serde_json::to_string(&vectors)
+                        .map_err(|e| GatewayError::Internal(e.to_string()))?
+                ],
+            )
+            .map_err(|e| GatewayError::Internal(e.to_string()))?;
+            Ok(())
+        });
+    if let Err(error) = metadata_result {
+        cleanup_failed_index_creation(&state, &index, state.cfg.document_projection).await;
+        return Err(error);
     }
     Ok(es_ok(
         json!({"acknowledged":true,"shards_acknowledged":true,"index":index}),
     ))
+}
+
+async fn cleanup_failed_index_creation(state: &AppState, index: &str, document_created: bool) {
+    let mut collections = vec![collection(index)];
+    if document_created {
+        collections.push(document_collection(index));
+    }
+    for collection in collections {
+        if let Err(error) = state
+            .qdrant
+            .request(Method::DELETE, &format!("/collections/{collection}"), None)
+            .await
+        {
+            warn!(%collection, %error, "failed to clean up collection after index creation error");
+        }
+    }
 }
 
 async fn delete_index(
@@ -2749,6 +2780,71 @@ mod tests {
 
         assert!(!bulk_response_has_errors(&successful_items));
         assert!(bulk_response_has_errors(&failed_items));
+    }
+
+    #[tokio::test]
+    async fn failed_index_creation_is_not_published_and_cleans_up() {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let observed = requests.clone();
+        let mock = Router::new().fallback(any(move |method: Method, uri: axum::http::Uri| {
+            let observed = observed.clone();
+            async move {
+                observed
+                    .lock()
+                    .unwrap()
+                    .push(format!("{method} {}", uri.path()));
+                if method == Method::PUT && uri.path().ends_with("_documents") {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({"status":"error"})),
+                    )
+                        .into_response();
+                }
+                Json(json!({"status":"ok"})).into_response()
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        let mut cfg = Config::from_env();
+        cfg.qdrant_url = format!("http://{address}");
+        cfg.document_projection = true;
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL);")
+            .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: cfg.qdrant_url.clone(),
+                key: None,
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            cfg,
+        };
+
+        let result = create_index(
+            State(state.clone()),
+            Path("products".into()),
+            Json(json!({"mappings":{"properties":{"title":{"type":"text"}}}})),
+        )
+        .await;
+
+        assert!(matches!(result, Err(GatewayError::Upstream(_))));
+        assert!(matches!(
+            get_index(&state, "products"),
+            Err(GatewayError::NotFound(_))
+        ));
+        assert_eq!(
+            *requests.lock().unwrap(),
+            [
+                "PUT /collections/es_products",
+                "PUT /collections/es_products_documents",
+                "DELETE /collections/es_products"
+            ]
+        );
+        server.abort();
     }
 
     #[test]
