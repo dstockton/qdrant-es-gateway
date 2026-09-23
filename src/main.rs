@@ -153,6 +153,8 @@ enum GatewayError {
     Bad { feature: String, message: String },
     #[error("{0}")]
     NotFound(String),
+    #[error("request body exceeds configured {setting} limit of {limit} bytes")]
+    PayloadTooLarge { setting: &'static str, limit: usize },
     #[error("upstream error: {0}")]
     Upstream(String),
     #[error("internal error: {0}")]
@@ -169,10 +171,14 @@ impl GatewayError {
     fn upstream(s: impl Into<String>) -> Self {
         Self::Upstream(s.into())
     }
+    fn payload_too_large(setting: &'static str, limit: usize) -> Self {
+        Self::PayloadTooLarge { setting, limit }
+    }
     fn status(&self) -> StatusCode {
         match self {
             Self::NotFound(_) => StatusCode::NOT_FOUND,
             Self::Bad { .. } => StatusCode::BAD_REQUEST,
+            Self::PayloadTooLarge { .. } => StatusCode::PAYLOAD_TOO_LARGE,
             Self::Upstream(_) => StatusCode::BAD_GATEWAY,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
@@ -184,6 +190,9 @@ impl GatewayError {
             }
             Self::NotFound(message) => {
                 json!({"error":{"type":"index_not_found_exception","reason":message},"status":404})
+            }
+            Self::PayloadTooLarge { setting, limit } => {
+                json!({"error":{"type":"content_too_long_exception","reason":format!("request body exceeds configured {setting} limit of {limit} bytes")},"status":413})
             }
             Self::Upstream(message) => {
                 json!({"error":{"type":"qdrant_upstream_error","reason":message},"status":502})
@@ -2255,9 +2264,9 @@ async fn bulk(
     body: String,
 ) -> Result<Response, GatewayError> {
     if body.len() > state.cfg.max_bulk_bytes {
-        return Err(GatewayError::bad(
-            "_bulk",
-            "bulk request exceeds MAX_BULK_BYTES",
+        return Err(GatewayError::payload_too_large(
+            "MAX_BULK_BYTES",
+            state.cfg.max_bulk_bytes,
         ));
     }
     let default = index.map(|p| p.0);
@@ -2449,6 +2458,14 @@ fn request_body_limit(cfg: &Config, method: &Method, path: &str) -> usize {
     }
 }
 
+fn request_body_limit_setting(method: &Method, path: &str) -> &'static str {
+    if is_bulk_request(method, path) {
+        "MAX_BULK_BYTES"
+    } else {
+        "MAX_BODY_BYTES"
+    }
+}
+
 fn decode_path_segments(path: &str) -> Result<Vec<String>, GatewayError> {
     path.trim_matches('/')
         .split('/')
@@ -2470,13 +2487,11 @@ async fn dispatch(
 ) -> Response {
     let body_limit = request_body_limit(&state.cfg, &method, &path);
     if body.len() > body_limit {
-        let setting = if is_bulk_request(&method, &path) {
-            "MAX_BULK_BYTES"
-        } else {
-            "MAX_BODY_BYTES"
-        };
-        return GatewayError::bad("request", format!("request body exceeds {setting}"))
-            .into_response();
+        return GatewayError::payload_too_large(
+            request_body_limit_setting(&method, &path),
+            body_limit,
+        )
+        .into_response();
     }
     if is_bulk_request(&method, &path) {
         let default = path
@@ -2658,6 +2673,44 @@ async fn dispatch(
     GatewayError::bad("endpoint", format!("unsupported endpoint {method} {path}")).into_response()
 }
 
+fn gateway_router(state: AppState) -> Router {
+    Router::new()
+        .fallback(any(
+            |State(state): State<AppState>,
+             method: Method,
+             uri: axum::http::Uri,
+             headers: HeaderMap,
+             body: Body| async move {
+                let body_limit = request_body_limit(&state.cfg, &method, uri.path());
+                let bytes = match axum::body::to_bytes(body, body_limit).await {
+                    Ok(b) => b,
+                    Err(error) => {
+                        let is_length_limit = std::error::Error::source(&error)
+                            .is_some_and(|source| source.is::<http_body_util::LengthLimitError>());
+                        if is_length_limit {
+                            return GatewayError::payload_too_large(
+                                request_body_limit_setting(&method, uri.path()),
+                                body_limit,
+                            )
+                            .into_response();
+                        }
+                        return GatewayError::bad("request.body", error.to_string())
+                            .into_response();
+                    }
+                };
+                dispatch(
+                    state,
+                    method,
+                    uri.path().to_string(),
+                    headers,
+                    String::from_utf8_lossy(&bytes).into_owned(),
+                )
+                .await
+            },
+        ))
+        .with_state(state)
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
@@ -2681,31 +2734,7 @@ async fn main() -> anyhow::Result<()> {
         analytics: Arc::new(Mutex::new(Analytics::default())),
         cfg,
     };
-    let app = Router::new()
-        .fallback(any(
-            |State(state): State<AppState>,
-             method: Method,
-             uri: axum::http::Uri,
-             headers: HeaderMap,
-             body: Body| async move {
-                let body_limit = request_body_limit(&state.cfg, &method, uri.path());
-                let bytes = match axum::body::to_bytes(body, body_limit).await {
-                    Ok(b) => b,
-                    Err(e) => {
-                        return GatewayError::bad("request.body", e.to_string()).into_response()
-                    }
-                };
-                dispatch(
-                    state,
-                    method,
-                    uri.path().to_string(),
-                    headers,
-                    String::from_utf8_lossy(&bytes).into_owned(),
-                )
-                .await
-            },
-        ))
-        .with_state(state.clone());
+    let app = gateway_router(state.clone());
     let addr: SocketAddr = state.cfg.listen_addr.parse()?;
     info!(%addr, "starting qdrant-es-gateway");
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -2720,6 +2749,7 @@ async fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tower::ServiceExt;
 
     #[test]
     fn ids_are_deterministic_and_uuid_shaped() {
@@ -2845,6 +2875,65 @@ mod tests {
             ]
         );
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn oversized_requests_return_413_with_the_active_limit() {
+        let mut cfg = Config::from_env();
+        cfg.max_body_bytes = 10;
+        cfg.max_bulk_bytes = 20;
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL);")
+            .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: "http://127.0.0.1:1".into(),
+                key: None,
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            cfg,
+        };
+
+        for (method, path, body, setting, limit) in [
+            (
+                Method::POST,
+                "/products/_search",
+                "12345678901",
+                "MAX_BODY_BYTES",
+                10,
+            ),
+            (
+                Method::POST,
+                "/_bulk",
+                "123456789012345678901",
+                "MAX_BULK_BYTES",
+                20,
+            ),
+        ] {
+            let response = gateway_router(state.clone())
+                .oneshot(
+                    axum::http::Request::builder()
+                        .method(method)
+                        .uri(path)
+                        .body(Body::from(body))
+                        .unwrap(),
+                )
+                .await;
+            let response = response.unwrap();
+            assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let response_body: Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(response_body["status"], 413);
+            assert_eq!(response_body["error"]["type"], "content_too_long_exception");
+            assert!(response_body["error"]["reason"]
+                .as_str()
+                .unwrap()
+                .contains(&format!("{setting} limit of {limit} bytes")));
+        }
     }
 
     #[test]
