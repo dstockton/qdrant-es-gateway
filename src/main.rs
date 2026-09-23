@@ -210,13 +210,17 @@ impl IntoResponse for GatewayError {
     }
 }
 
-fn es_ok(body: Value) -> Response {
-    let mut response = Json(body).into_response();
+fn es_response(status: StatusCode, body: Value) -> Response {
+    let mut response = (status, Json(body)).into_response();
     response.headers_mut().insert(
         "x-elastic-product",
         HeaderValue::from_static("Elasticsearch"),
     );
     response
+}
+
+fn es_ok(body: Value) -> Response {
+    es_response(StatusCode::OK, body)
 }
 
 fn init_db() -> anyhow::Result<Connection> {
@@ -663,12 +667,15 @@ async fn get_doc(
     let (coll, _, _) = get_index(&state, &index)?;
     if state.cfg.document_projection {
         let sources = retrieve_sources(&state, &index, &[point_id(&index, &id)]).await?;
-        return Ok(es_ok(match sources.get(&id) {
+        return Ok(match sources.get(&id) {
             Some(source) => {
-                json!({"_index":index,"_id":id,"found":true,"_source":source,"_version":1})
+                es_ok(json!({"_index":index,"_id":id,"found":true,"_source":source,"_version":1}))
             }
-            None => json!({"_index":index,"_id":id,"found":false}),
-        }));
+            None => es_response(
+                StatusCode::NOT_FOUND,
+                json!({"_index":index,"_id":id,"found":false}),
+            ),
+        });
     }
     let p = state
         .qdrant
@@ -684,7 +691,10 @@ async fn get_doc(
         .await?;
     let result = p.get("result").cloned().unwrap_or(Value::Null);
     if result.is_null() {
-        return Ok(es_ok(json!({"_index":index,"_id":id,"found":false})));
+        return Ok(es_response(
+            StatusCode::NOT_FOUND,
+            json!({"_index":index,"_id":id,"found":false}),
+        ));
     }
     Ok(es_ok(
         json!({"_index":index,"_id":id,"found":true,"_source":result.get("payload").and_then(|p|p.get("_source")).cloned().unwrap_or_else(||json!({})),"_version":1}),
@@ -2934,6 +2944,58 @@ mod tests {
                 .unwrap()
                 .contains(&format!("{setting} limit of {limit} bytes")));
         }
+    }
+
+    #[tokio::test]
+    async fn missing_document_get_returns_404_in_both_storage_modes() {
+        let mock = Router::new().fallback(any(|method: Method| async move {
+            if method == Method::POST {
+                Json(json!({"result":[]})).into_response()
+            } else {
+                Json(json!({"result":null})).into_response()
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        for document_projection in [false, true] {
+            let mut cfg = Config::from_env();
+            cfg.qdrant_url = format!("http://{address}");
+            cfg.document_projection = document_projection;
+            let db = Connection::open_in_memory().unwrap();
+            db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[\"text_all\"]');")
+                .unwrap();
+            let state = AppState {
+                qdrant: Qdrant {
+                    client: Client::new(),
+                    base: cfg.qdrant_url.clone(),
+                    key: None,
+                },
+                db: Arc::new(Mutex::new(db)),
+                analytics: Arc::new(Mutex::new(Analytics::default())),
+                cfg,
+            };
+
+            let response = get_doc(State(state), Path(("products".into(), "missing".into())))
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+            assert_eq!(
+                response.headers().get("x-elastic-product").unwrap(),
+                "Elasticsearch"
+            );
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let response_body: Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(
+                response_body,
+                json!({"_index":"products","_id":"missing","found":false})
+            );
+        }
+        server.abort();
     }
 
     #[test]

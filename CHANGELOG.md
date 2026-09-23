@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Return HTTP 404 with Elasticsearch's `found: false` document shape when a GET targets a missing document.
 - Return Elasticsearch-shaped HTTP 413 errors for requests that exceed `MAX_BODY_BYTES` or `MAX_BULK_BYTES`, including bodies rejected while streaming.
 - Default the Helm deployment to one replica so its SQLite metadata catalog and `ReadWriteOnce` volume are not presented as a safe horizontally scaled control plane.
 - Publish index metadata only after Qdrant setup succeeds, and clean up collections after partial creation failures.
