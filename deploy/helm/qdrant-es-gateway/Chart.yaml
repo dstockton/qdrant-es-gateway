@@ -2,8 +2,8 @@ apiVersion: v2
 name: qdrant-es-gateway
 description: Elasticsearch-compatible application-search gateway backed by Qdrant
 type: application
-version: 0.1.1
-appVersion: "0.1.1"
+version: 0.1.2
+appVersion: "0.1.2"
 home: https://github.com/dstockton/qdrant-es-gateway
 sources:
   - https://github.com/dstockton/qdrant-es-gateway
