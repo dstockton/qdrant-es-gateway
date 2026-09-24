@@ -8,6 +8,7 @@
 
 ## Unreleased
 
+- Return HTTP 404 with `result: "not_found"` when deleting a missing document, including non-error bulk item reporting.
 - Return `document_missing_exception` for updates to missing documents while preserving explicit `doc_as_upsert` creation, including correct bulk error and status reporting.
 - Return HTTP 404 with Elasticsearch's `found: false` document shape when a GET targets a missing document.
 - Return Elasticsearch-shaped HTTP 413 errors for requests that exceed `MAX_BODY_BYTES` or `MAX_BULK_BYTES`, including bodies rejected while streaming.

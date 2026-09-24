@@ -822,6 +822,12 @@ async fn delete_doc(
     Path((index, id)): Path<(String, String)>,
 ) -> Result<Response, GatewayError> {
     let (coll, _, _) = get_index(&state, &index)?;
+    if retrieve_source(&state, &index, &coll, &id).await?.is_none() {
+        return Ok(es_response(
+            StatusCode::NOT_FOUND,
+            json!({"_index":index,"_id":id,"_version":1,"result":"not_found","_shards":{"total":1,"successful":1,"failed":0}}),
+        ));
+    }
     let point = point_id(&index, &id);
     if state.cfg.document_projection {
         state
@@ -2433,7 +2439,10 @@ async fn bulk(
         let result = match kind.as_str() {
             "delete" => delete_doc(State(state.clone()), Path((idx.clone(), id.clone())))
                 .await
-                .map(|_| json!({"delete":{"_index":idx,"_id":id,"status":200}})),
+                .map(|response| {
+                    let status = response.status();
+                    json!({"delete":{"_index":idx,"_id":id,"status":status.as_u16(),"result":if status == StatusCode::NOT_FOUND { "not_found" } else { "deleted" }}})
+                }),
             "update" => update_doc(
                 State(state.clone()),
                 Path((idx.clone(), id.clone())),
@@ -3180,6 +3189,74 @@ mod tests {
             let bulk_upsert_body: Value = serde_json::from_slice(&bytes).unwrap();
             assert_eq!(bulk_upsert_body["errors"], false);
             assert_eq!(bulk_upsert_body["items"][0]["update"]["status"], 201);
+        }
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn missing_document_delete_returns_not_found_without_a_bulk_error() {
+        let mock = Router::new().fallback(any(|method: Method| async move {
+            match method {
+                Method::GET => Json(json!({"result":null})).into_response(),
+                Method::POST => Json(json!({"result":[]})).into_response(),
+                _ => Json(json!({"status":"ok"})).into_response(),
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        for document_projection in [false, true] {
+            let mut cfg = Config::from_env();
+            cfg.qdrant_url = format!("http://{address}");
+            cfg.document_projection = document_projection;
+            let db = Connection::open_in_memory().unwrap();
+            db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[\"text_all\"]');")
+                .unwrap();
+            let state = AppState {
+                qdrant: Qdrant {
+                    client: Client::new(),
+                    base: cfg.qdrant_url.clone(),
+                    key: None,
+                    async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+                },
+                db: Arc::new(Mutex::new(db)),
+                analytics: Arc::new(Mutex::new(Analytics::default())),
+                cfg,
+            };
+
+            let response = delete_doc(
+                State(state.clone()),
+                Path(("products".into(), "missing".into())),
+            )
+            .await
+            .unwrap();
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+            assert_eq!(
+                response.headers().get("x-elastic-product").unwrap(),
+                "Elasticsearch"
+            );
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let response_body: Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(response_body["result"], "not_found");
+
+            let bulk_response = bulk(
+                State(state),
+                None,
+                "{\"delete\":{\"_index\":\"products\",\"_id\":\"missing\"}}\n".into(),
+            )
+            .await
+            .unwrap();
+            let bytes = axum::body::to_bytes(bulk_response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let bulk_body: Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(bulk_body["errors"], false);
+            assert_eq!(bulk_body["items"][0]["delete"]["status"], 404);
+            assert_eq!(bulk_body["items"][0]["delete"]["result"], "not_found");
+            assert!(bulk_body["items"][0]["delete"].get("error").is_none());
         }
         server.abort();
     }
