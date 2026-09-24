@@ -37,6 +37,9 @@ gateway:
   documentProjection: true
   asyncSearchProjection: true
   asyncPayloadWrites: true
+  qdrantConnectTimeoutMs: 5000
+  qdrantRequestTimeoutMs: 180000
+  asyncWriteQueue: 256
   maxBodyBytes: 268435456
   maxBulkBytes: 268435456
   maxPageSize: 1000

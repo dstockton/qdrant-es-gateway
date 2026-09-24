@@ -20,6 +20,7 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
+use tokio::sync::Semaphore;
 use tracing::{info, warn};
 
 #[derive(Clone)]
@@ -36,6 +37,9 @@ struct Config {
     document_projection: bool,
     async_search_projection: bool,
     qdrant_replication_factor: Option<u64>,
+    qdrant_connect_timeout: Duration,
+    qdrant_request_timeout: Duration,
+    async_write_queue: usize,
 }
 
 impl Config {
@@ -76,7 +80,42 @@ impl Config {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .filter(|v| *v > 0),
+            qdrant_connect_timeout: positive_duration_env(
+                "QDRANT_CONNECT_TIMEOUT_MS",
+                Duration::from_secs(5),
+            ),
+            qdrant_request_timeout: positive_duration_env(
+                "QDRANT_REQUEST_TIMEOUT_MS",
+                Duration::from_secs(180),
+            ),
+            async_write_queue: positive_usize_env("ASYNC_WRITE_QUEUE", 256),
         }
+    }
+}
+
+fn positive_duration_env(name: &str, default: Duration) -> Duration {
+    match env::var(name) {
+        Ok(value) => match value.parse::<u64>() {
+            Ok(milliseconds) if milliseconds > 0 => Duration::from_millis(milliseconds),
+            _ => {
+                warn!(setting = name, "invalid positive duration; using default");
+                default
+            }
+        },
+        Err(_) => default,
+    }
+}
+
+fn positive_usize_env(name: &str, default: usize) -> usize {
+    match env::var(name) {
+        Ok(value) => match value.parse::<usize>() {
+            Ok(number) if number > 0 => number,
+            _ => {
+                warn!(setting = name, "invalid positive integer; using default");
+                default
+            }
+        },
+        Err(_) => default,
     }
 }
 
@@ -100,6 +139,7 @@ struct Qdrant {
     client: Client,
     base: String,
     key: Option<String>,
+    async_write_queue: Arc<Semaphore>,
 }
 
 impl Qdrant {
@@ -120,7 +160,7 @@ impl Qdrant {
         let response = req
             .send()
             .await
-            .map_err(|e| GatewayError::upstream(e.to_string()))?;
+            .map_err(|e| GatewayError::upstream(e.without_url().to_string()))?;
         let status = response.status();
         let bytes = response
             .bytes()
@@ -139,11 +179,21 @@ impl Qdrant {
         self.request(Method::GET, "/", None).await.map(|_| ())
     }
 
-    fn spawn_request(&self, method: Method, path: String, body: Value) {
+    fn spawn_request(&self, method: Method, path: String, body: Value) -> Result<(), GatewayError> {
+        let permit = self
+            .async_write_queue
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| GatewayError::upstream("asynchronous write queue is full"))?;
         let qdrant = self.clone();
         tokio::spawn(async move {
-            let _ = qdrant.request(method, &path, Some(body)).await;
+            let result = qdrant.request(method, &path, Some(body)).await;
+            drop(permit);
+            if let Err(error) = result {
+                warn!(%error, "asynchronous Qdrant write failed");
+            }
         });
+        Ok(())
     }
 }
 
@@ -231,7 +281,7 @@ fn es_ok(body: Value) -> Response {
 fn init_db() -> anyhow::Result<Connection> {
     let path = env::var("METADATA_DB").unwrap_or_else(|_| "gateway.db".into());
     let db = Connection::open(path)?;
-    db.execute_batch("CREATE TABLE IF NOT EXISTS indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE IF NOT EXISTS aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL);")?;
+    db.execute_batch("PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE IF NOT EXISTS aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL);")?;
     Ok(db)
 }
 
@@ -887,7 +937,7 @@ async fn update_doc(
             "wait": !state.cfg.async_payload_writes
         });
         if state.cfg.async_payload_writes {
-            state.qdrant.spawn_request(Method::POST, path, body);
+            state.qdrant.spawn_request(Method::POST, path, body)?;
         } else {
             state
                 .qdrant
@@ -2766,16 +2816,20 @@ async fn main() -> anyhow::Result<()> {
         .json()
         .init();
     let cfg = Config::from_env();
+    let connect_timeout_ms = cfg.qdrant_connect_timeout.as_millis();
+    let request_timeout_ms = cfg.qdrant_request_timeout.as_millis();
+    let async_write_queue = cfg.async_write_queue;
     let state = AppState {
         qdrant: Qdrant {
             client: Client::builder()
-                .connect_timeout(Duration::from_secs(5))
-                .timeout(Duration::from_secs(180))
+                .connect_timeout(cfg.qdrant_connect_timeout)
+                .timeout(cfg.qdrant_request_timeout)
                 .tcp_nodelay(true)
                 .pool_max_idle_per_host(128)
                 .build()?,
             base: cfg.qdrant_url.clone(),
             key: cfg.qdrant_api_key.clone(),
+            async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
         },
         db: Arc::new(Mutex::new(init_db()?)),
         analytics: Arc::new(Mutex::new(Analytics::default())),
@@ -2783,7 +2837,13 @@ async fn main() -> anyhow::Result<()> {
     };
     let app = gateway_router(state.clone());
     let addr: SocketAddr = state.cfg.listen_addr.parse()?;
-    info!(%addr, "starting qdrant-es-gateway");
+    info!(
+        %addr,
+        connect_timeout_ms,
+        request_timeout_ms,
+        async_write_queue,
+        "starting qdrant-es-gateway"
+    );
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app)
         .with_graceful_shutdown(async {
@@ -2895,6 +2955,7 @@ mod tests {
                 client: Client::new(),
                 base: cfg.qdrant_url.clone(),
                 key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
@@ -2937,6 +2998,7 @@ mod tests {
                 client: Client::new(),
                 base: "http://127.0.0.1:1".into(),
                 key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
@@ -3008,6 +3070,7 @@ mod tests {
                     client: Client::new(),
                     base: cfg.qdrant_url.clone(),
                     key: None,
+                    async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
@@ -3060,6 +3123,7 @@ mod tests {
                     client: Client::new(),
                     base: cfg.qdrant_url.clone(),
                     key: None,
+                    async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),

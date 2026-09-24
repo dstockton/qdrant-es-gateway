@@ -14,6 +14,9 @@ data:
   DOCUMENT_PROJECTION: {{ .Values.gateway.documentProjection | quote }}
   ASYNC_SEARCH_PROJECTION: {{ .Values.gateway.asyncSearchProjection | quote }}
   ASYNC_PAYLOAD_WRITES: {{ .Values.gateway.asyncPayloadWrites | quote }}
+  QDRANT_CONNECT_TIMEOUT_MS: {{ .Values.gateway.qdrantConnectTimeoutMs | quote }}
+  QDRANT_REQUEST_TIMEOUT_MS: {{ .Values.gateway.qdrantRequestTimeoutMs | quote }}
+  ASYNC_WRITE_QUEUE: {{ .Values.gateway.asyncWriteQueue | quote }}
   MAX_BODY_BYTES: {{ .Values.gateway.maxBodyBytes | quote }}
   MAX_BULK_BYTES: {{ .Values.gateway.maxBulkBytes | quote }}
   MAX_PAGE_SIZE: {{ .Values.gateway.maxPageSize | quote }}
