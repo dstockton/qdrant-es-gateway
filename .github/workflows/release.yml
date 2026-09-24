@@ -2,7 +2,7 @@ name: Release container
 
 on:
   push:
-    tags: ["v*.*.*"]
+    branches: [main]
 
 permissions:
   contents: write
@@ -11,12 +11,67 @@ permissions:
   attestations: write
   security-events: write
 
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
 env:
   IMAGE: ghcr.io/dstockton/qdrant-es-gateway
 
 jobs:
-  publish:
+  version:
     runs-on: ubuntu-24.04
+    outputs:
+      release: ${{ steps.version.outputs.release }}
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Decide whether this merge is a release
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(sed -nE 's/^version = "([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' Cargo.toml | head -n1)"
+          if [[ -z "${version}" ]]; then
+            echo "Cargo.toml does not contain a plain semantic package version" >&2
+            exit 1
+          fi
+          chart_version="$(sed -nE 's/^version: ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' deploy/helm/qdrant-es-gateway/Chart.yaml | head -n1)"
+          if [[ "${chart_version}" != "${version}" ]]; then
+            echo "Cargo.toml version ${version} does not match Helm chart version ${chart_version}" >&2
+            exit 1
+          fi
+          tag="v${version}"
+          if git ls-remote --exit-code --refs origin "refs/tags/${tag}" >/dev/null 2>&1; then
+            echo "${tag} already exists; this main push does not publish a new release"
+            echo 'release=false' >> "${GITHUB_OUTPUT}"
+          else
+            echo "Publishing ${tag} from this main push"
+            echo 'release=true' >> "${GITHUB_OUTPUT}"
+          fi
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create and push release tag
+        if: steps.version.outputs.release == 'true'
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git tag --annotate "${RELEASE_TAG}" --message "${RELEASE_TAG}"
+          git push origin "${RELEASE_TAG}"
+
+  publish:
+    needs: version
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-24.04
+    env:
+      RELEASE_TAG: ${{ needs.version.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
@@ -34,7 +89,7 @@ jobs:
         with:
           images: ${{ env.IMAGE }}
           tags: |
-            type=ref,event=tag
+            type=raw,value=${{ env.RELEASE_VERSION }}
             type=raw,value=latest
             type=sha
       - name: Build and push image
@@ -83,11 +138,11 @@ jobs:
           artifact-name: image-sbom.spdx.json
           upload-release-assets: false
       - name: Package Helm chart
-        run: helm package deploy/helm/qdrant-es-gateway --version "${GITHUB_REF_NAME#v}" --app-version "${GITHUB_REF_NAME#v}"
+        run: helm package deploy/helm/qdrant-es-gateway --version "${RELEASE_VERSION}" --app-version "${RELEASE_VERSION}"
       - name: Attest image SBOM
         uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
       - run: cosign attest --yes --predicate image-sbom.spdx.json --type spdxjson ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
       - name: Create GitHub release and attach SBOM
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "${GITHUB_REF_NAME}" --generate-notes image-sbom.spdx.json qdrant-es-gateway-*.tgz
+        run: gh release create "${RELEASE_TAG}" --generate-notes image-sbom.spdx.json qdrant-es-gateway-*.tgz

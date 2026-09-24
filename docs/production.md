@@ -47,9 +47,9 @@ Before exposing the service:
 
 ## Release process
 
-1. Merge a tested change to `main`.
-2. Create an annotated semantic-version tag, for example `git tag -a v0.1.0 -m 'v0.1.0'`.
-3. Push the tag: `git push origin v0.1.0`.
+1. Bump the package version in `Cargo.toml` and the chart version in `deploy/helm/qdrant-es-gateway/Chart.yaml`.
+2. Merge the tested change to `main`.
+3. The release workflow creates the matching `vX.Y.Z` tag, publishes the multi-architecture GHCR image, packages the Helm chart, and creates the GitHub release. If that version tag already exists, the workflow skips publishing.
 4. Review the GitHub Actions image scan and SBOM attestation.
 5. Promote the immutable image digest through environments.
 
