@@ -8,6 +8,10 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
+  packages: write
+  id-token: write
+  attestations: write
+  security-events: write
 
 concurrency:
   group: release-please-main
