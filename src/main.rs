@@ -153,6 +153,8 @@ enum GatewayError {
     Bad { feature: String, message: String },
     #[error("{0}")]
     NotFound(String),
+    #[error("document [{index}]/[{id}] is missing")]
+    DocumentNotFound { index: String, id: String },
     #[error("request body exceeds configured {setting} limit of {limit} bytes")]
     PayloadTooLarge { setting: &'static str, limit: usize },
     #[error("upstream error: {0}")]
@@ -176,7 +178,7 @@ impl GatewayError {
     }
     fn status(&self) -> StatusCode {
         match self {
-            Self::NotFound(_) => StatusCode::NOT_FOUND,
+            Self::NotFound(_) | Self::DocumentNotFound { .. } => StatusCode::NOT_FOUND,
             Self::Bad { .. } => StatusCode::BAD_REQUEST,
             Self::PayloadTooLarge { .. } => StatusCode::PAYLOAD_TOO_LARGE,
             Self::Upstream(_) => StatusCode::BAD_GATEWAY,
@@ -190,6 +192,9 @@ impl GatewayError {
             }
             Self::NotFound(message) => {
                 json!({"error":{"type":"index_not_found_exception","reason":message},"status":404})
+            }
+            Self::DocumentNotFound { index, id } => {
+                json!({"error":{"type":"document_missing_exception","reason":format!("[{id}]: document missing"),"index":index,"shard":"0"},"status":404})
             }
             Self::PayloadTooLarge { setting, limit } => {
                 json!({"error":{"type":"content_too_long_exception","reason":format!("request body exceeds configured {setting} limit of {limit} bytes")},"status":413})
@@ -599,6 +604,36 @@ async fn retrieve_sources(
     Ok(sources)
 }
 
+async fn retrieve_source(
+    state: &AppState,
+    index: &str,
+    collection: &str,
+    id: &str,
+) -> Result<Option<Value>, GatewayError> {
+    if state.cfg.document_projection {
+        return Ok(retrieve_sources(state, index, &[point_id(index, id)])
+            .await?
+            .remove(id));
+    }
+    let point = state
+        .qdrant
+        .request(
+            Method::GET,
+            &format!(
+                "/collections/{collection}/points/{}?with_payload=true",
+                point_id(index, id)
+            ),
+            None,
+        )
+        .await?;
+    Ok(point
+        .get("result")
+        .filter(|result| !result.is_null())
+        .and_then(|result| result.get("payload"))
+        .and_then(|payload| payload.get("_source"))
+        .cloned())
+}
+
 async fn write_docs(
     State(state): State<AppState>,
     index: String,
@@ -771,10 +806,28 @@ async fn update_doc(
         return Err(GatewayError::bad("body.doc", "doc must be an object"));
     }
     let (coll, mapping, vectors) = get_index(&state, &index)?;
+    let current = retrieve_source(&state, &index, &coll, &id).await?;
+    let Some(source) = current else {
+        if body
+            .get("doc_as_upsert")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            write_doc(
+                State(state),
+                Path((index.clone(), id.clone())),
+                Json(doc.clone()),
+            )
+            .await?;
+            return Ok(es_response(
+                StatusCode::CREATED,
+                json!({"_index":index,"_id":id,"_version":1,"result":"created","_shards":{"total":1,"successful":1,"failed":0},"_seq_no":0,"_primary_term":1}),
+            ));
+        }
+        return Err(GatewayError::DocumentNotFound { index, id });
+    };
     if state.cfg.document_projection {
         let point = point_id(&index, &id);
-        let current = retrieve_sources(&state, &index, std::slice::from_ref(&point)).await?;
-        let source = current.get(&id).cloned().unwrap_or_else(|| json!({}));
         let mut obj = source.as_object().cloned().unwrap_or_default();
         for (k, v) in doc.as_object().unwrap() {
             obj.insert(k.clone(), v.clone());
@@ -845,24 +898,6 @@ async fn update_doc(
             json!({"_index":index,"_id":id,"_version":1,"result":"updated","_shards":{"total":1,"successful":1,"failed":0}}),
         ));
     }
-    let p = state
-        .qdrant
-        .request(
-            Method::GET,
-            &format!(
-                "/collections/{}/points/{}?with_payload=true",
-                coll,
-                point_id(&index, &id)
-            ),
-            None,
-        )
-        .await?;
-    let source = p
-        .get("result")
-        .and_then(|r| r.get("payload"))
-        .and_then(|p| p.get("_source"))
-        .cloned()
-        .unwrap_or_else(|| json!({}));
     let mut obj = source.as_object().cloned().unwrap_or_default();
     for (k, v) in doc.as_object().unwrap() {
         obj.insert(k.clone(), v.clone());
@@ -2355,7 +2390,9 @@ async fn bulk(
                 Json(source.clone().unwrap_or_else(|| json!({}))),
             )
             .await
-            .map(|_| json!({"update":{"_index":idx,"_id":id,"status":200}})),
+            .map(|response| {
+                json!({"update":{"_index":idx,"_id":id,"status":response.status().as_u16()}})
+            }),
             _ => Err(GatewayError::bad(
                 format!("_bulk.{kind}"),
                 "unsupported bulk action",
@@ -2994,6 +3031,91 @@ mod tests {
                 response_body,
                 json!({"_index":"products","_id":"missing","found":false})
             );
+        }
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn missing_document_update_returns_404_unless_doc_as_upsert_is_set() {
+        let mock = Router::new().fallback(any(|method: Method| async move {
+            match method {
+                Method::GET => Json(json!({"result":null})).into_response(),
+                Method::POST => Json(json!({"result":[]})).into_response(),
+                _ => Json(json!({"status":"ok"})).into_response(),
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        for document_projection in [false, true] {
+            let mut cfg = Config::from_env();
+            cfg.qdrant_url = format!("http://{address}");
+            cfg.document_projection = document_projection;
+            let db = Connection::open_in_memory().unwrap();
+            db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[\"text_all\"]');")
+                .unwrap();
+            let state = AppState {
+                qdrant: Qdrant {
+                    client: Client::new(),
+                    base: cfg.qdrant_url.clone(),
+                    key: None,
+                },
+                db: Arc::new(Mutex::new(db)),
+                analytics: Arc::new(Mutex::new(Analytics::default())),
+                cfg,
+            };
+
+            let error = update_doc(
+                State(state.clone()),
+                Path(("products".into(), "missing".into())),
+                Json(json!({"doc":{"price":42}})),
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(error.status(), StatusCode::NOT_FOUND);
+            assert_eq!(error.body()["error"]["type"], "document_missing_exception");
+
+            let bulk_response = bulk(
+                State(state.clone()),
+                None,
+                "{\"update\":{\"_index\":\"products\",\"_id\":\"missing\"}}\n{\"doc\":{\"price\":42}}\n".into(),
+            )
+            .await
+            .unwrap();
+            let bytes = axum::body::to_bytes(bulk_response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let bulk_body: Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(bulk_body["errors"], true);
+            assert_eq!(bulk_body["items"][0]["update"]["status"], 404);
+            assert_eq!(
+                bulk_body["items"][0]["update"]["error"]["type"],
+                "document_missing_exception"
+            );
+
+            let upsert_response = update_doc(
+                State(state.clone()),
+                Path(("products".into(), "missing".into())),
+                Json(json!({"doc":{"price":42},"doc_as_upsert":true})),
+            )
+            .await
+            .unwrap();
+            assert_eq!(upsert_response.status(), StatusCode::CREATED);
+
+            let bulk_upsert_response = bulk(
+                State(state.clone()),
+                None,
+                "{\"update\":{\"_index\":\"products\",\"_id\":\"missing\"}}\n{\"doc\":{\"price\":42},\"doc_as_upsert\":true}\n".into(),
+            )
+            .await
+            .unwrap();
+            let bytes = axum::body::to_bytes(bulk_upsert_response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let bulk_upsert_body: Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(bulk_upsert_body["errors"], false);
+            assert_eq!(bulk_upsert_body["items"][0]["update"]["status"], 201);
         }
         server.abort();
     }
