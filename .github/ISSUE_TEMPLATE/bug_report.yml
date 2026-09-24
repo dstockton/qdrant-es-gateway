@@ -1,0 +1,41 @@
+name: Bug report
+description: Report a reproducible correctness, compatibility, or reliability problem.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please search existing issues first. Do not include credentials, private voice assets, or sensitive document data.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the expected and actual behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Include the smallest request or client example that reproduces the problem.
+      placeholder: |
+        1. Start the gateway with ...
+        2. Create the index with ...
+        3. Send ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include gateway version or commit, deployment method, Qdrant version, and client/library versions.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or responses
+      description: Paste sanitized logs, request/response JSON, or a failing test. Remove secrets and personal data.
+      render: text

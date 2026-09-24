@@ -1,0 +1,36 @@
+name: Performance report
+description: Share a reproducible benchmark result or performance regression.
+title: "[Performance]: "
+labels:
+  - performance
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please compare the same client workload and endpoint shape where possible. Include enough detail for the result to be reproduced.
+  - type: textarea
+    id: workload
+    attributes:
+      label: Workload
+      description: Describe corpus size, operation mix, concurrency, request sizes, warm-up, and duration.
+    validations:
+      required: true
+  - type: textarea
+    id: comparison
+    attributes:
+      label: Results
+      description: Include latency percentiles, throughput, CPU, memory, and disk measurements for the compared configurations.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment and commands
+      description: Include hardware, container or deployment versions, and commands or scripts used.
+    validations:
+      required: true
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: Raw results
+      description: Link to sanitized raw output, a script, or a minimal reproduction if available.

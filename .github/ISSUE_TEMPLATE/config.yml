@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Compatibility matrix
+    url: https://dstockton.github.io/qdrant-es-gateway/compatibility/
+    about: Check supported Elasticsearch request shapes before opening a compatibility issue.
+  - name: Security policy
+    url: https://github.com/dstockton/qdrant-es-gateway/security/policy
+    about: Report security vulnerabilities privately according to the security policy.

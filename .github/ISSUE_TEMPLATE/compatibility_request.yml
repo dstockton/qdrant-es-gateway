@@ -1,0 +1,37 @@
+name: Compatibility request
+description: Ask about support for an Elasticsearch API, query, or client workflow.
+title: "[Compatibility]: "
+labels:
+  - compatibility
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The gateway targets application search rather than complete Elasticsearch compatibility. Please include the exact request shape where possible.
+  - type: textarea
+    id: request
+    attributes:
+      label: Elasticsearch request
+      description: Paste a minimized request, response, or client-generated request. Remove sensitive data.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case
+      description: What application workflow needs this feature?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should the gateway return or do?
+    validations:
+      required: true
+  - type: input
+    id: client
+    attributes:
+      label: Client and version
+      placeholder: elasticsearch-py 8.x
