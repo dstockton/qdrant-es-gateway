@@ -1,8 +1,12 @@
 name: Release container
 
 on:
-  push:
-    branches: [main]
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Release tag created by Release Please
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -29,7 +33,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - name: Decide whether this merge is a release
+      - name: Validate the release tag
         id: version
         shell: bash
         run: |
@@ -44,26 +48,15 @@ jobs:
             echo "Cargo.toml version ${version} does not match Helm chart version ${chart_version}" >&2
             exit 1
           fi
-          tag="v${version}"
-          if git ls-remote --exit-code --refs origin "refs/tags/${tag}" >/dev/null 2>&1; then
-            echo "${tag} already exists; this main push does not publish a new release"
-            echo 'release=false' >> "${GITHUB_OUTPUT}"
-          else
-            echo "Publishing ${tag} from this main push"
-            echo 'release=true' >> "${GITHUB_OUTPUT}"
+          tag="${{ inputs.release_tag }}"
+          if [[ "${tag}" != "v${version}" ]]; then
+            echo "Release tag ${tag} does not match Cargo.toml version ${version}" >&2
+            exit 1
           fi
+          echo "Publishing ${tag}"
+          echo 'release=true' >> "${GITHUB_OUTPUT}"
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
-
-      - name: Create and push release tag
-        if: steps.version.outputs.release == 'true'
-        env:
-          RELEASE_TAG: ${{ steps.version.outputs.tag }}
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git tag --annotate "${RELEASE_TAG}" --message "${RELEASE_TAG}"
-          git push origin "${RELEASE_TAG}"
 
   publish:
     needs: version
@@ -142,7 +135,12 @@ jobs:
       - name: Attest image SBOM
         uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
       - run: cosign attest --yes --predicate image-sbom.spdx.json --type spdxjson ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
-      - name: Create GitHub release and attach SBOM
+      - name: Attach SBOM and chart to the GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "${RELEASE_TAG}" --generate-notes image-sbom.spdx.json qdrant-es-gateway-*.tgz
+        run: |
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" image-sbom.spdx.json qdrant-es-gateway-*.tgz --clobber
+          else
+            gh release create "${RELEASE_TAG}" --generate-notes image-sbom.spdx.json qdrant-es-gateway-*.tgz
+          fi

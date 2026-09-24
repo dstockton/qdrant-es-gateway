@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2 - 2026-09-24
+
+- Added configurable upstream timeouts.
+- Bounded asynchronous payload writes.
+- Added SQLite busy handling and dependency advisory checks.
+
 ## Unreleased
 
 - Return `document_missing_exception` for updates to missing documents while preserving explicit `doc_as_upsert` creation, including correct bulk error and status reporting.
