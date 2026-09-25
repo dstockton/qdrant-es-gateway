@@ -206,6 +206,8 @@ enum GatewayError {
     NotFound(String),
     #[error("document [{index}]/[{id}] is missing")]
     DocumentNotFound { index: String, id: String },
+    #[error("document [{index}]/[{id}] already exists")]
+    VersionConflict { index: String, id: String },
     #[error("request body exceeds configured {setting} limit of {limit} bytes")]
     PayloadTooLarge { setting: &'static str, limit: usize },
     #[error("upstream error: {0}")]
@@ -230,6 +232,7 @@ impl GatewayError {
     fn status(&self) -> StatusCode {
         match self {
             Self::NotFound(_) | Self::DocumentNotFound { .. } => StatusCode::NOT_FOUND,
+            Self::VersionConflict { .. } => StatusCode::CONFLICT,
             Self::Bad { .. } => StatusCode::BAD_REQUEST,
             Self::PayloadTooLarge { .. } => StatusCode::PAYLOAD_TOO_LARGE,
             Self::Upstream(_) => StatusCode::BAD_GATEWAY,
@@ -246,6 +249,9 @@ impl GatewayError {
             }
             Self::DocumentNotFound { index, id } => {
                 json!({"error":{"type":"document_missing_exception","reason":format!("[{id}]: document missing"),"index":index,"shard":"0"},"status":404})
+            }
+            Self::VersionConflict { index, id } => {
+                json!({"error":{"type":"version_conflict_engine_exception","reason":format!("[{id}]: version conflict, document already exists (current version [1])"),"index":index,"shard":"0"},"status":409})
             }
             Self::PayloadTooLarge { setting, limit } => {
                 json!({"error":{"type":"content_too_long_exception","reason":format!("request body exceeds configured {setting} limit of {limit} bytes")},"status":413})
@@ -824,6 +830,20 @@ async fn write_doc(
     Path((index, id)): Path<(String, String)>,
     Json(source): Json<Value>,
 ) -> Result<Response, GatewayError> {
+    write_docs(State(state), index, vec![(id, source)]).await
+}
+
+async fn create_doc(
+    State(state): State<AppState>,
+    Path((index, id)): Path<(String, String)>,
+    Json(source): Json<Value>,
+) -> Result<Response, GatewayError> {
+    let index_admin = state.index_admin.clone();
+    let _index_admin = index_admin.lock().await;
+    let (index, coll, _, _) = get_index(&state, &index)?;
+    if retrieve_source(&state, &index, &coll, &id).await?.is_some() {
+        return Err(GatewayError::VersionConflict { index, id });
+    }
     write_docs(State(state), index, vec![(id, source)]).await
 }
 
@@ -2494,13 +2514,11 @@ async fn bulk(
     let mut cursor = 0;
     while cursor < actions.len() {
         let (kind, idx, id, source) = &actions[cursor];
-        if kind == "index" || kind == "create" {
+        if kind == "index" {
             let batch_index = idx.clone();
             let mut batch = Vec::new();
             let mut end = cursor;
-            while end < actions.len()
-                && (actions[end].0 == "index" || actions[end].0 == "create")
-                && actions[end].1 == batch_index
+            while end < actions.len() && actions[end].0 == "index" && actions[end].1 == batch_index
             {
                 batch.push((
                     actions[end].2.clone(),
@@ -2519,6 +2537,13 @@ async fn bulk(
             continue;
         }
         let result = match kind.as_str() {
+            "create" => create_doc(
+                State(state.clone()),
+                Path((idx.clone(), id.clone())),
+                Json(source.clone().unwrap_or_else(|| json!({}))),
+            )
+            .await
+            .map(|_| json!({"create":{"_index":idx,"_id":id,"status":201}})),
             "delete" => delete_doc(State(state.clone()), Path((idx.clone(), id.clone())))
                 .await
                 .map(|response| {
@@ -3536,6 +3561,133 @@ mod tests {
             assert_eq!(bulk_body["items"][0]["delete"]["result"], "not_found");
             assert!(bulk_body["items"][0]["delete"].get("error").is_none());
         }
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn bulk_create_rejects_an_existing_document_without_overwriting_it() {
+        let writes = Arc::new(Mutex::new(0_u64));
+        let observed_writes = writes.clone();
+        let mock = Router::new().fallback(any(move |method: Method, uri: axum::http::Uri| {
+            let observed_writes = observed_writes.clone();
+            async move {
+                match method {
+                    Method::GET => Json(json!({
+                        "result":{"payload":{"_es_id":"existing","_source":{"title":"Original"}}}
+                    }))
+                    .into_response(),
+                    Method::POST if uri.path().ends_with("/points") => Json(json!({
+                        "result":[{"payload":{"_es_id":"existing","_source":{"title":"Original"}}}]
+                    }))
+                    .into_response(),
+                    Method::PUT => {
+                        *observed_writes.lock().unwrap() += 1;
+                        Json(json!({"status":"ok"})).into_response()
+                    }
+                    _ => Json(json!({"status":"ok"})).into_response(),
+                }
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        for document_projection in [false, true] {
+            let mut cfg = Config::from_env();
+            cfg.qdrant_url = format!("http://{address}");
+            cfg.document_projection = document_projection;
+            let db = Connection::open_in_memory().unwrap();
+            db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[\"text_all\"]');")
+                .unwrap();
+            let state = AppState {
+                qdrant: Qdrant {
+                    client: Client::new(),
+                    base: cfg.qdrant_url.clone(),
+                    key: None,
+                    async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+                },
+                db: Arc::new(Mutex::new(db)),
+                analytics: Arc::new(Mutex::new(Analytics::default())),
+                index_admin: Arc::new(AsyncMutex::new(())),
+                cfg,
+            };
+
+            let response = bulk(
+                State(state),
+                None,
+                "{\"create\":{\"_index\":\"products\",\"_id\":\"existing\"}}\n{\"title\":\"Replacement\"}\n".into(),
+            )
+            .await
+            .unwrap();
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let body: Value = serde_json::from_slice(&bytes).unwrap();
+
+            assert_eq!(body["errors"], true);
+            assert_eq!(body["items"][0]["create"]["status"], 409);
+            assert_eq!(
+                body["items"][0]["create"]["error"]["type"],
+                "version_conflict_engine_exception"
+            );
+        }
+        assert_eq!(*writes.lock().unwrap(), 0);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn bulk_create_still_writes_a_missing_document() {
+        let writes = Arc::new(Mutex::new(0_u64));
+        let observed_writes = writes.clone();
+        let mock = Router::new().fallback(any(move |method: Method| {
+            let observed_writes = observed_writes.clone();
+            async move {
+                if method == Method::GET {
+                    return Json(json!({"result":null})).into_response();
+                }
+                if method == Method::PUT {
+                    *observed_writes.lock().unwrap() += 1;
+                }
+                Json(json!({"status":"ok"})).into_response()
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        let mut cfg = Config::from_env();
+        cfg.qdrant_url = format!("http://{address}");
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[\"text_all\"]');")
+            .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: cfg.qdrant_url.clone(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        let response = bulk(
+            State(state),
+            None,
+            "{\"create\":{\"_index\":\"products\",\"_id\":\"new\"}}\n{\"title\":\"New\"}\n".into(),
+        )
+        .await
+        .unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+
+        assert_eq!(body["errors"], false);
+        assert_eq!(body["items"][0]["create"]["status"], 201);
+        assert_eq!(*writes.lock().unwrap(), 1);
         server.abort();
     }
 
