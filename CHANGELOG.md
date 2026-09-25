@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.3](https://github.com/dstockton/qdrant-es-gateway/compare/qdrant-es-gateway-v0.1.2...qdrant-es-gateway-v0.1.3) (2026-09-25)
+
+
+### Bug Fixes
+
+* grant release workflow publish permissions ([34aeb70](https://github.com/dstockton/qdrant-es-gateway/commit/34aeb70cfb5d9b6e76a5c31908989c4190bad6fe))
+* make release workflow dependency explicit ([ce13c14](https://github.com/dstockton/qdrant-es-gateway/commit/ce13c149215f0f908d4e11e034715bbe510b8d1a))
+* merge Dependabot updates without branch protection ([da05dc6](https://github.com/dstockton/qdrant-es-gateway/commit/da05dc6a16afe9387c2823857f792a2c51a4ccaf))
+* pin Release Please to a commit ([0837fb9](https://github.com/dstockton/qdrant-es-gateway/commit/0837fb97db0099246b6a0ad396d8d16af508ce6a))
+
 ## 0.1.2 - 2026-09-24
 
 - Added configurable upstream timeouts.
