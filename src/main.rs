@@ -325,6 +325,19 @@ fn ensure_collection_namespace_available(
         .db
         .lock()
         .map_err(|e| GatewayError::Internal(e.to_string()))?;
+    let alias_uses_index_name = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM aliases WHERE alias=?1)",
+            params![index],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(|e| GatewayError::Internal(e.to_string()))?;
+    if alias_uses_index_name {
+        return Err(GatewayError::bad(
+            "index.name",
+            format!("index [{index}] conflicts with an existing alias"),
+        ));
+    }
     let mut stmt = db
         .prepare("SELECT name FROM indices")
         .map_err(|e| GatewayError::Internal(e.to_string()))?;
@@ -350,26 +363,37 @@ fn ensure_collection_namespace_available(
     Ok(())
 }
 
-fn get_index(state: &AppState, name: &str) -> Result<(String, Value, Vec<String>), GatewayError> {
+fn get_index(
+    state: &AppState,
+    name: &str,
+) -> Result<(String, String, Value, Vec<String>), GatewayError> {
     let db = state
         .db
         .lock()
         .map_err(|e| GatewayError::Internal(e.to_string()))?;
     let mut stmt = db
-        .prepare("SELECT mapping, vectors FROM indices WHERE name=?1")
+        .prepare(
+            "SELECT name, mapping, vectors FROM indices
+             WHERE name = COALESCE(
+                 (SELECT name FROM indices WHERE name=?1),
+                 (SELECT index_name FROM aliases WHERE alias=?1)
+             )",
+        )
         .map_err(|e| GatewayError::Internal(e.to_string()))?;
     let row = stmt
         .query_row(params![name], |r| {
-            let m: String = r.get(0)?;
-            let v: String = r.get(1)?;
-            Ok((m, v))
+            let index: String = r.get(0)?;
+            let mapping: String = r.get(1)?;
+            let vectors: String = r.get(2)?;
+            Ok((index, mapping, vectors))
         })
         .map_err(|_| GatewayError::NotFound(format!("no such index [{name}]")))?;
     let vectors =
-        serde_json::from_str(&row.1).map_err(|e| GatewayError::Internal(e.to_string()))?;
+        serde_json::from_str(&row.2).map_err(|e| GatewayError::Internal(e.to_string()))?;
     Ok((
-        collection(name),
-        serde_json::from_str(&row.0).map_err(|e| GatewayError::Internal(e.to_string()))?,
+        row.0.clone(),
+        collection(&row.0),
+        serde_json::from_str(&row.1).map_err(|e| GatewayError::Internal(e.to_string()))?,
         vectors,
     ))
 }
@@ -566,7 +590,14 @@ async fn delete_index(
     State(state): State<AppState>,
     Path(index): Path<String>,
 ) -> Result<Response, GatewayError> {
-    get_index(&state, &index)?;
+    let _index_admin = state.index_admin.lock().await;
+    let (concrete_index, _, _, _) = get_index(&state, &index)?;
+    if concrete_index != index {
+        return Err(GatewayError::bad(
+            "index.name",
+            "index deletion requires a concrete index name, not an alias",
+        ));
+    }
     state
         .qdrant
         .request(
@@ -585,11 +616,21 @@ async fn delete_index(
             )
             .await?;
     }
-    let db = state
+    let mut db = state
         .db
         .lock()
         .map_err(|e| GatewayError::Internal(e.to_string()))?;
-    db.execute("DELETE FROM indices WHERE name=?1", params![index])
+    let transaction = db
+        .transaction()
+        .map_err(|e| GatewayError::Internal(e.to_string()))?;
+    transaction
+        .execute("DELETE FROM aliases WHERE index_name=?1", params![index])
+        .map_err(|e| GatewayError::Internal(e.to_string()))?;
+    transaction
+        .execute("DELETE FROM indices WHERE name=?1", params![index])
+        .map_err(|e| GatewayError::Internal(e.to_string()))?;
+    transaction
+        .commit()
         .map_err(|e| GatewayError::Internal(e.to_string()))?;
     Ok(es_ok(json!({"acknowledged":true})))
 }
@@ -598,7 +639,7 @@ async fn get_index_info(
     State(state): State<AppState>,
     Path(index): Path<String>,
 ) -> Result<Response, GatewayError> {
-    let (_, mapping, _) = get_index(&state, &index)?;
+    let (index, _, mapping, _) = get_index(&state, &index)?;
     Ok(es_ok(json!({index:{"mappings":mapping}})))
 }
 async fn head_index(State(state): State<AppState>, Path(index): Path<String>) -> Response {
@@ -730,7 +771,7 @@ async fn write_docs(
     index: String,
     docs: Vec<(String, Value)>,
 ) -> Result<Response, GatewayError> {
-    let (coll, mapping, vectors) = get_index(&state, &index)?;
+    let (index, coll, mapping, vectors) = get_index(&state, &index)?;
     let points = docs
         .iter()
         .map(|(id, source)| {
@@ -790,7 +831,7 @@ async fn get_doc(
     State(state): State<AppState>,
     Path((index, id)): Path<(String, String)>,
 ) -> Result<Response, GatewayError> {
-    let (coll, _, _) = get_index(&state, &index)?;
+    let (index, coll, _, _) = get_index(&state, &index)?;
     if state.cfg.document_projection {
         let sources = retrieve_sources(&state, &index, &[point_id(&index, &id)]).await?;
         return Ok(match sources.get(&id) {
@@ -830,7 +871,7 @@ async fn head_doc(
     State(state): State<AppState>,
     Path((index, id)): Path<(String, String)>,
 ) -> Response {
-    let Ok((coll, _, _)) = get_index(&state, &index) else {
+    let Ok((index, coll, _, _)) = get_index(&state, &index) else {
         return StatusCode::NOT_FOUND.into_response();
     };
     if state.cfg.document_projection {
@@ -862,7 +903,7 @@ async fn delete_doc(
     State(state): State<AppState>,
     Path((index, id)): Path<(String, String)>,
 ) -> Result<Response, GatewayError> {
-    let (coll, _, _) = get_index(&state, &index)?;
+    let (index, coll, _, _) = get_index(&state, &index)?;
     if retrieve_source(&state, &index, &coll, &id).await?.is_none() {
         return Ok(es_response(
             StatusCode::NOT_FOUND,
@@ -902,7 +943,7 @@ async fn update_doc(
     if !doc.is_object() {
         return Err(GatewayError::bad("body.doc", "doc must be an object"));
     }
-    let (coll, mapping, vectors) = get_index(&state, &index)?;
+    let (index, coll, mapping, vectors) = get_index(&state, &index)?;
     let current = retrieve_source(&state, &index, &coll, &id).await?;
     let Some(source) = current else {
         if body
@@ -1538,9 +1579,9 @@ async fn expand_more_like_this(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let (coll, _, _) = get_index(state, index)?;
+    let (index, coll, _, _) = get_index(state, index)?;
     let source = if state.cfg.document_projection {
-        retrieve_sources(state, index, &[point_id(index, id)])
+        retrieve_sources(state, &index, &[point_id(&index, id)])
             .await?
             .remove(id)
             .unwrap_or_else(|| json!({}))
@@ -1552,7 +1593,7 @@ async fn expand_more_like_this(
                 &format!(
                     "/collections/{}/points/{}?with_payload=true",
                     coll,
-                    point_id(index, id)
+                    point_id(&index, id)
                 ),
                 None,
             )
@@ -1818,7 +1859,7 @@ async fn search(
     Json(body): Json<Value>,
 ) -> Result<Response, GatewayError> {
     let started = Instant::now();
-    let (coll, _, vectors) = get_index(&state, &index)?;
+    let (index, coll, _, vectors) = get_index(&state, &index)?;
     let mut query = body
         .get("query")
         .cloned()
@@ -2352,7 +2393,7 @@ async fn count(
     Path(index): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Response, GatewayError> {
-    let (coll, _, _) = get_index(&state, &index)?;
+    let (_, coll, _, _) = get_index(&state, &index)?;
     let query = body
         .get("query")
         .cloned()
@@ -2509,6 +2550,7 @@ async fn aliases(
     State(state): State<AppState>,
     Json(body): Json<Value>,
 ) -> Result<Response, GatewayError> {
+    let _index_admin = state.index_admin.lock().await;
     for action in body
         .get("actions")
         .and_then(Value::as_array)
@@ -2526,7 +2568,24 @@ async fn aliases(
                 .get("index")
                 .and_then(Value::as_str)
                 .ok_or_else(|| GatewayError::bad("_aliases.add.index", "missing index"))?;
-            let db = state.db.lock().unwrap();
+            let (idx, _, _, _) = get_index(&state, idx)?;
+            let db = state
+                .db
+                .lock()
+                .map_err(|e| GatewayError::Internal(e.to_string()))?;
+            let index_uses_alias_name = db
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM indices WHERE name=?1)",
+                    params![alias],
+                    |row| row.get::<_, bool>(0),
+                )
+                .map_err(|e| GatewayError::Internal(e.to_string()))?;
+            if index_uses_alias_name {
+                return Err(GatewayError::bad(
+                    "_aliases.add.alias",
+                    format!("alias [{alias}] conflicts with an existing index"),
+                ));
+            }
             db.execute(
                 "INSERT OR REPLACE INTO aliases(alias,index_name) VALUES (?1,?2)",
                 params![alias, idx],
@@ -2534,7 +2593,10 @@ async fn aliases(
             .map_err(|e| GatewayError::Internal(e.to_string()))?;
         } else if let Some(a) = o.get("remove") {
             let alias = a.get("alias").and_then(Value::as_str).unwrap_or("");
-            let db = state.db.lock().unwrap();
+            let db = state
+                .db
+                .lock()
+                .map_err(|e| GatewayError::Internal(e.to_string()))?;
             db.execute("DELETE FROM aliases WHERE alias=?1", params![alias])
                 .map_err(|e| GatewayError::Internal(e.to_string()))?;
         }
@@ -2545,15 +2607,18 @@ async fn alias_get(
     State(state): State<AppState>,
     Path(alias): Path<String>,
 ) -> Result<Response, GatewayError> {
-    let db = state.db.lock().unwrap();
-    let _idx: String = db
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| GatewayError::Internal(e.to_string()))?;
+    let idx: String = db
         .query_row(
             "SELECT index_name FROM aliases WHERE alias=?1",
             params![&alias],
             |r| r.get(0),
         )
         .map_err(|_| GatewayError::NotFound(format!("no such alias [{alias}]")))?;
-    Ok(es_ok(json!({alias.clone():{"aliases":{alias:{}}}})))
+    Ok(es_ok(json!({idx:{"aliases":{alias:{}}}})))
 }
 
 async fn alias_head(State(state): State<AppState>, Path(alias): Path<String>) -> Response {
@@ -2578,7 +2643,7 @@ async fn mapping(
     method: Method,
     body: Option<Json<Value>>,
 ) -> Result<Response, GatewayError> {
-    let (_, mut m, _) = get_index(&state, &index)?;
+    let (index, _, mut m, _) = get_index(&state, &index)?;
     if method == Method::PUT {
         let b = body.map(|j| j.0).unwrap_or(json!({}));
         let (nm, _) = mapping_vectors(&b);
@@ -3095,6 +3160,111 @@ mod tests {
             ));
         }
         assert_eq!(*requests.lock().unwrap(), 0);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn aliases_route_document_and_search_requests_to_the_concrete_index() {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let observed = requests.clone();
+        let mock = Router::new().fallback(any(
+            move |method: Method, uri: axum::http::Uri| {
+                let observed = observed.clone();
+                async move {
+                    observed
+                        .lock()
+                        .unwrap()
+                        .push(format!("{method} {}", uri.path()));
+                    if method == Method::GET {
+                        Json(json!({"result":{"payload":{"_es_id":"1","_source":{"title":"Alias target"}}}})).into_response()
+                    } else {
+                        Json(json!({"result":{"points":[{"payload":{"_es_id":"1","_source":{"title":"Alias target"}}}],"next_page_offset":null}})).into_response()
+                    }
+                }
+            },
+        ));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        let mut cfg = Config::from_env();
+        cfg.qdrant_url = format!("http://{address}");
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[\"text_all\"]'); INSERT INTO aliases VALUES ('current-products', 'products');")
+            .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: cfg.qdrant_url.clone(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        let document = get_doc(
+            State(state.clone()),
+            Path(("current-products".into(), "1".into())),
+        )
+        .await
+        .unwrap();
+        let document: Value = serde_json::from_slice(
+            &axum::body::to_bytes(document.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(document["_index"], "products");
+
+        let response = search(
+            State(state.clone()),
+            Path("current-products".into()),
+            Json(json!({"query":{"match_all":{}}})),
+        )
+        .await
+        .unwrap();
+        let response: Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(response["hits"]["hits"][0]["_index"], "products");
+
+        let delete_error = delete_index(State(state.clone()), Path("current-products".into()))
+            .await
+            .unwrap_err();
+        assert_eq!(delete_error.status(), StatusCode::BAD_REQUEST);
+        assert!(delete_error
+            .to_string()
+            .contains("requires a concrete index name"));
+
+        let alias = alias_get(State(state), Path("current-products".into()))
+            .await
+            .unwrap();
+        let alias: Value = serde_json::from_slice(
+            &axum::body::to_bytes(alias.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            alias,
+            json!({"products":{"aliases":{"current-products":{}}}})
+        );
+        assert_eq!(
+            *requests.lock().unwrap(),
+            [
+                format!(
+                    "GET /collections/es_products/points/{}",
+                    point_id("products", "1")
+                ),
+                "POST /collections/es_products/points/scroll".into()
+            ]
+        );
         server.abort();
     }
 
