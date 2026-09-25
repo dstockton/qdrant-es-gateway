@@ -18,6 +18,7 @@
 
 ## Unreleased
 
+- Return an item-level `version_conflict_engine_exception` without overwriting the stored document when a bulk `create` action targets an existing ID.
 - Route document and search requests made through a durable alias to the concrete index's Qdrant collections and deterministic ID namespace; alias inspection now returns the concrete-index response shape.
 - Reject index names that would collide in Qdrant's normalized search/document collection namespace before creating upstream state.
 - Return HTTP 404 with `result: "not_found"` when deleting a missing document, including non-error bulk item reporting.
