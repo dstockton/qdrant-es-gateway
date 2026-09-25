@@ -17,7 +17,7 @@ jobs:
       github.event.workflow_run.pull_requests[0].number
     runs-on: ubuntu-24.04
     steps:
-      - name: Merge a passing Dependabot PR
+      - name: Enable auto-merge for a passing Dependabot PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
@@ -30,5 +30,6 @@ jobs:
           fi
           gh pr merge "${PR_NUMBER}" \
             --repo "${GITHUB_REPOSITORY}" \
+            --auto \
             --squash \
             --delete-branch
