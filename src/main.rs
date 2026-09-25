@@ -20,7 +20,7 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-use tokio::sync::Semaphore;
+use tokio::sync::{Mutex as AsyncMutex, Semaphore};
 use tracing::{info, warn};
 
 #[derive(Clone)]
@@ -125,6 +125,7 @@ struct AppState {
     qdrant: Qdrant,
     db: Arc<Mutex<Connection>>,
     analytics: Arc<Mutex<Analytics>>,
+    index_admin: Arc<AsyncMutex<()>>,
 }
 
 #[derive(Default)]
@@ -314,6 +315,41 @@ fn collection(index: &str) -> String {
 fn document_collection(index: &str) -> String {
     format!("{}_documents", collection(index))
 }
+
+fn ensure_collection_namespace_available(
+    state: &AppState,
+    index: &str,
+) -> Result<(), GatewayError> {
+    let requested = [collection(index), document_collection(index)];
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| GatewayError::Internal(e.to_string()))?;
+    let mut stmt = db
+        .prepare("SELECT name FROM indices")
+        .map_err(|e| GatewayError::Internal(e.to_string()))?;
+    let existing = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| GatewayError::Internal(e.to_string()))?;
+
+    for existing in existing {
+        let existing = existing.map_err(|e| GatewayError::Internal(e.to_string()))?;
+        let reserved = [collection(&existing), document_collection(&existing)];
+        if requested
+            .iter()
+            .any(|candidate| reserved.contains(candidate))
+        {
+            return Err(GatewayError::bad(
+                "index.name",
+                format!(
+                    "index [{index}] conflicts with the Qdrant collection namespace reserved by existing index [{existing}]; choose a different index name"
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn get_index(state: &AppState, name: &str) -> Result<(String, Value, Vec<String>), GatewayError> {
     let db = state
         .db
@@ -412,6 +448,11 @@ async fn create_index(
     Path(index): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Response, GatewayError> {
+    let _index_admin = state.index_admin.lock().await;
+    // Collection names predate an explicit per-index namespace column and
+    // normalize punctuation for Qdrant. Reject collisions before creating any
+    // upstream state, including collisions with the optional document store.
+    ensure_collection_namespace_available(&state, &index)?;
     let (mapping, vectors) = mapping_vectors(&body);
     let mut sparse = Map::new();
     for v in &vectors {
@@ -2842,6 +2883,7 @@ async fn main() -> anyhow::Result<()> {
         },
         db: Arc::new(Mutex::new(init_db()?)),
         analytics: Arc::new(Mutex::new(Analytics::default())),
+        index_admin: Arc::new(AsyncMutex::new(())),
         cfg,
     };
     let app = gateway_router(state.clone());
@@ -2968,6 +3010,7 @@ mod tests {
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
 
@@ -2995,6 +3038,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn index_creation_rejects_normalized_collection_namespace_collisions() {
+        let requests = Arc::new(Mutex::new(0_u64));
+        let observed = requests.clone();
+        let mock = Router::new().fallback(any(move || {
+            let observed = observed.clone();
+            async move {
+                *observed.lock().unwrap() += 1;
+                Json(json!({"status":"ok"})).into_response()
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        for (existing, requested) in [
+            ("catalog.v2", "catalog_v2"),
+            ("catalog", "catalog_documents"),
+        ] {
+            let mut cfg = Config::from_env();
+            cfg.qdrant_url = format!("http://{address}");
+            let db = Connection::open_in_memory().unwrap();
+            db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL);")
+                .unwrap();
+            db.execute(
+                "INSERT INTO indices VALUES (?1, '{}', '[\"text_all\"]')",
+                params![existing],
+            )
+            .unwrap();
+            let state = AppState {
+                qdrant: Qdrant {
+                    client: Client::new(),
+                    base: cfg.qdrant_url.clone(),
+                    key: None,
+                    async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+                },
+                db: Arc::new(Mutex::new(db)),
+                analytics: Arc::new(Mutex::new(Analytics::default())),
+                index_admin: Arc::new(AsyncMutex::new(())),
+                cfg,
+            };
+
+            let error = create_index(
+                State(state.clone()),
+                Path(requested.into()),
+                Json(json!({})),
+            )
+            .await
+            .unwrap_err();
+
+            assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(error.body()["error"]["feature"], "index.name");
+            assert!(matches!(
+                get_index(&state, requested),
+                Err(GatewayError::NotFound(_))
+            ));
+        }
+        assert_eq!(*requests.lock().unwrap(), 0);
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn oversized_requests_return_413_with_the_active_limit() {
         let mut cfg = Config::from_env();
         cfg.max_body_bytes = 10;
@@ -3011,6 +3115,7 @@ mod tests {
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
 
@@ -3083,6 +3188,7 @@ mod tests {
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
+                index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };
 
@@ -3136,6 +3242,7 @@ mod tests {
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
+                index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };
 
@@ -3222,6 +3329,7 @@ mod tests {
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
+                index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };
 
