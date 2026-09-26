@@ -18,6 +18,7 @@
 
 ## Unreleased
 
+- Report HTTP 201 with `result: "created"` for new standalone index requests and HTTP 200 with `result: "updated"` when the ID already exists, including requests routed through aliases.
 - Support `PUT` and `POST /<index>/_create/<id>` with HTTP 201 for a new document and an Elasticsearch-shaped HTTP 409 response without a write when the ID already exists; structured errors now retain the product header.
 - Return an item-level `version_conflict_engine_exception` without overwriting the stored document when a bulk `create` action targets an existing ID.
 - Route document and search requests made through a durable alias to the concrete index's Qdrant collections and deterministic ID namespace; alias inspection now returns the concrete-index response shape.

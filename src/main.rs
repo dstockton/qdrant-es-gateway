@@ -830,7 +830,27 @@ async fn write_doc(
     Path((index, id)): Path<(String, String)>,
     Json(source): Json<Value>,
 ) -> Result<Response, GatewayError> {
-    write_docs(State(state), index, vec![(id, source)]).await
+    let (concrete_index, collection, _, _) = get_index(&state, &index)?;
+    let existed = retrieve_source(&state, &concrete_index, &collection, &id)
+        .await?
+        .is_some();
+    write_docs(
+        State(state),
+        concrete_index.clone(),
+        vec![(id.clone(), source)],
+    )
+    .await?;
+
+    let status = if existed {
+        StatusCode::OK
+    } else {
+        StatusCode::CREATED
+    };
+    let result = if existed { "updated" } else { "created" };
+    Ok(es_response(
+        status,
+        json!({"_index":concrete_index,"_id":id,"_version":1,"result":result,"_shards":{"total":1,"successful":1,"failed":0},"_seq_no":0,"_primary_term":1}),
+    ))
 }
 
 async fn create_doc(
@@ -3775,6 +3795,86 @@ mod tests {
         }
         assert_eq!(*writes.lock().unwrap(), 6);
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn standalone_index_distinguishes_created_from_updated_documents() {
+        for document_projection in [false, true] {
+            for existed in [false, true] {
+                let mock = Router::new().fallback(any(move |method: Method| async move {
+                    match method {
+                        Method::GET => Json(if existed {
+                            json!({"result":{"payload":{"_es_id":"item","_source":{"title":"Old"}}}})
+                        } else {
+                            json!({"result":null})
+                        })
+                        .into_response(),
+                        Method::POST => Json(if existed {
+                            json!({"result":[{"payload":{"_es_id":"item","_source":{"title":"Old"}}}]})
+                        } else {
+                            json!({"result":[]})
+                        })
+                        .into_response(),
+                        _ => Json(json!({"status":"ok"})).into_response(),
+                    }
+                }));
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let address = listener.local_addr().unwrap();
+                let server =
+                    tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+                let mut cfg = Config::from_env();
+                cfg.qdrant_url = format!("http://{address}");
+                cfg.document_projection = document_projection;
+                let db = Connection::open_in_memory().unwrap();
+                db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[\"text_all\"]'); INSERT INTO aliases VALUES ('current-products', 'products');")
+                    .unwrap();
+                let state = AppState {
+                    qdrant: Qdrant {
+                        client: Client::new(),
+                        base: cfg.qdrant_url.clone(),
+                        key: None,
+                        async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+                    },
+                    db: Arc::new(Mutex::new(db)),
+                    analytics: Arc::new(Mutex::new(Analytics::default())),
+                    index_admin: Arc::new(AsyncMutex::new(())),
+                    cfg,
+                };
+
+                let response = gateway_router(state)
+                    .oneshot(
+                        axum::http::Request::builder()
+                            .method(Method::PUT)
+                            .uri("/current-products/_doc/item")
+                            .header("content-type", "application/json")
+                            .body(Body::from(r#"{"title":"New"}"#))
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    response.status(),
+                    if existed {
+                        StatusCode::OK
+                    } else {
+                        StatusCode::CREATED
+                    }
+                );
+                assert_eq!(
+                    response.headers().get("x-elastic-product").unwrap(),
+                    "Elasticsearch"
+                );
+                let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap();
+                let body: Value = serde_json::from_slice(&bytes).unwrap();
+                assert_eq!(body["_index"], "products");
+                assert_eq!(body["_id"], "item");
+                assert_eq!(body["result"], if existed { "updated" } else { "created" });
+                server.abort();
+            }
+        }
     }
 
     #[tokio::test]
