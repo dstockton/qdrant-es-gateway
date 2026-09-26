@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.2.0](https://github.com/dstockton/qdrant-es-gateway/compare/v0.1.3...v0.2.0) (2026-09-26)
+
+
+### Features
+
+* support standalone create API ([bd7bb07](https://github.com/dstockton/qdrant-es-gateway/commit/bd7bb07b5439111b4687c4764f3148ff11c52145))
+* support standalone create API ([b3eb361](https://github.com/dstockton/qdrant-es-gateway/commit/b3eb361b655fa08528b6149b951a4a0280bfabf4))
+
+
+### Bug Fixes
+
+* grant release workflow publish permissions ([34aeb70](https://github.com/dstockton/qdrant-es-gateway/commit/34aeb70cfb5d9b6e76a5c31908989c4190bad6fe))
+* keep release tags unprefixed ([#8](https://github.com/dstockton/qdrant-es-gateway/issues/8)) ([65bb846](https://github.com/dstockton/qdrant-es-gateway/commit/65bb8464bb2e554e66d381dba0c92e5fbdb62ab0))
+* make release workflow dependency explicit ([ce13c14](https://github.com/dstockton/qdrant-es-gateway/commit/ce13c149215f0f908d4e11e034715bbe510b8d1a))
+* merge Dependabot updates without branch protection ([da05dc6](https://github.com/dstockton/qdrant-es-gateway/commit/da05dc6a16afe9387c2823857f792a2c51a4ccaf))
+* pin Release Please to a commit ([0837fb9](https://github.com/dstockton/qdrant-es-gateway/commit/0837fb97db0099246b6a0ad396d8d16af508ce6a))
+* reject duplicate bulk creates ([#11](https://github.com/dstockton/qdrant-es-gateway/issues/11)) ([16143a8](https://github.com/dstockton/qdrant-es-gateway/commit/16143a893dbd0295121612819559a4e047b78483))
+* report accurate standalone index results ([26357e5](https://github.com/dstockton/qdrant-es-gateway/commit/26357e5291c5369593fd41bf53852b4dfb3e2677))
+* report accurate standalone index results ([e0bcd8d](https://github.com/dstockton/qdrant-es-gateway/commit/e0bcd8d24f027ec15a4670cee50d18a9e35bc0c5))
+
 ## [0.1.3](https://github.com/dstockton/qdrant-es-gateway/compare/qdrant-es-gateway-v0.1.2...qdrant-es-gateway-v0.1.3) (2026-09-25)
 
 
