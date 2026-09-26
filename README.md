@@ -28,7 +28,7 @@ The root endpoint includes `X-Elastic-Product: Elasticsearch` and an 8.x-compati
 | Root, cluster health, healthz/readyz | ✅ | Health reflects Qdrant connectivity |
 | Index lifecycle and mappings | ✅ | Mapping metadata is durable in SQLite |
 | `_refresh`, `_open`, `_close`, basic `_settings` lifecycle calls | ⚠️ | Accepted for client/application lifecycle compatibility; Qdrant remains continuously available and analyzer/settings semantics are not emulated |
-| CRUD, `_create`, and `_update` doc subset | ✅ | `_create` rejects existing IDs; script updates rejected |
+| CRUD, `_create`, and `_update` doc subset | ✅ | Standalone index reports created vs updated; `_create` rejects existing IDs; script updates rejected |
 | `_bulk` index/create/update/delete | ✅ | NDJSON, batched at the API boundary |
 | `_msearch` | ✅ | NDJSON header/query pairs; each sub-search uses the same client request shape |
 | `match`, `match_phrase` | ⚠️ | Native Qdrant BM25; phrase is lexical, not Lucene-identical |
