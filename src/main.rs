@@ -14,7 +14,7 @@ use rusqlite::{params, Connection};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     env,
     net::SocketAddr,
     sync::{Arc, Mutex},
@@ -770,6 +770,44 @@ async fn retrieve_source(
         .and_then(|result| result.get("payload"))
         .and_then(|payload| payload.get("_source"))
         .cloned())
+}
+
+async fn retrieve_existing_ids(
+    state: &AppState,
+    index: &str,
+    collection: &str,
+    ids: &[String],
+) -> Result<HashSet<String>, GatewayError> {
+    if ids.is_empty() {
+        return Ok(HashSet::new());
+    }
+    let collection = if state.cfg.document_projection {
+        document_collection(index)
+    } else {
+        collection.to_string()
+    };
+    let point_ids = ids.iter().map(|id| point_id(index, id)).collect::<Vec<_>>();
+    let result = state
+        .qdrant
+        .request(
+            Method::POST,
+            &format!("/collections/{collection}/points"),
+            Some(json!({"ids":point_ids,"with_payload":true,"with_vector":false})),
+        )
+        .await?;
+    Ok(result
+        .get("result")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|point| {
+            point
+                .get("payload")
+                .and_then(|payload| payload.get("_es_id"))
+                .and_then(Value::as_str)
+                .map(String::from)
+        })
+        .collect())
 }
 
 async fn write_docs(
@@ -2548,10 +2586,31 @@ async fn bulk(
                 ));
                 end += 1;
             }
-            let result = write_docs(State(state.clone()), batch_index.clone(), batch).await;
+            let prepared = get_index(&state, &batch_index).map(|(index, coll, _, _)| {
+                let ids = batch.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>();
+                (index, coll, ids)
+            });
+            let result = match prepared {
+                Ok((index, coll, ids)) => retrieve_existing_ids(&state, &index, &coll, &ids)
+                    .await
+                    .map(|existing| (index, existing)),
+                Err(error) => Err(error),
+            };
+            let result = match result {
+                Ok((index, existing)) => write_docs(State(state.clone()), index.clone(), batch)
+                    .await
+                    .map(|_| (index, existing)),
+                Err(error) => Err(error),
+            };
+            let mut seen = HashSet::new();
             for action in &actions[cursor..end] {
                 match &result {
-                    Ok(_) => items.push(json!({action.0.clone():{"_index":action.1,"_id":action.2,"status":201}})),
+                    Ok((index, existing)) => {
+                        let existed = existing.contains(&action.2) || !seen.insert(action.2.clone());
+                        let status = if existed { 200 } else { 201 };
+                        let result = if existed { "updated" } else { "created" };
+                        items.push(json!({action.0.clone():{"_index":index,"_id":action.2,"status":status,"result":result}}));
+                    }
                     Err(e) => items.push(json!({action.0.clone():{"_index":action.1,"_id":action.2,"status":e.status().as_u16(),"error":e.body()["error"].clone()}})),
                 }
             }
@@ -3595,6 +3654,78 @@ mod tests {
             assert_eq!(bulk_body["items"][0]["delete"]["result"], "not_found");
             assert!(bulk_body["items"][0]["delete"].get("error").is_none());
         }
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn bulk_index_reports_created_and_updated_without_losing_batching() {
+        let requests = Arc::new(Mutex::new((0_u64, 0_u64)));
+        let observed_requests = requests.clone();
+        let mock = Router::new().fallback(any(move |method: Method| {
+            let observed_requests = observed_requests.clone();
+            async move {
+                match method {
+                    Method::POST => {
+                        observed_requests.lock().unwrap().0 += 1;
+                        Json(json!({
+                            "result":[{"payload":{"_es_id":"existing","_source":{"title":"Old"}}}]
+                        }))
+                        .into_response()
+                    }
+                    Method::PUT => {
+                        observed_requests.lock().unwrap().1 += 1;
+                        Json(json!({"status":"ok"})).into_response()
+                    }
+                    _ => Json(json!({"status":"ok"})).into_response(),
+                }
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        for document_projection in [false, true] {
+            let mut cfg = Config::from_env();
+            cfg.qdrant_url = format!("http://{address}");
+            cfg.document_projection = document_projection;
+            let db = Connection::open_in_memory().unwrap();
+            db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[\"text_all\"]'); INSERT INTO aliases VALUES ('current-products', 'products');")
+                .unwrap();
+            let state = AppState {
+                qdrant: Qdrant {
+                    client: Client::new(),
+                    base: cfg.qdrant_url.clone(),
+                    key: None,
+                    async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+                },
+                db: Arc::new(Mutex::new(db)),
+                analytics: Arc::new(Mutex::new(Analytics::default())),
+                index_admin: Arc::new(AsyncMutex::new(())),
+                cfg,
+            };
+
+            let response = bulk(
+                State(state),
+                None,
+                "{\"index\":{\"_index\":\"current-products\",\"_id\":\"existing\"}}\n{\"title\":\"Replacement\"}\n{\"index\":{\"_index\":\"current-products\",\"_id\":\"new\"}}\n{\"title\":\"First\"}\n{\"index\":{\"_index\":\"current-products\",\"_id\":\"new\"}}\n{\"title\":\"Second\"}\n".into(),
+            )
+            .await
+            .unwrap();
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let body: Value = serde_json::from_slice(&bytes).unwrap();
+
+            assert_eq!(body["errors"], false);
+            assert_eq!(body["items"][0]["index"]["_index"], "products");
+            assert_eq!(body["items"][0]["index"]["status"], 200);
+            assert_eq!(body["items"][0]["index"]["result"], "updated");
+            assert_eq!(body["items"][1]["index"]["status"], 201);
+            assert_eq!(body["items"][1]["index"]["result"], "created");
+            assert_eq!(body["items"][2]["index"]["status"], 200);
+            assert_eq!(body["items"][2]["index"]["result"], "updated");
+        }
+        assert_eq!(*requests.lock().unwrap(), (2, 3));
         server.abort();
     }
 
