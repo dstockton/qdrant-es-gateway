@@ -18,6 +18,7 @@
 
 ## Unreleased
 
+- Preserve the complete `_source` and refresh mapped filter/sort payload fields when an embedded-storage partial update changes a non-text field.
 - Report HTTP 201 with `result: "created"` and HTTP 200 with `result: "updated"` for successful bulk index items while preserving one batched Qdrant lookup and write per contiguous index batch.
 - Report HTTP 201 with `result: "created"` for new standalone index requests and HTTP 200 with `result: "updated"` when the ID already exists, including requests routed through aliases.
 - Support `PUT` and `POST /<index>/_create/<id>` with HTTP 201 for a new document and an Elasticsearch-shaped HTTP 409 response without a write when the ID already exists; structured errors now retain the product header.

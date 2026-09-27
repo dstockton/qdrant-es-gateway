@@ -1044,13 +1044,13 @@ async fn update_doc(
         }
         return Err(GatewayError::DocumentNotFound { index, id });
     };
+    let mut merged = source.as_object().cloned().unwrap_or_default();
+    for (key, value) in doc.as_object().unwrap() {
+        merged.insert(key.clone(), value.clone());
+    }
+    let merged = Value::Object(merged);
     if state.cfg.document_projection {
         let point = point_id(&index, &id);
-        let mut obj = source.as_object().cloned().unwrap_or_default();
-        for (k, v) in doc.as_object().unwrap() {
-            obj.insert(k.clone(), v.clone());
-        }
-        let merged = Value::Object(obj);
         let changed_text = doc.as_object().unwrap().keys().any(|field| {
             field == "_all" || vectors.contains(&format!("text_{}", field.replace('.', "_")))
         });
@@ -1099,9 +1099,8 @@ async fn update_doc(
     if !changes_text {
         let path = format!("/collections/{coll}/points/payload");
         let body = json!({
-            "payload": doc,
+            "payload": qdrant_payload(&merged, &id, &index, &mapping),
             "points": [point_id(&index, &id)],
-            "key": "_source",
             "wait": !state.cfg.async_payload_writes
         });
         if state.cfg.async_payload_writes {
@@ -1116,11 +1115,7 @@ async fn update_doc(
             json!({"_index":index,"_id":id,"_version":1,"result":"updated","_shards":{"total":1,"successful":1,"failed":0}}),
         ));
     }
-    let mut obj = source.as_object().cloned().unwrap_or_default();
-    for (k, v) in doc.as_object().unwrap() {
-        obj.insert(k.clone(), v.clone());
-    }
-    write_doc(State(state), Path((index, id)), Json(Value::Object(obj))).await
+    write_doc(State(state), Path((index, id)), Json(merged)).await
 }
 
 fn term_condition(field: &str, v: &Value) -> Value {
@@ -3654,6 +3649,80 @@ mod tests {
             assert_eq!(bulk_body["items"][0]["delete"]["result"], "not_found");
             assert!(bulk_body["items"][0]["delete"].get("error").is_none());
         }
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn embedded_partial_update_preserves_source_and_refreshes_filter_payload() {
+        let writes = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let observed_writes = writes.clone();
+        let mock = Router::new().fallback(any(
+            move |method: Method, uri: axum::http::Uri, body: axum::body::Bytes| {
+                let observed_writes = observed_writes.clone();
+                async move {
+                    match method {
+                        Method::GET => Json(json!({
+                            "result":{"payload":{"_es_id":"p-1","_es_index":"products","brand":"Acme","price":99,"_source":{"title":"Headphones","brand":"Acme","price":99,"description":"Original"}}}
+                        }))
+                        .into_response(),
+                        Method::POST if uri.path().ends_with("/points/payload") => {
+                            observed_writes
+                                .lock()
+                                .unwrap()
+                                .push(serde_json::from_slice(&body).unwrap());
+                            Json(json!({"status":"ok"})).into_response()
+                        }
+                        _ => Json(json!({"status":"ok"})).into_response(),
+                    }
+                }
+            },
+        ));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        let mut cfg = Config::from_env();
+        cfg.qdrant_url = format!("http://{address}");
+        cfg.document_projection = false;
+        cfg.async_payload_writes = false;
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); \
+             CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); \
+             INSERT INTO indices VALUES ('products', '{\"properties\":{\"title\":{\"type\":\"text\"},\"brand\":{\"type\":\"keyword\"},\"price\":{\"type\":\"float\"}}}', '[\"text_all\",\"text_title\"]');",
+        )
+        .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: cfg.qdrant_url.clone(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        let response = update_doc(
+            State(state),
+            Path(("products".into(), "p-1".into())),
+            Json(json!({"doc":{"price":125}})),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let writes = writes.lock().unwrap();
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0]["payload"]["price"], 125);
+        assert_eq!(writes[0]["payload"]["brand"], "Acme");
+        assert_eq!(
+            writes[0]["payload"]["_source"],
+            json!({"title":"Headphones","brand":"Acme","price":125,"description":"Original"})
+        );
+        assert!(writes[0].get("key").is_none());
         server.abort();
     }
 
