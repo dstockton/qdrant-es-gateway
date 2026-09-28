@@ -1017,24 +1017,39 @@ async fn update_doc(
     Path((index, id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Response, GatewayError> {
+    if body.get("script").is_some() {
+        return Err(GatewayError::bad(
+            "body.script",
+            "scripted updates are not supported; send a partial doc instead",
+        ));
+    }
     let doc = body
         .get("doc")
         .ok_or_else(|| GatewayError::bad("body.doc", "_update requires a doc object"))?;
     if !doc.is_object() {
         return Err(GatewayError::bad("body.doc", "doc must be an object"));
     }
+    let upsert = body.get("upsert");
+    if upsert.is_some_and(|source| !source.is_object()) {
+        return Err(GatewayError::bad("body.upsert", "upsert must be an object"));
+    }
     let (index, coll, mapping, vectors) = get_index(&state, &index)?;
     let current = retrieve_source(&state, &index, &coll, &id).await?;
     let Some(source) = current else {
-        if body
+        let create_source = if body
             .get("doc_as_upsert")
             .and_then(Value::as_bool)
             .unwrap_or(false)
         {
-            write_doc(
+            Some(doc.clone())
+        } else {
+            upsert.cloned()
+        };
+        if let Some(create_source) = create_source {
+            write_docs(
                 State(state),
-                Path((index.clone(), id.clone())),
-                Json(doc.clone()),
+                index.clone(),
+                vec![(id.clone(), create_source)],
             )
             .await?;
             return Ok(es_response(
@@ -3511,7 +3526,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn missing_document_update_returns_404_unless_doc_as_upsert_is_set() {
+    async fn missing_document_update_requires_explicit_upsert_behavior() {
         let mock = Router::new().fallback(any(|method: Method| async move {
             match method {
                 Method::GET => Json(json!({"result":null})).into_response(),
@@ -3542,6 +3557,19 @@ mod tests {
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };
+
+            let script_error = update_doc(
+                State(state.clone()),
+                Path(("products".into(), "missing".into())),
+                Json(json!({
+                    "script":{"source":"ctx._source.price = 99"},
+                    "doc":{"price":99}
+                })),
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(script_error.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(script_error.body()["error"]["feature"], "body.script");
 
             let error = update_doc(
                 State(state.clone()),
@@ -3593,8 +3621,123 @@ mod tests {
             let bulk_upsert_body: Value = serde_json::from_slice(&bytes).unwrap();
             assert_eq!(bulk_upsert_body["errors"], false);
             assert_eq!(bulk_upsert_body["items"][0]["update"]["status"], 201);
+
+            let explicit_upsert_response = bulk(
+                State(state),
+                None,
+                "{\"update\":{\"_index\":\"products\",\"_id\":\"missing\"}}\n{\"doc\":{\"price\":42},\"upsert\":{\"price\":10,\"created_by\":\"bulk\"}}\n".into(),
+            )
+            .await
+            .unwrap();
+            let bytes = axum::body::to_bytes(explicit_upsert_response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let explicit_upsert_body: Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(explicit_upsert_body["errors"], false);
+            assert_eq!(explicit_upsert_body["items"][0]["update"]["status"], 201);
+            assert_eq!(
+                explicit_upsert_body["items"][0]["update"]["result"],
+                "created"
+            );
         }
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn supported_update_upserts_write_selected_source_with_one_preflight_each() {
+        for document_projection in [false, true] {
+            let reads = Arc::new(Mutex::new(0_u64));
+            let writes = Arc::new(Mutex::new(Vec::<Value>::new()));
+            let observed_reads = reads.clone();
+            let observed_writes = writes.clone();
+            let mock =
+                Router::new().fallback(any(move |method: Method, body: axum::body::Bytes| {
+                    let observed_reads = observed_reads.clone();
+                    let observed_writes = observed_writes.clone();
+                    async move {
+                        match method {
+                            Method::GET => {
+                                *observed_reads.lock().unwrap() += 1;
+                                Json(json!({"result":null})).into_response()
+                            }
+                            Method::POST => {
+                                *observed_reads.lock().unwrap() += 1;
+                                Json(json!({"result":[]})).into_response()
+                            }
+                            Method::PUT => {
+                                observed_writes
+                                    .lock()
+                                    .unwrap()
+                                    .push(serde_json::from_slice(&body).unwrap());
+                                Json(json!({"status":"ok"})).into_response()
+                            }
+                            _ => Json(json!({"status":"ok"})).into_response(),
+                        }
+                    }
+                }));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+            let mut cfg = Config::from_env();
+            cfg.qdrant_url = format!("http://{address}");
+            cfg.document_projection = document_projection;
+            let db = Connection::open_in_memory().unwrap();
+            db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[\"text_all\"]');")
+                .unwrap();
+            let state = AppState {
+                qdrant: Qdrant {
+                    client: Client::new(),
+                    base: cfg.qdrant_url.clone(),
+                    key: None,
+                    async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+                },
+                db: Arc::new(Mutex::new(db)),
+                analytics: Arc::new(Mutex::new(Analytics::default())),
+                index_admin: Arc::new(AsyncMutex::new(())),
+                cfg,
+            };
+
+            let response = update_doc(
+                State(state.clone()),
+                Path(("products".into(), "missing".into())),
+                Json(json!({
+                    "doc":{"price":42},
+                    "upsert":{"title":"Initial","price":10}
+                })),
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(response.status(), StatusCode::CREATED);
+            assert_eq!(*reads.lock().unwrap(), 1);
+
+            let response = update_doc(
+                State(state),
+                Path(("products".into(), "another-missing".into())),
+                Json(json!({
+                    "doc":{"title":"Doc as upsert","price":20},
+                    "doc_as_upsert":true
+                })),
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(response.status(), StatusCode::CREATED);
+            assert_eq!(*reads.lock().unwrap(), 2);
+            let writes = writes.lock().unwrap();
+            assert!(writes.iter().any(|write| {
+                write["points"][0]["payload"]["_source"] == json!({"title":"Initial","price":10})
+            }));
+            assert!(writes.iter().any(|write| {
+                write["points"][0]["payload"]["_source"]
+                    == json!({"title":"Doc as upsert","price":20})
+            }));
+            assert!(!writes
+                .iter()
+                .any(|write| { write["points"][0]["payload"]["_source"] == json!({"price":42}) }));
+            server.abort();
+        }
     }
 
     #[tokio::test]
@@ -3722,7 +3865,10 @@ mod tests {
         let response = update_doc(
             State(state),
             Path(("products".into(), "p-1".into())),
-            Json(json!({"doc":{"price":125}})),
+            Json(json!({
+                "doc":{"price":125},
+                "upsert":{"title":"Should not replace an existing document","price":1}
+            })),
         )
         .await
         .unwrap();

@@ -22,4 +22,6 @@ The gateway now checks existence before every partial update. Missing documents 
 
 Bulk updates report the same item-level error and set the top-level `errors` flag to `true`. Requests with `"doc_as_upsert": true` remain explicit creation requests; they return HTTP 201, including as bulk item statuses.
 
-The regression test runs the missing, bulk, and `doc_as_upsert` cases against mock Qdrant responses in both storage modes. This correctness check adds one point lookup to partial updates that previously avoided a read. It does not add support for scripted updates or the separate `upsert` document form, and the gateway still does not emulate Elasticsearch's optimistic-concurrency or version counters.
+The regression test runs the missing, bulk, and `doc_as_upsert` cases against mock Qdrant responses in both storage modes. This correctness check adds one point lookup to partial updates that previously avoided a read. Scripted updates remain unsupported, and the gateway still does not emulate Elasticsearch's optimistic-concurrency or version counters.
+
+Update, 2026-09-28: the separate `upsert` document form is now supported too; see [A partial document is not an upsert source]({% post_url 2026-09-28-a-partial-document-is-not-an-upsert-source %}).
