@@ -2516,6 +2516,20 @@ fn bulk_response_has_errors(items: &[Value]) -> bool {
     })
 }
 
+async fn bulk_item_from_response(kind: &str, response: Response) -> Result<Value, GatewayError> {
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .map_err(|e| GatewayError::Internal(e.to_string()))?;
+    let mut result: Value =
+        serde_json::from_slice(&bytes).map_err(|e| GatewayError::Internal(e.to_string()))?;
+    let result = result.as_object_mut().ok_or_else(|| {
+        GatewayError::Internal("bulk operation returned a non-object body".into())
+    })?;
+    result.insert("status".into(), json!(status.as_u16()));
+    Ok(json!({kind: result}))
+}
+
 async fn bulk(
     State(state): State<AppState>,
     index: Option<Path<String>>,
@@ -2619,28 +2633,28 @@ async fn bulk(
                 Json(source.clone().unwrap_or_else(|| json!({}))),
             )
             .await
-            .map(|_| json!({"create":{"_index":idx,"_id":id,"status":201}})),
+            .map(|response| ("create", response)),
             "delete" => delete_doc(State(state.clone()), Path((idx.clone(), id.clone())))
                 .await
-                .map(|response| {
-                    let status = response.status();
-                    json!({"delete":{"_index":idx,"_id":id,"status":status.as_u16(),"result":if status == StatusCode::NOT_FOUND { "not_found" } else { "deleted" }}})
-                }),
+                .map(|response| ("delete", response)),
             "update" => update_doc(
                 State(state.clone()),
                 Path((idx.clone(), id.clone())),
                 Json(source.clone().unwrap_or_else(|| json!({}))),
             )
             .await
-            .map(|response| {
-                json!({"update":{"_index":idx,"_id":id,"status":response.status().as_u16()}})
-            }),
+            .map(|response| ("update", response)),
             _ => Err(GatewayError::bad(
                 format!("_bulk.{kind}"),
                 "unsupported bulk action",
             )),
         };
-        match result { Ok(v) => items.push(v), Err(e) => items.push(json!({kind.clone():{"_index":idx,"_id":id,"status":e.status().as_u16(),"error":e.body()["error"].clone()}})) }
+        match result {
+            Ok((kind, response)) => {
+                items.push(bulk_item_from_response(kind, response).await?)
+            }
+            Err(e) => items.push(json!({kind.clone():{"_index":idx,"_id":id,"status":e.status().as_u16(),"error":e.body()["error"].clone()}})),
+        }
         cursor += 1;
     }
     let errors = bulk_response_has_errors(&items);
@@ -3795,6 +3809,77 @@ mod tests {
             assert_eq!(body["items"][2]["index"]["result"], "updated");
         }
         assert_eq!(*requests.lock().unwrap(), (2, 3));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn bulk_alias_items_preserve_concrete_operation_results() {
+        let new_point = point_id("products", "new");
+        let mock = Router::new().fallback(any(
+            move |method: Method, uri: axum::http::Uri| {
+                let new_point = new_point.clone();
+                async move {
+                    if method == Method::GET && uri.path().ends_with(&new_point) {
+                        return Json(json!({"result":null})).into_response();
+                    }
+                    if method == Method::GET {
+                        return Json(json!({
+                            "result":{"payload":{"_es_id":"existing","_source":{"title":"Original","price":10}}}
+                        }))
+                        .into_response();
+                    }
+                    Json(json!({"status":"ok"})).into_response()
+                }
+            },
+        ));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        let mut cfg = Config::from_env();
+        cfg.qdrant_url = format!("http://{address}");
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[\"text_all\"]'); INSERT INTO aliases VALUES ('current-products', 'products');")
+            .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: cfg.qdrant_url.clone(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        let response = bulk(
+            State(state),
+            None,
+            "{\"create\":{\"_index\":\"current-products\",\"_id\":\"new\"}}\n{\"title\":\"New\"}\n{\"update\":{\"_index\":\"current-products\",\"_id\":\"existing\"}}\n{\"doc\":{\"price\":20}}\n{\"delete\":{\"_index\":\"current-products\",\"_id\":\"existing\"}}\n"
+                .into(),
+        )
+        .await
+        .unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+
+        assert_eq!(body["errors"], false);
+        for item in body["items"].as_array().unwrap() {
+            let result = item.as_object().unwrap().values().next().unwrap();
+            assert_eq!(result["_index"], "products");
+            assert_eq!(result["_version"], 1);
+            assert_eq!(result["_shards"]["failed"], 0);
+        }
+        assert_eq!(body["items"][0]["create"]["status"], 201);
+        assert_eq!(body["items"][0]["create"]["result"], "created");
+        assert_eq!(body["items"][1]["update"]["status"], 200);
+        assert_eq!(body["items"][1]["update"]["result"], "updated");
+        assert_eq!(body["items"][2]["delete"]["status"], 200);
+        assert_eq!(body["items"][2]["delete"]["result"], "deleted");
         server.abort();
     }
 
