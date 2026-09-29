@@ -710,6 +710,22 @@ fn source_point(source: &Value, id: &str, index: &str) -> Value {
     json!({"id":point_id(index,id),"vector":[0.0],"payload":source_payload(source,id,index)})
 }
 
+fn merge_partial_document(target: &mut Value, patch: &Value) {
+    match (target, patch) {
+        (Value::Object(target), Value::Object(patch)) => {
+            for (key, value) in patch {
+                match target.get_mut(key) {
+                    Some(existing) => merge_partial_document(existing, value),
+                    None => {
+                        target.insert(key.clone(), value.clone());
+                    }
+                }
+            }
+        }
+        (target, patch) => *target = patch.clone(),
+    }
+}
+
 async fn retrieve_sources(
     state: &AppState,
     index: &str,
@@ -1059,11 +1075,8 @@ async fn update_doc(
         }
         return Err(GatewayError::DocumentNotFound { index, id });
     };
-    let mut merged = source.as_object().cloned().unwrap_or_default();
-    for (key, value) in doc.as_object().unwrap() {
-        merged.insert(key.clone(), value.clone());
-    }
-    let merged = Value::Object(merged);
+    let mut merged = source;
+    merge_partial_document(&mut merged, doc);
     if state.cfg.document_projection {
         let point = point_id(&index, &id);
         let changed_text = doc.as_object().unwrap().keys().any(|field| {
@@ -3884,6 +3897,104 @@ mod tests {
         );
         assert!(writes[0].get("key").is_none());
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn partial_updates_recursively_merge_inner_objects() {
+        for document_projection in [false, true] {
+            let writes = Arc::new(Mutex::new(Vec::<Value>::new()));
+            let observed_writes = writes.clone();
+            let mock = Router::new().fallback(any(
+                move |method: Method, uri: axum::http::Uri, body: axum::body::Bytes| {
+                    let observed_writes = observed_writes.clone();
+                    async move {
+                        if method == Method::GET {
+                            return Json(json!({
+                                "result":{"payload":{"_es_id":"p-1","_source":{
+                                    "title":"Headphones",
+                                    "details":{"manufacturer":"Acme","warranty":{"years":2,"region":"EU"}},
+                                    "tags":["audio","wireless"]
+                                }}}
+                            }))
+                            .into_response();
+                        }
+                        if method == Method::POST && uri.path().ends_with("/points") {
+                            return Json(json!({
+                                "result":[{"payload":{"_es_id":"p-1","_source":{
+                                    "title":"Headphones",
+                                    "details":{"manufacturer":"Acme","warranty":{"years":2,"region":"EU"}},
+                                    "tags":["audio","wireless"]
+                                }}}]
+                            }))
+                            .into_response();
+                        }
+                        if method == Method::PUT
+                            || (method == Method::POST && uri.path().ends_with("/points/payload"))
+                        {
+                            observed_writes
+                                .lock()
+                                .unwrap()
+                                .push(serde_json::from_slice(&body).unwrap());
+                        }
+                        Json(json!({"status":"ok"})).into_response()
+                    }
+                },
+            ));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+            let mut cfg = Config::from_env();
+            cfg.qdrant_url = format!("http://{address}");
+            cfg.document_projection = document_projection;
+            cfg.async_payload_writes = false;
+            let db = Connection::open_in_memory().unwrap();
+            db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[\"text_all\"]');")
+                .unwrap();
+            let state = AppState {
+                qdrant: Qdrant {
+                    client: Client::new(),
+                    base: cfg.qdrant_url.clone(),
+                    key: None,
+                    async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+                },
+                db: Arc::new(Mutex::new(db)),
+                analytics: Arc::new(Mutex::new(Analytics::default())),
+                index_admin: Arc::new(AsyncMutex::new(())),
+                cfg,
+            };
+
+            let response = update_doc(
+                State(state),
+                Path(("products".into(), "p-1".into())),
+                Json(json!({
+                    "doc":{
+                        "details":{"warranty":{"years":3}},
+                        "tags":["refurbished"]
+                    }
+                })),
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(response.status(), StatusCode::OK);
+            let writes = writes.lock().unwrap();
+            assert_eq!(writes.len(), 1);
+            let source = if document_projection {
+                &writes[0]["points"][0]["payload"]["_source"]
+            } else {
+                &writes[0]["payload"]["_source"]
+            };
+            assert_eq!(
+                source,
+                &json!({
+                    "title":"Headphones",
+                    "details":{"manufacturer":"Acme","warranty":{"years":3,"region":"EU"}},
+                    "tags":["refurbished"]
+                })
+            );
+            server.abort();
+        }
     }
 
     #[tokio::test]
