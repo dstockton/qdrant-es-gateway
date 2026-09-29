@@ -710,19 +710,26 @@ fn source_point(source: &Value, id: &str, index: &str) -> Value {
     json!({"id":point_id(index,id),"vector":[0.0],"payload":source_payload(source,id,index)})
 }
 
-fn merge_partial_document(target: &mut Value, patch: &Value) {
+fn merge_partial_document(target: &mut Value, patch: &Value) -> bool {
     match (target, patch) {
         (Value::Object(target), Value::Object(patch)) => {
+            let mut changed = false;
             for (key, value) in patch {
                 match target.get_mut(key) {
-                    Some(existing) => merge_partial_document(existing, value),
+                    Some(existing) => changed |= merge_partial_document(existing, value),
                     None => {
                         target.insert(key.clone(), value.clone());
+                        changed = true;
                     }
                 }
             }
+            changed
         }
-        (target, patch) => *target = patch.clone(),
+        (target, patch) if target == patch => false,
+        (target, patch) => {
+            *target = patch.clone();
+            true
+        }
     }
 }
 
@@ -1049,6 +1056,16 @@ async fn update_doc(
     if upsert.is_some_and(|source| !source.is_object()) {
         return Err(GatewayError::bad("body.upsert", "upsert must be an object"));
     }
+    let detect_noop = match body.get("detect_noop") {
+        None => true,
+        Some(Value::Bool(value)) => *value,
+        Some(_) => {
+            return Err(GatewayError::bad(
+                "body.detect_noop",
+                "detect_noop must be a boolean",
+            ))
+        }
+    };
     let (index, coll, mapping, vectors) = get_index(&state, &index)?;
     let current = retrieve_source(&state, &index, &coll, &id).await?;
     let Some(source) = current else {
@@ -1076,7 +1093,12 @@ async fn update_doc(
         return Err(GatewayError::DocumentNotFound { index, id });
     };
     let mut merged = source;
-    merge_partial_document(&mut merged, doc);
+    let changed = merge_partial_document(&mut merged, doc);
+    if detect_noop && !changed {
+        return Ok(es_ok(
+            json!({"_index":index,"_id":id,"_version":1,"result":"noop","_shards":{"total":1,"successful":1,"failed":0}}),
+        ));
+    }
     if state.cfg.document_projection {
         let point = point_id(&index, &id);
         let changed_text = doc.as_object().unwrap().keys().any(|field| {
@@ -3993,6 +4015,99 @@ mod tests {
                     "tags":["refurbished"]
                 })
             );
+            server.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn unchanged_updates_are_noops_unless_detection_is_disabled() {
+        for document_projection in [false, true] {
+            let writes = Arc::new(Mutex::new(0_u64));
+            let observed_writes = writes.clone();
+            let mock = Router::new().fallback(any(move |method: Method, uri: axum::http::Uri| {
+                let observed_writes = observed_writes.clone();
+                async move {
+                    if method == Method::GET {
+                        return Json(json!({
+                            "result":{"payload":{"_es_id":"p-1","_source":{
+                                "title":"Headphones","price":99
+                            }}}
+                        }))
+                        .into_response();
+                    }
+                    if method == Method::POST && uri.path().ends_with("/points") {
+                        return Json(json!({
+                            "result":[{"payload":{"_es_id":"p-1","_source":{
+                                "title":"Headphones","price":99
+                            }}}]
+                        }))
+                        .into_response();
+                    }
+                    if method == Method::PUT
+                        || (method == Method::POST && uri.path().ends_with("/points/payload"))
+                    {
+                        *observed_writes.lock().unwrap() += 1;
+                    }
+                    Json(json!({"status":"ok"})).into_response()
+                }
+            }));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+            let mut cfg = Config::from_env();
+            cfg.qdrant_url = format!("http://{address}");
+            cfg.document_projection = document_projection;
+            cfg.async_payload_writes = false;
+            let db = Connection::open_in_memory().unwrap();
+            db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[\"text_all\"]');")
+                .unwrap();
+            let state = AppState {
+                qdrant: Qdrant {
+                    client: Client::new(),
+                    base: cfg.qdrant_url.clone(),
+                    key: None,
+                    async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+                },
+                db: Arc::new(Mutex::new(db)),
+                analytics: Arc::new(Mutex::new(Analytics::default())),
+                index_admin: Arc::new(AsyncMutex::new(())),
+                cfg,
+            };
+
+            let response = update_doc(
+                State(state.clone()),
+                Path(("products".into(), "p-1".into())),
+                Json(json!({"doc":{"price":99}})),
+            )
+            .await
+            .unwrap();
+            let body: Value = serde_json::from_slice(
+                &axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap(),
+            )
+            .unwrap();
+
+            assert_eq!(body["result"], "noop");
+            assert_eq!(*writes.lock().unwrap(), 0);
+
+            let response = update_doc(
+                State(state),
+                Path(("products".into(), "p-1".into())),
+                Json(json!({"doc":{"price":99},"detect_noop":false})),
+            )
+            .await
+            .unwrap();
+            let body: Value = serde_json::from_slice(
+                &axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap(),
+            )
+            .unwrap();
+
+            assert_eq!(body["result"], "updated");
+            assert_eq!(*writes.lock().unwrap(), 1);
             server.abort();
         }
     }
