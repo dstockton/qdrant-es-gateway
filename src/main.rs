@@ -2609,11 +2609,16 @@ async fn bulk(
             .map(String::from)
             .or(default.clone())
             .ok_or_else(|| GatewayError::bad("_bulk", "each action needs _index"))?;
-        let id = obj
-            .get("_id")
-            .and_then(Value::as_str)
-            .map(String::from)
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let id = match obj.get("_id").and_then(Value::as_str) {
+            Some(id) => id.to_string(),
+            None if kind == "delete" || kind == "update" => {
+                return Err(GatewayError::bad(
+                    format!("_bulk.{kind}._id"),
+                    format!("bulk {kind} actions require an _id"),
+                ));
+            }
+            None => uuid::Uuid::new_v4().to_string(),
+        };
         let source = if kind == "delete" {
             None
         } else {
@@ -2824,7 +2829,8 @@ async fn mapping(
 }
 
 fn is_bulk_request(method: &Method, path: &str) -> bool {
-    method == Method::POST && (path == "/_bulk" || path.ends_with("/_bulk"))
+    (method == Method::POST || method == Method::PUT)
+        && (path == "/_bulk" || path.ends_with("/_bulk"))
 }
 
 fn request_body_limit(cfg: &Config, method: &Method, path: &str) -> usize {
@@ -3187,8 +3193,13 @@ mod tests {
         cfg.max_bulk_bytes = 50;
 
         assert_eq!(request_body_limit(&cfg, &Method::POST, "/_bulk"), 50);
+        assert_eq!(request_body_limit(&cfg, &Method::PUT, "/_bulk"), 50);
         assert_eq!(
             request_body_limit(&cfg, &Method::POST, "/products/_bulk"),
+            50
+        );
+        assert_eq!(
+            request_body_limit(&cfg, &Method::PUT, "/products/_bulk"),
             50
         );
         assert_eq!(
@@ -3210,6 +3221,45 @@ mod tests {
 
         assert!(!bulk_response_has_errors(&successful_items));
         assert!(bulk_response_has_errors(&failed_items));
+    }
+
+    #[tokio::test]
+    async fn bulk_update_and_delete_require_document_ids() {
+        let cfg = Config::from_env();
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL);")
+            .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: "http://127.0.0.1:1".into(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        for (body, feature) in [
+            (
+                "{\"delete\":{\"_index\":\"products\"}}\n",
+                "_bulk.delete._id",
+            ),
+            (
+                "{\"update\":{\"_index\":\"products\"}}\n{\"doc\":{\"price\":42}}\n",
+                "_bulk.update._id",
+            ),
+        ] {
+            let error = bulk(State(state.clone()), None, body.into())
+                .await
+                .unwrap_err();
+
+            assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(error.body()["error"]["feature"], feature);
+            assert!(error.to_string().contains("require an _id"));
+        }
     }
 
     #[tokio::test]
