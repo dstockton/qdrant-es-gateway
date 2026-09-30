@@ -2598,19 +2598,48 @@ async fn bulk(
     while position < lines.len() {
         let action: Value = serde_json::from_str(lines[position])
             .map_err(|e| GatewayError::bad("_bulk.action", e.to_string()))?;
-        let (kind, meta) = action
+        let action = action
             .as_object()
-            .and_then(|o| o.iter().next())
-            .ok_or_else(|| GatewayError::bad("_bulk.action", "invalid action"))?;
-        let obj = meta.as_object().cloned().unwrap_or_default();
-        let idx = obj
-            .get("_index")
-            .and_then(Value::as_str)
-            .map(String::from)
-            .or(default.clone())
-            .ok_or_else(|| GatewayError::bad("_bulk", "each action needs _index"))?;
-        let id = match obj.get("_id").and_then(Value::as_str) {
-            Some(id) => id.to_string(),
+            .filter(|object| object.len() == 1)
+            .ok_or_else(|| {
+                GatewayError::bad(
+                    "_bulk.action",
+                    "each action line must contain exactly one action",
+                )
+            })?;
+        let (kind, meta) = action.iter().next().expect("one action was validated");
+        if !matches!(kind.as_str(), "index" | "create" | "update" | "delete") {
+            return Err(GatewayError::bad(
+                "_bulk.action",
+                format!("unsupported bulk action [{kind}]"),
+            ));
+        }
+        let obj = meta.as_object().ok_or_else(|| {
+            GatewayError::bad(
+                format!("_bulk.{kind}"),
+                "bulk action metadata must be an object",
+            )
+        })?;
+        let idx = match obj.get("_index") {
+            Some(Value::String(index)) => index.clone(),
+            Some(_) => {
+                return Err(GatewayError::bad(
+                    format!("_bulk.{kind}._index"),
+                    "bulk action _index must be a string",
+                ))
+            }
+            None => default
+                .clone()
+                .ok_or_else(|| GatewayError::bad("_bulk", "each action needs _index"))?,
+        };
+        let id = match obj.get("_id") {
+            Some(Value::String(id)) => id.clone(),
+            Some(_) => {
+                return Err(GatewayError::bad(
+                    format!("_bulk.{kind}._id"),
+                    "bulk action _id must be a string",
+                ))
+            }
             None if kind == "delete" || kind == "update" => {
                 return Err(GatewayError::bad(
                     format!("_bulk.{kind}._id"),
@@ -3259,6 +3288,53 @@ mod tests {
             assert_eq!(error.status(), StatusCode::BAD_REQUEST);
             assert_eq!(error.body()["error"]["feature"], feature);
             assert!(error.to_string().contains("require an _id"));
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_bulk_actions_fail_before_any_item_is_executed() {
+        let cfg = Config::from_env();
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL);")
+            .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: "http://127.0.0.1:1".into(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        for (body, feature) in [
+            (
+                "{\"index\":{\"_index\":\"products\",\"_id\":\"valid\"}}\n{\"title\":\"would be written\"}\n{\"index\":{},\"delete\":{\"_id\":\"other\"}}\n",
+                "_bulk.action",
+            ),
+            (
+                "{\"index\":{\"_index\":\"products\",\"_id\":\"valid\"}}\n{\"title\":\"would be written\"}\n{\"rename\":{\"_index\":\"products\"}}\n{}\n",
+                "_bulk.action",
+            ),
+            ("{\"index\":null}\n{}\n", "_bulk.index"),
+            (
+                "{\"index\":{\"_index\":42,\"_id\":\"one\"}}\n{}\n",
+                "_bulk.index._index",
+            ),
+            (
+                "{\"index\":{\"_index\":\"products\",\"_id\":42}}\n{}\n",
+                "_bulk.index._id",
+            ),
+        ] {
+            let error = bulk(State(state.clone()), None, body.into())
+                .await
+                .unwrap_err();
+
+            assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(error.body()["error"]["feature"], feature);
         }
     }
 
