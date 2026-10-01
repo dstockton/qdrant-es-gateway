@@ -3174,14 +3174,17 @@ fn gateway_router(state: AppState) -> Router {
                             .into_response();
                     }
                 };
-                dispatch(
-                    state,
-                    method,
-                    uri.path().to_string(),
-                    headers,
-                    String::from_utf8_lossy(&bytes).into_owned(),
-                )
-                .await
+                let body = match String::from_utf8(bytes.to_vec()) {
+                    Ok(body) => body,
+                    Err(_) => {
+                        return GatewayError::bad(
+                            "request.body",
+                            "request body must be valid UTF-8",
+                        )
+                        .into_response()
+                    }
+                };
+                dispatch(state, method, uri.path().to_string(), headers, body).await
             },
         ))
         .with_state(state)
@@ -3751,6 +3754,63 @@ mod tests {
                 .as_str()
                 .unwrap()
                 .contains(&format!("{setting} limit of {limit} bytes")));
+        }
+    }
+
+    #[tokio::test]
+    async fn invalid_utf8_request_bodies_are_rejected_without_lossy_replacement() {
+        let cfg = Config::from_env();
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL);")
+            .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: "http://127.0.0.1:1".into(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        for (method, path, mut body) in [
+            (Method::PUT, "/products/_doc/one", br#"{"title":""#.to_vec()),
+            (
+                Method::POST,
+                "/_bulk",
+                br#"{"index":{"_index":"products","_id":""#.to_vec(),
+            ),
+        ] {
+            body.push(0xff);
+            body.extend_from_slice(b"\"}}\n");
+            let response = gateway_router(state.clone())
+                .oneshot(
+                    axum::http::Request::builder()
+                        .method(method)
+                        .uri(path)
+                        .body(Body::from(body))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(
+                response.headers().get("x-elastic-product").unwrap(),
+                "Elasticsearch"
+            );
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let response_body: Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(response_body["error"]["feature"], "request.body");
+            assert_eq!(
+                response_body["error"]["message"],
+                "request body must be valid UTF-8"
+            );
         }
     }
 
