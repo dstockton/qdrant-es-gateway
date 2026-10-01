@@ -2750,6 +2750,12 @@ async fn aliases(
     Json(body): Json<Value>,
 ) -> Result<Response, GatewayError> {
     let _index_admin = state.index_admin.lock().await;
+    enum AliasAction {
+        Add { alias: String, index: String },
+        Remove { alias: String, index: String },
+    }
+
+    let mut actions = Vec::new();
     for action in body
         .get("actions")
         .and_then(Value::as_array)
@@ -2757,17 +2763,40 @@ async fn aliases(
     {
         let o = action
             .as_object()
-            .ok_or_else(|| GatewayError::bad("_aliases", "action must be an object"))?;
-        if let Some(a) = o.get("add") {
-            let alias = a
-                .get("alias")
-                .and_then(Value::as_str)
-                .ok_or_else(|| GatewayError::bad("_aliases.add.alias", "missing alias"))?;
-            let idx = a
-                .get("index")
-                .and_then(Value::as_str)
-                .ok_or_else(|| GatewayError::bad("_aliases.add.index", "missing index"))?;
-            let (idx, _, _, _) = get_index(&state, idx)?;
+            .filter(|object| object.len() == 1)
+            .ok_or_else(|| {
+                GatewayError::bad(
+                    "_aliases.action",
+                    "each alias action must contain exactly one action",
+                )
+            })?;
+        let (kind, metadata) = o.iter().next().expect("one alias action was validated");
+        if !matches!(kind.as_str(), "add" | "remove") {
+            return Err(GatewayError::bad(
+                "_aliases.action",
+                format!("unsupported alias action [{kind}]"),
+            ));
+        }
+        let metadata = metadata.as_object().ok_or_else(|| {
+            GatewayError::bad(
+                format!("_aliases.{kind}"),
+                "alias action metadata must be an object",
+            )
+        })?;
+        let alias = metadata
+            .get("alias")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                GatewayError::bad(format!("_aliases.{kind}.alias"), "missing string alias")
+            })?;
+        let requested_index = metadata
+            .get("index")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                GatewayError::bad(format!("_aliases.{kind}.index"), "missing string index")
+            })?;
+        let (index, _, _, _) = get_index(&state, requested_index)?;
+        if kind == "add" {
             let db = state
                 .db
                 .lock()
@@ -2785,21 +2814,44 @@ async fn aliases(
                     format!("alias [{alias}] conflicts with an existing index"),
                 ));
             }
-            db.execute(
-                "INSERT OR REPLACE INTO aliases(alias,index_name) VALUES (?1,?2)",
-                params![alias, idx],
-            )
-            .map_err(|e| GatewayError::Internal(e.to_string()))?;
-        } else if let Some(a) = o.get("remove") {
-            let alias = a.get("alias").and_then(Value::as_str).unwrap_or("");
-            let db = state
-                .db
-                .lock()
-                .map_err(|e| GatewayError::Internal(e.to_string()))?;
-            db.execute("DELETE FROM aliases WHERE alias=?1", params![alias])
-                .map_err(|e| GatewayError::Internal(e.to_string()))?;
+            actions.push(AliasAction::Add {
+                alias: alias.to_string(),
+                index,
+            });
+        } else {
+            actions.push(AliasAction::Remove {
+                alias: alias.to_string(),
+                index,
+            });
         }
     }
+
+    let mut db = state
+        .db
+        .lock()
+        .map_err(|e| GatewayError::Internal(e.to_string()))?;
+    let transaction = db
+        .transaction()
+        .map_err(|e| GatewayError::Internal(e.to_string()))?;
+    for action in actions {
+        match action {
+            AliasAction::Add { alias, index } => transaction
+                .execute(
+                    "INSERT OR REPLACE INTO aliases(alias,index_name) VALUES (?1,?2)",
+                    params![alias, index],
+                )
+                .map_err(|e| GatewayError::Internal(e.to_string()))?,
+            AliasAction::Remove { alias, index } => transaction
+                .execute(
+                    "DELETE FROM aliases WHERE alias=?1 AND index_name=?2",
+                    params![alias, index],
+                )
+                .map_err(|e| GatewayError::Internal(e.to_string()))?,
+        };
+    }
+    transaction
+        .commit()
+        .map_err(|e| GatewayError::Internal(e.to_string()))?;
     Ok(es_ok(json!({"acknowledged":true})))
 }
 async fn alias_get(
@@ -3336,6 +3388,76 @@ mod tests {
             assert_eq!(error.status(), StatusCode::BAD_REQUEST);
             assert_eq!(error.body()["error"]["feature"], feature);
         }
+    }
+
+    #[tokio::test]
+    async fn alias_actions_validate_before_an_atomic_catalogue_update() {
+        let cfg = Config::from_env();
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); \
+             CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); \
+             INSERT INTO indices VALUES ('products-v1', '{}', '[\"text_all\"]'); \
+             INSERT INTO indices VALUES ('products-v2', '{}', '[\"text_all\"]'); \
+             INSERT INTO aliases VALUES ('current-products', 'products-v1');",
+        )
+        .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: "http://127.0.0.1:1".into(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        let error = aliases(
+            State(state.clone()),
+            Json(json!({"actions":[
+                {"add":{"index":"products-v1","alias":"preview-products"}},
+                {"remove":{"alias":"current-products"}}
+            ]})),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(error.body()["error"]["feature"], "_aliases.remove.index");
+        let preview_exists: bool = state
+            .db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM aliases WHERE alias='preview-products')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!preview_exists);
+
+        aliases(
+            State(state.clone()),
+            Json(json!({"actions":[
+                {"remove":{"index":"products-v1","alias":"current-products"}},
+                {"add":{"index":"products-v2","alias":"current-products"}}
+            ]})),
+        )
+        .await
+        .unwrap();
+        let target: String = state
+            .db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT index_name FROM aliases WHERE alias='current-products'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(target, "products-v2");
     }
 
     #[tokio::test]

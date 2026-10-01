@@ -15,4 +15,4 @@ The regression test uses a mock Qdrant endpoint and an alias named `current-prod
 cargo test aliases_route_document_and_search_requests_to_the_concrete_index
 ```
 
-This does not make aliases equivalent to Elasticsearch's full alias subsystem. The current schema deliberately permits one concrete target per alias. Filtered aliases, multi-index fan-out, write-index selection, and a Qdrant-native atomic switch are still future work. Alias action batches also remain gateway-local metadata operations rather than a distributed transaction with Qdrant.
+This does not make aliases equivalent to Elasticsearch's full alias subsystem. The current schema deliberately permits one concrete target per alias. Filtered aliases, multi-index fan-out, write-index selection, and a Qdrant-native atomic switch are still future work. Alias action batches are atomic within the gateway's SQLite catalogue, but they remain gateway-local metadata operations rather than a distributed transaction with Qdrant.
