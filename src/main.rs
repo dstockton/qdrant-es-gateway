@@ -424,6 +424,17 @@ fn mapping_vectors(body: &Value) -> (Value, Vec<String>) {
     (mapping, vectors)
 }
 
+fn payload_field_schema(spec: &Value) -> Option<&'static str> {
+    match spec.get("type").and_then(Value::as_str) {
+        Some("keyword") => Some("keyword"),
+        Some("boolean") => Some("bool"),
+        Some("byte" | "short" | "integer" | "long") => Some("integer"),
+        Some("float" | "double") => Some("float"),
+        Some("date") => Some("datetime"),
+        _ => None,
+    }
+}
+
 fn flatten_text(source: &Value, fields: &[String]) -> HashMap<String, String> {
     let obj = source.as_object().cloned().unwrap_or_default();
     let mut out = HashMap::new();
@@ -525,14 +536,7 @@ async fn create_index(
     }
     if let Some(props) = mapping.get("properties").and_then(Value::as_object) {
         for (field, spec) in props {
-            let schema = match spec.get("type").and_then(Value::as_str) {
-                Some("keyword") => Some("keyword"),
-                Some("boolean") => Some("bool"),
-                Some("byte" | "short" | "integer" | "long") => Some("integer"),
-                Some("float" | "double") => Some("float"),
-                Some("date") => Some("datetime"),
-                _ => None,
-            };
+            let schema = payload_field_schema(spec);
             if let Some(schema) = schema {
                 if let Err(error) = state
                     .qdrant
@@ -2897,17 +2901,88 @@ async fn mapping(
     method: Method,
     body: Option<Json<Value>>,
 ) -> Result<Response, GatewayError> {
-    let (index, _, mut m, _) = get_index(&state, &index)?;
+    let _index_admin = state.index_admin.lock().await;
+    let (index, coll, mut m, vectors) = get_index(&state, &index)?;
     if method == Method::PUT {
-        let b = body.map(|j| j.0).unwrap_or(json!({}));
-        let (nm, _) = mapping_vectors(&b);
-        let db = state.db.lock().unwrap();
+        let body = body.map(|j| j.0).unwrap_or_else(|| json!({}));
+        let update = body.get("mappings").unwrap_or(&body);
+        let update = update.as_object().ok_or_else(|| {
+            GatewayError::bad("_mapping", "mapping update body must be an object")
+        })?;
+        if update.keys().any(|key| key != "properties") {
+            return Err(GatewayError::bad(
+                "_mapping",
+                "only properties are supported in mapping updates",
+            ));
+        }
+        let properties = match update.get("properties") {
+            Some(value) => value.as_object().ok_or_else(|| {
+                GatewayError::bad("_mapping.properties", "properties must be an object")
+            })?,
+            None => return Ok(es_ok(json!({"acknowledged":true}))),
+        };
+        let existing_properties = m
+            .as_object_mut()
+            .ok_or_else(|| GatewayError::Internal("stored mapping is not an object".into()))?
+            .entry("properties")
+            .or_insert_with(|| json!({}))
+            .as_object_mut()
+            .ok_or_else(|| {
+                GatewayError::Internal("stored mapping properties are not an object".into())
+            })?;
+        let mut payload_indexes = Vec::new();
+        for (field, spec) in properties {
+            let field_type = spec.get("type").and_then(Value::as_str).ok_or_else(|| {
+                GatewayError::bad(
+                    format!("_mapping.properties.{field}"),
+                    "mapping properties require a string type",
+                )
+            })?;
+            if let Some(existing) = existing_properties.get(field) {
+                if existing != spec {
+                    return Err(GatewayError::bad(
+                        format!("_mapping.properties.{field}"),
+                        "changing an existing field mapping is not supported",
+                    ));
+                }
+                continue;
+            }
+            if field_type == "text" {
+                return Err(GatewayError::bad(
+                    format!("_mapping.properties.{field}"),
+                    "adding text fields requires a new index because Qdrant 1.15 cannot add the required named sparse vector",
+                ));
+            }
+            if let Some(schema) = payload_field_schema(spec) {
+                payload_indexes.push((field.clone(), schema));
+            }
+            existing_properties.insert(field.clone(), spec.clone());
+        }
+        for (field, schema) in payload_indexes {
+            state
+                .qdrant
+                .request(
+                    Method::PUT,
+                    &format!("/collections/{coll}/index"),
+                    Some(json!({"field_name":field,"field_schema":schema,"wait":true})),
+                )
+                .await?;
+        }
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| GatewayError::Internal(e.to_string()))?;
         db.execute(
-            "UPDATE indices SET mapping=?1 WHERE name=?2",
-            params![nm.to_string(), index],
+            "UPDATE indices SET mapping=?1, vectors=?2 WHERE name=?3",
+            params![
+                m.to_string(),
+                serde_json::to_string(&vectors)
+                    .map_err(|e| GatewayError::Internal(e.to_string()))?,
+                index
+            ],
         )
         .map_err(|e| GatewayError::Internal(e.to_string()))?;
-        m = nm;
+        return Ok(es_ok(json!({"acknowledged":true})));
     }
     Ok(es_ok(json!({index:{"mappings":m}})))
 }
@@ -4544,6 +4619,112 @@ mod tests {
 
         assert_eq!(body["hits"]["hits"], json!([]));
         assert_eq!(observed_body.lock().unwrap().as_ref().unwrap()["limit"], 1);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn mapping_updates_merge_properties_and_create_payload_indexes() {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let observed = requests.clone();
+        let mock = Router::new().fallback(any(
+            move |method: Method, uri: axum::http::Uri, body: Body| {
+                let observed = observed.clone();
+                async move {
+                    let bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
+                    observed.lock().unwrap().push((
+                        method,
+                        uri.path().to_string(),
+                        serde_json::from_slice::<Value>(&bytes).unwrap(),
+                    ));
+                    Json(json!({"status":"ok"})).into_response()
+                }
+            },
+        ));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        let mut cfg = Config::from_env();
+        cfg.qdrant_url = format!("http://{address}");
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); \
+             CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); \
+             INSERT INTO indices VALUES ('products', '{\"properties\":{\"title\":{\"type\":\"text\"}}}', '[\"text_all\",\"text_title\"]');",
+        )
+        .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: cfg.qdrant_url.clone(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        let response = mapping(
+            State(state.clone()),
+            Path("products".into()),
+            Method::PUT,
+            Some(Json(json!({"properties":{"brand":{"type":"keyword"}}}))),
+        )
+        .await
+        .unwrap();
+        let body: Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(body, json!({"acknowledged":true}));
+
+        let (_, _, stored, vectors) = get_index(&state, "products").unwrap();
+        assert_eq!(stored["properties"]["title"]["type"], "text");
+        assert_eq!(stored["properties"]["brand"]["type"], "keyword");
+        assert_eq!(vectors, ["text_all", "text_title"]);
+
+        mapping(
+            State(state.clone()),
+            Path("products".into()),
+            Method::PUT,
+            Some(Json(json!({"properties":{"title":{"type":"text"}}}))),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            *requests.lock().unwrap(),
+            [(
+                Method::PUT,
+                "/collections/es_products/index".into(),
+                json!({"field_name":"brand","field_schema":"keyword","wait":true})
+            )]
+        );
+
+        for (update, feature) in [
+            (
+                json!({"properties":{"title":{"type":"keyword"}}}),
+                "_mapping.properties.title",
+            ),
+            (
+                json!({"properties":{"description":{"type":"text"}}}),
+                "_mapping.properties.description",
+            ),
+        ] {
+            let error = mapping(
+                State(state.clone()),
+                Path("products".into()),
+                Method::PUT,
+                Some(Json(update)),
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(error.body()["error"]["feature"], feature);
+        }
+        assert_eq!(requests.lock().unwrap().len(), 1);
         server.abort();
     }
 
