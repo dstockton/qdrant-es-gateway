@@ -2097,7 +2097,10 @@ async fn search(
         };
         let mut offset = Value::Null;
         loop {
-            let mut req = json!({"limit":if patterns.is_empty() { from + size } else { state.cfg.max_page_size },"with_payload":{"include":payload_fields}});
+            // Qdrant requires a positive scroll limit, while Elasticsearch
+            // commonly uses size: 0 for aggregation-only searches. Fetch one
+            // candidate for bookkeeping and keep the requested page empty.
+            let mut req = json!({"limit":if patterns.is_empty() { (from + size).max(1) } else { state.cfg.max_page_size },"with_payload":{"include":payload_fields}});
             if let Some(f) = &filter {
                 req["filter"] = f.clone();
             }
@@ -4489,6 +4492,58 @@ mod tests {
             assert_eq!(body["items"][2]["index"]["result"], "updated");
         }
         assert_eq!(*requests.lock().unwrap(), (2, 3));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn zero_size_search_uses_a_positive_qdrant_scroll_limit() {
+        let observed_body = Arc::new(Mutex::new(None));
+        let captured_body = observed_body.clone();
+        let mock = Router::new().fallback(any(move |body: Body| {
+            let captured_body = captured_body.clone();
+            async move {
+                let bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
+                *captured_body.lock().unwrap() =
+                    Some(serde_json::from_slice::<Value>(&bytes).unwrap());
+                Json(json!({"result":{"points":[{"payload":{"_es_id":"1","_source":{"brand":"Acme"}}}],"next_page_offset":null}})).into_response()
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        let mut cfg = Config::from_env();
+        cfg.qdrant_url = format!("http://{address}");
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[]');")
+            .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: cfg.qdrant_url.clone(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        let response = search(
+            State(state),
+            Path("products".into()),
+            Json(json!({"size":0,"query":{"match_all":{}}})),
+        )
+        .await
+        .unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+
+        assert_eq!(body["hits"]["hits"], json!([]));
+        assert_eq!(observed_body.lock().unwrap().as_ref().unwrap()["limit"], 1);
         server.abort();
     }
 
