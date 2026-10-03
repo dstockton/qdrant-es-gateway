@@ -1,6 +1,6 @@
 [package]
 name = "qdrant-es-gateway"
-version = "0.1.3"
+version = "0.2.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "A deliberately useful Elasticsearch-compatible application-search gateway backed by Qdrant"
