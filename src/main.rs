@@ -2538,7 +2538,9 @@ async fn count(
         .get("query")
         .cloned()
         .unwrap_or_else(|| json!({"match_all": {}}));
-    if pick_text(&query).is_none() {
+    let mut patterns = Vec::new();
+    collect_patterns(&query, &mut patterns)?;
+    if pick_text(&query).is_none() && patterns.is_empty() {
         let (filter, _) = query_filter(&query)?;
         let mut request = json!({"exact":true});
         if let Some(filter) = filter {
@@ -4627,6 +4629,79 @@ mod tests {
 
         assert_eq!(body["hits"]["hits"], json!([]));
         assert_eq!(observed_body.lock().unwrap().as_ref().unwrap()["limit"], 1);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn count_applies_gateway_patterns_across_scroll_pages() {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let observed = requests.clone();
+        let mock = Router::new().fallback(any(move |uri: axum::http::Uri, body: Body| {
+            let observed = observed.clone();
+            async move {
+                let bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
+                let request: Value = serde_json::from_slice(&bytes).unwrap();
+                observed
+                    .lock()
+                    .unwrap()
+                    .push((uri.path().to_string(), request.clone()));
+                if request.get("offset").is_some() {
+                    Json(json!({"result":{"points":[
+                        {"payload":{"_es_id":"3","_source":{"sku":"ABC-200"}}}
+                    ],"next_page_offset":null}}))
+                    .into_response()
+                } else {
+                    Json(json!({"result":{"points":[
+                        {"payload":{"_es_id":"1","_source":{"sku":"ABC-100"}}},
+                        {"payload":{"_es_id":"2","_source":{"sku":"XYZ-100"}}}
+                    ],"next_page_offset":"next"}}))
+                    .into_response()
+                }
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        let mut cfg = Config::from_env();
+        cfg.qdrant_url = format!("http://{address}");
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[]');")
+            .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: cfg.qdrant_url.clone(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        let response = count(
+            State(state),
+            Path("products".into()),
+            Json(json!({"query":{"wildcard":{"sku":"ABC-*"}}})),
+        )
+        .await
+        .unwrap();
+        let body: Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(body["count"], 2);
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests
+            .iter()
+            .all(|(path, _)| path == "/collections/es_products/points/scroll"));
+        assert_eq!(requests[1].1["offset"], "next");
         server.abort();
     }
 
