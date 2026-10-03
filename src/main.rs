@@ -1265,6 +1265,14 @@ fn sortable_source_field<'a>(source: &'a Value, field: &str) -> Option<&'a Value
     source_field(source, field.strip_suffix(".keyword").unwrap_or(field))
 }
 
+fn source_value_exists(source: &Value, field: &str) -> bool {
+    source_field(source, field).is_some_and(|value| match value {
+        Value::Null => false,
+        Value::Array(values) => values.iter().any(|value| !value.is_null()),
+        _ => true,
+    })
+}
+
 fn wildcard_regex(pattern: &str) -> Result<Regex, GatewayError> {
     let mut expression = String::from("^");
     for piece in pattern.split('*') {
@@ -1346,7 +1354,7 @@ fn source_matches_query(source: &Value, query: &Value) -> bool {
         return exists
             .get("field")
             .and_then(Value::as_str)
-            .is_some_and(|field| source_field(source, field).is_some());
+            .is_some_and(|field| source_value_exists(source, field));
     }
     if let Some(bool_query) = object.get("bool").and_then(Value::as_object) {
         let clauses = |key: &str| -> Vec<&Value> {
@@ -1432,7 +1440,7 @@ fn query_filter(q: &Value) -> Result<FilterResult, GatewayError> {
                         .get("field")
                         .and_then(Value::as_str)
                         .ok_or_else(|| GatewayError::bad("exists", "exists requires field"))?;
-                    must.push(json!({"is_empty":{"key":f,"strict":false}}));
+                    must.push(json!({"must_not":[{"is_empty":{"key":f}}]}));
                 }
                 "range" => {
                     let (f, r) = v
@@ -5204,6 +5212,16 @@ mod tests {
     }
 
     #[test]
+    fn exists_query_excludes_empty_qdrant_payloads() {
+        let (filter, _) = query_filter(&json!({"exists":{"field":"brand"}})).unwrap();
+
+        assert_eq!(
+            filter.unwrap(),
+            json!({"must":[{"must_not":[{"is_empty":{"key":"brand"}}]}]})
+        );
+    }
+
+    #[test]
     fn query_filter_accepts_java_range_and_object_terms() {
         let (filter, _) = query_filter(&json!({"bool":{"must":[
             {"term":{"brand.keyword":{"value":"Acme","boost":1.0}}},
@@ -5241,6 +5259,21 @@ mod tests {
             &source,
             &json!({"range":{"price":{"gt":50}}})
         ));
+    }
+
+    #[test]
+    fn post_filter_exists_rejects_missing_null_and_empty_arrays() {
+        let query = json!({"exists":{"field":"brand"}});
+
+        assert!(source_matches_query(&json!({"brand":""}), &query));
+        assert!(source_matches_query(
+            &json!({"brand":[null, "Acme"]}),
+            &query
+        ));
+        assert!(!source_matches_query(&json!({}), &query));
+        assert!(!source_matches_query(&json!({"brand":null}), &query));
+        assert!(!source_matches_query(&json!({"brand":[]}), &query));
+        assert!(!source_matches_query(&json!({"brand":[null]}), &query));
     }
 
     #[test]
