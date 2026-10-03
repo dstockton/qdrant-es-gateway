@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/dstockton/qdrant-es-gateway/compare/v0.2.0...v0.2.1) (2026-10-03)
+
+
+### Bug Fixes
+
+* apply pattern queries to count requests ([2b99044](https://github.com/dstockton/qdrant-es-gateway/commit/2b99044bd178eea632236dcbdb6eb5195af22d43))
+
 ## [0.2.0](https://github.com/dstockton/qdrant-es-gateway/compare/v0.1.3...v0.2.0) (2026-10-03)
 
 
