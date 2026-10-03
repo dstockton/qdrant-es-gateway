@@ -1,0 +1,129 @@
+{
+  "index": "field_note_maintenance",
+  "mapping": {
+    "mappings": {
+      "properties": {
+        "title": {
+          "type": "text"
+        },
+        "plant": {
+          "type": "keyword"
+        },
+        "team": {
+          "type": "keyword"
+        },
+        "status": {
+          "type": "keyword"
+        },
+        "downtime_minutes": {
+          "type": "integer"
+        }
+      }
+    }
+  },
+  "documents": {
+    "wo-101": {
+      "title": "Pump seal leaking",
+      "plant": "Leeds",
+      "team": "mechanical",
+      "status": "open",
+      "downtime_minutes": 45
+    },
+    "wo-102": {
+      "title": "Conveyor belt slipping",
+      "plant": "Leeds",
+      "team": "mechanical",
+      "status": "open",
+      "downtime_minutes": 20
+    },
+    "wo-103": {
+      "title": "Pump motor overheating",
+      "plant": "Bristol",
+      "team": "electrical",
+      "status": "open",
+      "downtime_minutes": 60
+    },
+    "wo-104": {
+      "title": "Pump inspection complete",
+      "plant": "Leeds",
+      "team": "mechanical",
+      "status": "closed",
+      "downtime_minutes": 0
+    },
+    "wo-105": {
+      "title": "Sensor signal intermittent",
+      "plant": "Leeds",
+      "team": "electrical",
+      "status": "open",
+      "downtime_minutes": 10
+    }
+  },
+  "search": {
+    "size": 10,
+    "query": {
+      "bool": {
+        "must": {
+          "match": {
+            "title": "pump"
+          }
+        },
+        "filter": [
+          {
+            "term": {
+              "plant": "Leeds"
+            }
+          },
+          {
+            "term": {
+              "status": "open"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "facet": {
+    "size": 0,
+    "query": {
+      "bool": {
+        "filter": [
+          {
+            "term": {
+              "plant": "Leeds"
+            }
+          },
+          {
+            "term": {
+              "status": "open"
+            }
+          }
+        ]
+      }
+    },
+    "aggs": {
+      "teams": {
+        "terms": {
+          "field": "team",
+          "size": 10
+        }
+      }
+    }
+  },
+  "update_id": "wo-101",
+  "update": {
+    "doc": {
+      "status": "closed"
+    }
+  },
+  "expected_search_ids": [
+    "wo-101"
+  ],
+  "expected_facets_before": {
+    "mechanical": 2,
+    "electrical": 1
+  },
+  "expected_facets_after": {
+    "mechanical": 1,
+    "electrical": 1
+  }
+}

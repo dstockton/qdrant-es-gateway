@@ -23,3 +23,36 @@ The command exits non-zero when transport errors occur or when a required semant
 For an endpoint-only application check, point the same client at each URL. For example, the repository's Python example changes only its `Elasticsearch(...)` URL; its index, index, search, and response-handling calls remain the same.
 
 The AWS Retail Demo Store and Spinscale applications are useful follow-on targets, but both use features outside this gateway's deliberately supported subset. Their request shapes and current gaps are documented in `docs/application-validation.md`.
+
+## Manufacturing maintenance queue
+
+The [field note](../docs/_posts/2026-10-03-manufacturing-maintenance-queue.md)
+uses five synthetic work orders in
+[`fixtures/manufacturing.json`](fixtures/manufacturing.json). Run the exact same
+request sequence on both endpoints:
+
+```sh
+python3 validation/manufacturing.py \
+  --native http://localhost:19200 \
+  --gateway http://localhost:9200 \
+  --output validation/results/manufacturing.json
+```
+
+Use disposable endpoints with no `field_note_maintenance` index. The replay
+creates that index and deletes it on completion; an existing index causes failure
+without deleting existing data. It requires Python 3 and no extra packages.
+The same five-second pause follows bulk ingestion and the update on both servers;
+`--settle-seconds` can change it for both, but a pass is not a refresh guarantee.
+
+The replay asserts exact HTTP statuses, bulk item IDs/statuses/results, every
+stored source, filtered search IDs and sources, exact team facet counts, and the
+closed job's preserved source and exclusion from the open queue. Each endpoint
+must satisfy independent fixture expectations, and their request sequences must
+match. Transport or semantic failures exit nonzero and remain in the report.
+
+The [2026-10-03 evidence](evidence/manufacturing-2026-10-03.json) records **62/62**
+checks passing against native Elasticsearch **8.15.0**, gateway **0.1.3** at the
+recorded source revision, and Qdrant **1.15.3**, using the default embedded-source
+mode and synchronous writes. `reported_version` is the endpoint's Elasticsearch
+API version advertisement, not the gateway binary version. No latency or ranking
+comparison is claimed. No gateway implementation change was needed.
