@@ -38,14 +38,14 @@ services:
     depends_on: {es1: {condition: service_healthy}, es2: {condition: service_healthy}, es3: {condition: service_healthy}}
 
   qdrant1:
-    image: qdrant/qdrant:v1.15.3
+    image: qdrant/qdrant:v1.15.5
     command: ["./qdrant", "--uri", "http://qdrant1:6335"]
     environment: {QDRANT__CLUSTER__ENABLED: "true"}
     volumes: [qdrant1_data:/qdrant/storage]
     mem_limit: 384m
     cpus: "0.75"
   qdrant2:
-    image: qdrant/qdrant:v1.15.3
+    image: qdrant/qdrant:v1.15.5
     command: ["./qdrant", "--bootstrap", "http://qdrant1:6335"]
     environment: {QDRANT__CLUSTER__ENABLED: "true"}
     volumes: [qdrant2_data:/qdrant/storage]
@@ -53,7 +53,7 @@ services:
     cpus: "0.75"
     depends_on: [qdrant1]
   qdrant3:
-    image: qdrant/qdrant:v1.15.3
+    image: qdrant/qdrant:v1.15.5
     command: ["./qdrant", "--bootstrap", "http://qdrant1:6335"]
     environment: {QDRANT__CLUSTER__ENABLED: "true"}
     volumes: [qdrant3_data:/qdrant/storage]
