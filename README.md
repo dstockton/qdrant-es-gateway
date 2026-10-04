@@ -34,7 +34,7 @@ The root endpoint includes `X-Elastic-Product: Elasticsearch` and an 8.x-compati
 | `match`, `match_phrase` | ⚠️ | Native Qdrant BM25; phrase is lexical, not Lucene-identical |
 | `multi_match` with boosts | ⚠️ | One named sparse representation per text field, merged in gateway |
 | `term`, `terms`, `range`, `exists`, `ids` | ✅ | Qdrant payload filters |
-| bool must/filter/must_not/should | ✅ | Filter-only `should` with `minimum_should_match` is supported |
+| bool must/filter/must_not/should | ✅ | Filter-only `should` follows Elasticsearch's default `minimum_should_match`; optional clauses do not boost Qdrant scores |
 | from/size, source filtering | ✅ | Supports `_source:false`, includes, and excludes; deep pagination is capped |
 | search_after | ✅ | Explicit sort fields, returned `sort` cursors, stable while the result set is unchanged |
 | field sorting | ⚠️ | Safe basic response sorting; Qdrant-native ordering is preferred for large data |
