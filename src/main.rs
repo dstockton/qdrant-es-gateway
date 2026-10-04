@@ -1430,6 +1430,23 @@ fn query_filter(q: &Value) -> Result<FilterResult, GatewayError> {
         text: &mut Vec<Value>,
         _sorts: &mut Vec<(String, String)>,
     ) -> Result<(), GatewayError> {
+        fn condition(mut must: Vec<Value>, must_not: Vec<Value>) -> Value {
+            if must_not.is_empty() && must.len() == 1 {
+                return must.remove(0);
+            }
+            if must.is_empty() && must_not.is_empty() {
+                return json!({"must":[]});
+            }
+            let mut filter = Map::new();
+            if !must.is_empty() {
+                filter.insert("must".into(), Value::Array(must));
+            }
+            if !must_not.is_empty() {
+                filter.insert("must_not".into(), Value::Array(must_not));
+            }
+            Value::Object(filter)
+        }
+
         let o = q
             .as_object()
             .ok_or_else(|| GatewayError::bad("query", "query clause must be an object"))?;
@@ -1538,19 +1555,18 @@ fn query_filter(q: &Value) -> Result<FilterResult, GatewayError> {
                             walk(c, must, must_not, text, _sorts)?
                         }
                     }
-                    if let Some(a) = b.get("must_not").and_then(Value::as_array) {
-                        for c in a {
-                            let mut cm = Vec::new();
-                            let mut ct = Vec::new();
-                            walk(c, &mut cm, &mut Vec::new(), &mut ct, _sorts)?;
-                            must_not.extend(cm);
-                            if !ct.is_empty() {
-                                return Err(GatewayError::bad(
-                                    "query.bool.must_not",
-                                    "text must_not is not supported safely",
-                                ));
-                            }
+                    for clause in bool_clauses(b, "must_not") {
+                        let mut cm = Vec::new();
+                        let mut cn = Vec::new();
+                        let mut ct = Vec::new();
+                        walk(clause, &mut cm, &mut cn, &mut ct, _sorts)?;
+                        if !ct.is_empty() {
+                            return Err(GatewayError::bad(
+                                "query.bool.must_not",
+                                "text must_not is not supported safely",
+                            ));
                         }
+                        must_not.push(condition(cm, cn));
                     }
                     let clauses = bool_clauses(b, "should");
                     if !clauses.is_empty() {
@@ -1560,19 +1576,16 @@ fn query_filter(q: &Value) -> Result<FilterResult, GatewayError> {
                         let mut should = Vec::new();
                         for clause in clauses {
                             let mut cm = Vec::new();
+                            let mut cn = Vec::new();
                             let mut ct = Vec::new();
-                            walk(clause, &mut cm, &mut Vec::new(), &mut ct, _sorts)?;
+                            walk(clause, &mut cm, &mut cn, &mut ct, _sorts)?;
                             if !ct.is_empty() {
                                 return Err(GatewayError::bad(
                                     "query.bool.should",
                                     "text should clauses are not supported safely",
                                 ));
                             }
-                            if cm.len() == 1 {
-                                should.push(cm.remove(0));
-                            } else {
-                                should.push(json!({"must":cm}));
-                            }
+                            should.push(condition(cm, cn));
                         }
                         if minimum > 0 {
                             must.push(
@@ -5339,6 +5352,45 @@ mod tests {
                 "minimum_should_match":1
             }})
         ));
+    }
+
+    #[test]
+    fn bool_negative_clauses_preserve_scalar_and_nested_semantics() {
+        let (filter, _) = query_filter(&json!({"bool":{"must_not":{
+            "bool":{"must_not":{"term":{"status":"deleted"}}}
+        }}}))
+        .unwrap();
+        assert_eq!(
+            filter.unwrap(),
+            json!({"must":[{"must_not":[{"must_not":[
+                {"key":"status","match":{"value":"deleted"}}
+            ]}]}]})
+        );
+
+        let (filter, _) = query_filter(&json!({"bool":{
+            "should":{"bool":{"must_not":{"term":{"status":"deleted"}}}},
+            "minimum_should_match":1
+        }}))
+        .unwrap();
+        assert_eq!(
+            filter.unwrap(),
+            json!({"must":[{"min_should":{"conditions":[{"must_not":[
+                {"key":"status","match":{"value":"deleted"}}
+            ]}],"min_count":1}}]})
+        );
+
+        let (filter, _) = query_filter(&json!({"bool":{"must_not":{"bool":{"must":[
+            {"term":{"status":"deleted"}},
+            {"term":{"tenant":"internal"}}
+        ]}}}}))
+        .unwrap();
+        assert_eq!(
+            filter.unwrap(),
+            json!({"must":[{"must_not":[{"must":[
+                {"key":"status","match":{"value":"deleted"}},
+                {"key":"tenant","match":{"value":"internal"}}
+            ]}]}]})
+        );
     }
 
     #[test]
