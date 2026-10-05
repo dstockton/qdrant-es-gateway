@@ -57,6 +57,8 @@ jobs:
           context: .
           load: true
           tags: qdrant-es-gateway:ci
+          pull: true
+          no-cache-filters: runtime
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Scan image for vulnerabilities

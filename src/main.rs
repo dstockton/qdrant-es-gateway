@@ -1273,6 +1273,45 @@ fn source_value_exists(source: &Value, field: &str) -> bool {
     })
 }
 
+fn bool_clauses<'a>(bool_query: &'a Map<String, Value>, key: &str) -> Vec<&'a Value> {
+    match bool_query.get(key) {
+        Some(value) => value
+            .as_array()
+            .map(|values| values.iter().collect())
+            .unwrap_or_else(|| vec![value]),
+        None => Vec::new(),
+    }
+}
+
+fn minimum_should_match(
+    bool_query: &Map<String, Value>,
+    should_len: usize,
+    has_required_clause: bool,
+) -> usize {
+    if should_len == 0 {
+        return 0;
+    }
+    let explicit = bool_query.get("minimum_should_match").and_then(|value| {
+        value.as_u64().or_else(|| {
+            value.as_str().and_then(|text| {
+                text.parse::<u64>().ok().or_else(|| {
+                    text.strip_suffix('%').and_then(|number| {
+                        number
+                            .parse::<u64>()
+                            .ok()
+                            .map(|percent| (should_len as u64 * percent).div_ceil(100))
+                    })
+                })
+            })
+        })
+    });
+    let default = if has_required_clause { 0 } else { 1 };
+    explicit
+        .unwrap_or(default)
+        .max(if has_required_clause { 0 } else { 1 })
+        .min(should_len as u64) as usize
+}
+
 fn wildcard_regex(pattern: &str) -> Result<Regex, GatewayError> {
     let mut expression = String::from("^");
     for piece in pattern.split('*') {
@@ -1357,27 +1396,17 @@ fn source_matches_query(source: &Value, query: &Value) -> bool {
             .is_some_and(|field| source_value_exists(source, field));
     }
     if let Some(bool_query) = object.get("bool").and_then(Value::as_object) {
-        let clauses = |key: &str| -> Vec<&Value> {
-            match bool_query.get(key) {
-                Some(value) => value
-                    .as_array()
-                    .map(|values| values.iter().collect())
-                    .unwrap_or_else(|| vec![value]),
-                None => Vec::new(),
-            }
-        };
-        let must = clauses("must")
+        let has_required_clause = !bool_clauses(bool_query, "must").is_empty()
+            || !bool_clauses(bool_query, "filter").is_empty();
+        let must = bool_clauses(bool_query, "must")
             .into_iter()
-            .chain(clauses("filter"))
+            .chain(bool_clauses(bool_query, "filter"))
             .all(|clause| source_matches_query(source, clause));
-        let must_not = clauses("must_not")
+        let must_not = bool_clauses(bool_query, "must_not")
             .into_iter()
             .all(|clause| !source_matches_query(source, clause));
-        let should = clauses("should");
-        let minimum = bool_query
-            .get("minimum_should_match")
-            .and_then(Value::as_u64)
-            .unwrap_or(if should.is_empty() { 0 } else { 1 }) as usize;
+        let should = bool_clauses(bool_query, "should");
+        let minimum = minimum_should_match(bool_query, should.len(), has_required_clause);
         return must
             && must_not
             && should
@@ -1401,6 +1430,23 @@ fn query_filter(q: &Value) -> Result<FilterResult, GatewayError> {
         text: &mut Vec<Value>,
         _sorts: &mut Vec<(String, String)>,
     ) -> Result<(), GatewayError> {
+        fn condition(mut must: Vec<Value>, must_not: Vec<Value>) -> Value {
+            if must_not.is_empty() && must.len() == 1 {
+                return must.remove(0);
+            }
+            if must.is_empty() && must_not.is_empty() {
+                return json!({"must":[]});
+            }
+            let mut filter = Map::new();
+            if !must.is_empty() {
+                filter.insert("must".into(), Value::Array(must));
+            }
+            if !must_not.is_empty() {
+                filter.insert("must_not".into(), Value::Array(must_not));
+            }
+            Value::Object(filter)
+        }
+
         let o = q
             .as_object()
             .ok_or_else(|| GatewayError::bad("query", "query clause must be an object"))?;
@@ -1509,59 +1555,43 @@ fn query_filter(q: &Value) -> Result<FilterResult, GatewayError> {
                             walk(c, must, must_not, text, _sorts)?
                         }
                     }
-                    if let Some(a) = b.get("must_not").and_then(Value::as_array) {
-                        for c in a {
-                            let mut cm = Vec::new();
-                            let mut ct = Vec::new();
-                            walk(c, &mut cm, &mut Vec::new(), &mut ct, _sorts)?;
-                            must_not.extend(cm);
-                            if !ct.is_empty() {
-                                return Err(GatewayError::bad(
-                                    "query.bool.must_not",
-                                    "text must_not is not supported safely",
-                                ));
-                            }
+                    for clause in bool_clauses(b, "must_not") {
+                        let mut cm = Vec::new();
+                        let mut cn = Vec::new();
+                        let mut ct = Vec::new();
+                        walk(clause, &mut cm, &mut cn, &mut ct, _sorts)?;
+                        if !ct.is_empty() {
+                            return Err(GatewayError::bad(
+                                "query.bool.must_not",
+                                "text must_not is not supported safely",
+                            ));
                         }
+                        must_not.push(condition(cm, cn));
                     }
-                    if let Some(clauses) = b.get("should").and_then(Value::as_array) {
-                        if b.get("minimum_should_match").is_none()
-                            && (b.get("must").is_some() || b.get("filter").is_some())
-                        {
-                            return Err(GatewayError::bad("query.bool.should", "should with must/filter requires minimum_should_match for unambiguous Qdrant translation"));
-                        }
-                        let minimum = b
-                            .get("minimum_should_match")
-                            .and_then(|value| {
-                                value.as_u64().or_else(|| {
-                                    value.as_str().and_then(|text| {
-                                        text.strip_suffix('%').and_then(|number| {
-                                            number.parse::<u64>().ok().map(|percent| {
-                                                (clauses.len() as u64 * percent).div_ceil(100)
-                                            })
-                                        })
-                                    })
-                                })
-                            })
-                            .unwrap_or(1)
-                            .min(clauses.len() as u64);
+                    let clauses = bool_clauses(b, "should");
+                    if !clauses.is_empty() {
+                        let has_required_clause = !bool_clauses(b, "must").is_empty()
+                            || !bool_clauses(b, "filter").is_empty();
+                        let minimum = minimum_should_match(b, clauses.len(), has_required_clause);
                         let mut should = Vec::new();
                         for clause in clauses {
                             let mut cm = Vec::new();
+                            let mut cn = Vec::new();
                             let mut ct = Vec::new();
-                            walk(clause, &mut cm, &mut Vec::new(), &mut ct, _sorts)?;
+                            walk(clause, &mut cm, &mut cn, &mut ct, _sorts)?;
                             if !ct.is_empty() {
                                 return Err(GatewayError::bad(
                                     "query.bool.should",
                                     "text should clauses are not supported safely",
                                 ));
                             }
-                            if cm.len() == 1 {
-                                should.push(cm.remove(0));
-                            } else {
-                                should.push(json!({"must":cm}));
-                            }
+                            should.push(condition(cm, cn));
                         }
-                        must.push(json!({"min_should":{"conditions":should,"min_count":minimum}}));
+                        if minimum > 0 {
+                            must.push(
+                                json!({"min_should":{"conditions":should,"min_count":minimum}}),
+                            );
+                        }
                     }
                 }
                 "prefix" => {
@@ -1936,29 +1966,17 @@ fn text_query_matches(source: &Value, query: &Value) -> bool {
             });
     }
     if let Some(bool_query) = object.get("bool").and_then(Value::as_object) {
-        let clauses = |key: &str| {
-            bool_query
-                .get(key)
-                .map(|value| {
-                    value
-                        .as_array()
-                        .cloned()
-                        .unwrap_or_else(|| vec![value.clone()])
-                })
-                .unwrap_or_default()
-        };
-        let must = clauses("must")
+        let has_required_clause = !bool_clauses(bool_query, "must").is_empty()
+            || !bool_clauses(bool_query, "filter").is_empty();
+        let must = bool_clauses(bool_query, "must")
             .into_iter()
-            .chain(clauses("filter"))
-            .all(|clause| text_query_matches(source, &clause));
-        let must_not = clauses("must_not")
+            .chain(bool_clauses(bool_query, "filter"))
+            .all(|clause| text_query_matches(source, clause));
+        let must_not = bool_clauses(bool_query, "must_not")
             .into_iter()
-            .all(|clause| !text_query_matches(source, &clause));
-        let should = clauses("should");
-        let minimum = bool_query
-            .get("minimum_should_match")
-            .and_then(Value::as_u64)
-            .unwrap_or(if should.is_empty() { 0 } else { 1 }) as usize;
+            .all(|clause| !text_query_matches(source, clause));
+        let should = bool_clauses(bool_query, "should");
+        let minimum = minimum_should_match(bool_query, should.len(), has_required_clause);
         return must
             && must_not
             && should
@@ -5306,6 +5324,85 @@ mod tests {
         assert_eq!(filter["must"][0]["match"]["value"], "Acme");
         assert_eq!(filter["must"][1]["range"]["gte"], 10);
         assert_eq!(filter["must"][1]["range"]["lt"], 50);
+    }
+
+    #[test]
+    fn bool_should_defaults_follow_required_clause_semantics() {
+        let query = json!({"bool":{
+            "filter":{"term":{"brand":"Acme"}},
+            "should":[{"term":{"featured":true}}]
+        }});
+        let (filter, _) = query_filter(&query).unwrap();
+        assert_eq!(
+            filter.unwrap(),
+            json!({"must":[{"key":"brand","match":{"value":"Acme"}}]})
+        );
+
+        let source = json!({"brand":"Acme","featured":false});
+        assert!(source_matches_query(&source, &query));
+        assert!(!source_matches_query(
+            &source,
+            &json!({"bool":{"should":[{"term":{"featured":true}}]}})
+        ));
+        assert!(!source_matches_query(
+            &source,
+            &json!({"bool":{
+                "filter":{"term":{"brand":"Acme"}},
+                "should":[{"term":{"featured":true}}],
+                "minimum_should_match":1
+            }})
+        ));
+    }
+
+    #[test]
+    fn bool_negative_clauses_preserve_scalar_and_nested_semantics() {
+        let (filter, _) = query_filter(&json!({"bool":{"must_not":{
+            "bool":{"must_not":{"term":{"status":"deleted"}}}
+        }}}))
+        .unwrap();
+        assert_eq!(
+            filter.unwrap(),
+            json!({"must":[{"must_not":[{"must_not":[
+                {"key":"status","match":{"value":"deleted"}}
+            ]}]}]})
+        );
+
+        let (filter, _) = query_filter(&json!({"bool":{
+            "should":{"bool":{"must_not":{"term":{"status":"deleted"}}}},
+            "minimum_should_match":1
+        }}))
+        .unwrap();
+        assert_eq!(
+            filter.unwrap(),
+            json!({"must":[{"min_should":{"conditions":[{"must_not":[
+                {"key":"status","match":{"value":"deleted"}}
+            ]}],"min_count":1}}]})
+        );
+
+        let (filter, _) = query_filter(&json!({"bool":{"must_not":{"bool":{"must":[
+            {"term":{"status":"deleted"}},
+            {"term":{"tenant":"internal"}}
+        ]}}}}))
+        .unwrap();
+        assert_eq!(
+            filter.unwrap(),
+            json!({"must":[{"must_not":[{"must":[
+                {"key":"status","match":{"value":"deleted"}},
+                {"key":"tenant","match":{"value":"internal"}}
+            ]}]}]})
+        );
+    }
+
+    #[test]
+    fn approximate_text_bool_should_is_optional_beside_must() {
+        let source = json!({"name":"red backpack","description":"plain canvas"});
+        assert!(text_query_matches(
+            &source,
+            &json!({"bool":{
+                "must":{"match":{"name":"red"}},
+                "should":{"match":{"description":"waterproof"}}
+            }})
+        ));
     }
 
     #[test]
