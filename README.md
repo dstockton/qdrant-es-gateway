@@ -37,7 +37,7 @@ The root endpoint includes `X-Elastic-Product: Elasticsearch` and an 8.x-compati
 | bool must/filter/must_not/should | ✅ | Filter-only `should` follows Elasticsearch's default `minimum_should_match`; optional clauses do not boost Qdrant scores |
 | from/size, source filtering | ✅ | Supports `_source:false`, includes, and excludes; deep pagination is capped |
 | search_after | ✅ | Explicit sort fields, returned `sort` cursors, stable while the result set is unchanged |
-| field sorting | ⚠️ | Safe basic response sorting; Qdrant-native ordering is preferred for large data |
+| field sorting | ⚠️ | String, `{"field":"asc"}`, and `{"field":{"order":"desc"}}` forms; bounded response sorting, so Qdrant-native ordering is preferred for large data |
 | terms aggregations | ⚠️ | Native Qdrant facet over indexed keyword fields only |
 | aliases | ⚠️ | Durable single-target aliases route CRUD and search; native atomic switching and multi-index aliases are future work |
 | regexp, wildcard, prefix | ⚠️ | Gateway-side Rust matching in positive must/filter clauses; scans candidate documents and is not suitable for unbounded high-cardinality pattern queries |

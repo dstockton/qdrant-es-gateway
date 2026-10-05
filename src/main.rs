@@ -2041,6 +2041,76 @@ fn value_cmp(left: &Value, right: &Value) -> std::cmp::Ordering {
     }
 }
 
+fn parse_sort_specs(sort: Option<&Value>) -> Result<Vec<(String, String)>, GatewayError> {
+    let Some(sort) = sort else {
+        return Ok(Vec::new());
+    };
+    let clauses = match sort {
+        Value::Array(clauses) => clauses.iter().collect::<Vec<_>>(),
+        clause => vec![clause],
+    };
+    clauses
+        .into_iter()
+        .map(|clause| {
+            let (field, options) = match clause {
+                Value::String(field) if !field.is_empty() => (field.clone(), None),
+                Value::Object(object) if object.len() == 1 => {
+                    let (field, options) = object.iter().next().expect("one sort field");
+                    if field.is_empty() {
+                        return Err(GatewayError::bad("sort", "sort field must not be empty"));
+                    }
+                    (field.clone(), Some(options))
+                }
+                _ => {
+                    return Err(GatewayError::bad(
+                        "sort",
+                        "each sort clause must be a field name or a single-field object",
+                    ))
+                }
+            };
+            let default_order = if field == "_score" { "desc" } else { "asc" };
+            let order = match options {
+                None => default_order,
+                Some(Value::String(order)) => order,
+                Some(Value::Object(options)) => {
+                    if options.keys().any(|key| key != "order") {
+                        return Err(GatewayError::bad(
+                            "sort",
+                            "only the basic sort order option is supported",
+                        ));
+                    }
+                    options
+                        .get("order")
+                        .map(|order| {
+                            order.as_str().ok_or_else(|| {
+                                GatewayError::bad("sort", "sort order must be asc or desc")
+                            })
+                        })
+                        .transpose()?
+                        .unwrap_or(default_order)
+                }
+                _ => return Err(GatewayError::bad("sort", "sort order must be asc or desc")),
+            };
+            if order != "asc" && order != "desc" {
+                return Err(GatewayError::bad("sort", "sort order must be asc or desc"));
+            }
+            Ok((field, order.to_string()))
+        })
+        .collect()
+}
+
+fn hit_sort_value(hit: &Value, field: &str) -> Value {
+    match field {
+        "_score" => hit.get("_score").cloned().unwrap_or(Value::Null),
+        "_id" => hit.get("_id").cloned().unwrap_or(Value::Null),
+        _ => hit
+            .get("_source")
+            .and_then(|source| sortable_source_field(source, field))
+            .cloned()
+            .unwrap_or(Value::Null),
+    }
+}
+
 async fn search(
     State(state): State<AppState>,
     Path(index): Path<String>,
@@ -2065,6 +2135,7 @@ async fn search(
         .and_then(Value::as_u64)
         .unwrap_or(10)
         .min(state.cfg.max_page_size);
+    let sort_specs = parse_sort_specs(body.get("sort"))?;
     if from > 10000 {
         return Err(GatewayError::bad(
             "from",
@@ -2266,40 +2337,11 @@ async fn search(
                 .is_some_and(|source| source_matches_query(source, post_filter))
         });
     }
-    let sort_specs = body
-        .get("sort")
-        .and_then(Value::as_array)
-        .map(|sort| {
-            sort.iter()
-                .map(|s| {
-                    s.as_object()
-                        .and_then(|o| o.iter().next())
-                        .map(|(field, value)| {
-                            (field.clone(), value.as_str().unwrap_or("asc").to_string())
-                        })
-                        .unwrap_or(("_score".into(), "desc".into()))
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    if let Some(sort) = body.get("sort").and_then(Value::as_array) {
-        for s in sort.iter().rev() {
-            let (field, dir) = s
-                .as_object()
-                .and_then(|o| o.iter().next())
-                .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("asc").to_string()))
-                .unwrap_or(("_score".into(), "desc".into()));
+    if !sort_specs.is_empty() {
+        for (field, dir) in sort_specs.iter().rev() {
             hits.sort_by(|a, b| {
-                let av = a
-                    .get("_source")
-                    .and_then(|x| sortable_source_field(x, &field))
-                    .cloned()
-                    .unwrap_or(Value::Null);
-                let bv = b
-                    .get("_source")
-                    .and_then(|x| sortable_source_field(x, &field))
-                    .cloned()
-                    .unwrap_or(Value::Null);
+                let av = hit_sort_value(a, field);
+                let bv = hit_sort_value(b, field);
                 let ord = value_cmp(&av, &bv);
                 if dir == "desc" {
                     ord.reverse()
@@ -2369,16 +2411,7 @@ async fn search(
                 return true;
             }
             for ((field, direction), cursor_value) in sort_specs.iter().zip(cursor) {
-                let hit_value = if field == "_score" {
-                    hit.get("_score").cloned().unwrap_or(Value::Null)
-                } else if field == "_id" {
-                    hit.get("_id").cloned().unwrap_or(Value::Null)
-                } else {
-                    hit.get("_source")
-                        .and_then(|source| sortable_source_field(source, field))
-                        .cloned()
-                        .unwrap_or(Value::Null)
-                };
+                let hit_value = hit_sort_value(hit, field);
                 let ordering = value_cmp(&hit_value, cursor_value);
                 if ordering == std::cmp::Ordering::Equal {
                     continue;
@@ -2408,17 +2441,7 @@ async fn search(
             if !sort_specs.is_empty() {
                 let values = sort_specs
                     .iter()
-                    .map(|(field, _)| {
-                        if field == "_score" {
-                            h.get("_score").cloned().unwrap_or(Value::Null)
-                        } else if field == "_id" {
-                            h.get("_id").cloned().unwrap_or(Value::Null)
-                        } else {
-                            sortable_source_field(&current, field)
-                                .cloned()
-                                .unwrap_or(Value::Null)
-                        }
-                    })
+                    .map(|(field, _)| hit_sort_value(&h, field))
                     .collect::<Vec<_>>();
                 h["sort"] = Value::Array(values);
             }
@@ -4680,6 +4703,103 @@ mod tests {
 
         assert_eq!(body["hits"]["hits"], json!([]));
         assert_eq!(observed_body.lock().unwrap().as_ref().unwrap()["limit"], 1);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn elasticsearch_sort_shapes_drive_order_and_search_after() {
+        let mock = Router::new().fallback(any(|| async {
+            Json(json!({"result":{"points":[
+                {"payload":{"_es_id":"a","_source":{"price":10}}},
+                {"payload":{"_es_id":"c","_source":{"price":30}}},
+                {"payload":{"_es_id":"b","_source":{"price":30}}}
+            ],"next_page_offset":null}}))
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        let mut cfg = Config::from_env();
+        cfg.qdrant_url = format!("http://{address}");
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[]');")
+            .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: cfg.qdrant_url.clone(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        let first = search(
+            State(state.clone()),
+            Path("products".into()),
+            Json(json!({
+                "sort":[{"price":{"order":"desc"}},"_id"],
+                "size":3
+            })),
+        )
+        .await
+        .unwrap();
+        let first: Value = serde_json::from_slice(
+            &axum::body::to_bytes(first.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(first["hits"]["hits"][0]["_id"], "b");
+        assert_eq!(first["hits"]["hits"][0]["sort"], json!([30, "b"]));
+        assert_eq!(first["hits"]["hits"][1]["_id"], "c");
+
+        let second = search(
+            State(state.clone()),
+            Path("products".into()),
+            Json(json!({
+                "sort":[{"price":{"order":"desc"}},"_id"],
+                "search_after":[30,"c"],
+                "size":3
+            })),
+        )
+        .await
+        .unwrap();
+        let second: Value = serde_json::from_slice(
+            &axum::body::to_bytes(second.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(second["hits"]["hits"].as_array().unwrap().len(), 1);
+        assert_eq!(second["hits"]["hits"][0]["_id"], "a");
+
+        let ascending = search(
+            State(state.clone()),
+            Path("products".into()),
+            Json(json!({"sort":"price","size":3})),
+        )
+        .await
+        .unwrap();
+        let ascending: Value = serde_json::from_slice(
+            &axum::body::to_bytes(ascending.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(ascending["hits"]["hits"][0]["_id"], "a");
+
+        let error = search(
+            State(state.clone()),
+            Path("products".into()),
+            Json(json!({"sort":[{"price":{"mode":"max"}}]})),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.body()["error"]["feature"], "sort");
         server.abort();
     }
 
