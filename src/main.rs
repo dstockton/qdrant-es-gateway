@@ -1273,6 +1273,15 @@ fn source_value_exists(source: &Value, field: &str) -> bool {
     })
 }
 
+fn source_value_matches(value: &Value, predicate: &impl Fn(&Value) -> bool) -> bool {
+    match value {
+        Value::Array(values) => values
+            .iter()
+            .any(|value| source_value_matches(value, predicate)),
+        value => predicate(value),
+    }
+}
+
 fn bool_clauses<'a>(bool_query: &'a Map<String, Value>, key: &str) -> Vec<&'a Value> {
     match bool_query.get(key) {
         Some(value) => value
@@ -1334,15 +1343,29 @@ fn wildcard_regex(pattern: &str) -> Result<Regex, GatewayError> {
 
 fn pattern_matches(source: &Value, pattern: &GatewayPattern) -> bool {
     match pattern {
-        GatewayPattern::Regex { field, pattern } => source_field(source, field)
-            .and_then(Value::as_str)
-            .is_some_and(|value| Regex::new(pattern).is_ok_and(|r| r.is_match(value))),
-        GatewayPattern::Prefix { field, prefix } => source_field(source, field)
-            .and_then(Value::as_str)
-            .is_some_and(|value| value.starts_with(prefix)),
-        GatewayPattern::Wildcard { field, pattern } => source_field(source, field)
-            .and_then(Value::as_str)
-            .is_some_and(|value| wildcard_regex(pattern).is_ok_and(|r| r.is_match(value))),
+        GatewayPattern::Regex { field, pattern } => Regex::new(pattern).is_ok_and(|regex| {
+            source_field(source, field).is_some_and(|value| {
+                source_value_matches(value, &|value| {
+                    value.as_str().is_some_and(|value| regex.is_match(value))
+                })
+            })
+        }),
+        GatewayPattern::Prefix { field, prefix } => {
+            source_field(source, field).is_some_and(|value| {
+                source_value_matches(value, &|value| {
+                    value
+                        .as_str()
+                        .is_some_and(|value| value.starts_with(prefix))
+                })
+            })
+        }
+        GatewayPattern::Wildcard { field, pattern } => wildcard_regex(pattern).is_ok_and(|regex| {
+            source_field(source, field).is_some_and(|value| {
+                source_value_matches(value, &|value| {
+                    value.as_str().is_some_and(|value| regex.is_match(value))
+                })
+            })
+        }),
     }
 }
 
@@ -1355,8 +1378,9 @@ fn source_matches_query(source: &Value, query: &Value) -> bool {
     }
     if let Some(term) = object.get("term").and_then(Value::as_object) {
         return term.iter().next().is_some_and(|(field, value)| {
+            let expected = value.get("value").unwrap_or(value);
             source_field(source, field.strip_suffix(".keyword").unwrap_or(field))
-                .is_some_and(|actual| actual == value.get("value").unwrap_or(value))
+                .is_some_and(|actual| source_value_matches(actual, &|actual| actual == expected))
         });
     }
     if let Some(terms) = object.get("terms").and_then(Value::as_object) {
@@ -1364,27 +1388,36 @@ fn source_matches_query(source: &Value, query: &Value) -> bool {
             let Some(values) = values.as_array() else {
                 return false;
             };
-            source_field(source, field.strip_suffix(".keyword").unwrap_or(field))
-                .is_some_and(|actual| values.iter().any(|value| value == actual))
+            source_field(source, field.strip_suffix(".keyword").unwrap_or(field)).is_some_and(
+                |actual| {
+                    source_value_matches(actual, &|actual| {
+                        values.iter().any(|value| value == actual)
+                    })
+                },
+            )
         });
     }
     if let Some(range) = object.get("range").and_then(Value::as_object) {
         return range.iter().next().is_some_and(|(field, bounds)| {
-            let Some(actual) = source_field(source, field).and_then(Value::as_f64) else {
+            let Some(actual) = source_field(source, field) else {
                 return false;
             };
             bounds.as_object().is_some_and(|bounds| {
-                ["gt", "gte", "lt", "lte"].iter().all(|op| {
-                    match bounds.get(*op).and_then(Value::as_f64) {
-                        None => true,
-                        Some(bound) => match *op {
-                            "gt" => actual > bound,
-                            "gte" => actual >= bound,
-                            "lt" => actual < bound,
-                            "lte" => actual <= bound,
-                            _ => true,
-                        },
-                    }
+                source_value_matches(actual, &|actual| {
+                    actual.as_f64().is_some_and(|actual| {
+                        ["gt", "gte", "lt", "lte"].iter().all(|op| {
+                            match bounds.get(*op).and_then(Value::as_f64) {
+                                None => true,
+                                Some(bound) => match *op {
+                                    "gt" => actual > bound,
+                                    "gte" => actual >= bound,
+                                    "lt" => actual < bound,
+                                    "lte" => actual <= bound,
+                                    _ => true,
+                                },
+                            }
+                        })
+                    })
                 })
             })
         });
@@ -5431,6 +5464,49 @@ mod tests {
             &source,
             &json!({"range":{"price":{"gt":50}}})
         ));
+    }
+
+    #[test]
+    fn gateway_predicates_treat_arrays_as_multi_valued_fields() {
+        let source = json!({
+            "tags":["clearance", "seasonal"],
+            "prices":[75, 25],
+            "skus":["OLD-001", "ABC-100"]
+        });
+
+        assert!(source_matches_query(
+            &source,
+            &json!({"term":{"tags":"seasonal"}})
+        ));
+        assert!(source_matches_query(
+            &source,
+            &json!({"terms":{"tags":["featured", "clearance"]}})
+        ));
+        assert!(source_matches_query(
+            &source,
+            &json!({"range":{"prices":{"gte":20,"lt":50}}})
+        ));
+        assert!(!source_matches_query(
+            &source,
+            &json!({"range":{"prices":{"lt":20}}})
+        ));
+
+        for pattern in [
+            GatewayPattern::Prefix {
+                field: "skus".into(),
+                prefix: "ABC-".into(),
+            },
+            GatewayPattern::Wildcard {
+                field: "skus".into(),
+                pattern: "ABC-*00".into(),
+            },
+            GatewayPattern::Regex {
+                field: "skus".into(),
+                pattern: "ABC-[12]00".into(),
+            },
+        ] {
+            assert!(pattern_matches(&source, &pattern));
+        }
     }
 
     #[test]
