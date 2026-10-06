@@ -1174,7 +1174,7 @@ async fn update_doc(
 
 fn term_condition(field: &str, v: &Value) -> Value {
     let value = v.get("value").unwrap_or(v);
-    json!({"key":field,"match":{"value":value}})
+    json!({"key":compatibility_field(field),"match":{"value":value}})
 }
 type FilterResult = (Option<Value>, Vec<(String, String)>);
 
@@ -1202,15 +1202,15 @@ fn collect_patterns(q: &Value, patterns: &mut Vec<GatewayPattern>) -> Result<(),
                     .ok_or_else(|| GatewayError::bad(kind, "pattern must be a string"))?;
                 let pattern = match kind.as_str() {
                     "regexp" => GatewayPattern::Regex {
-                        field: field.clone(),
+                        field: compatibility_field(field).into(),
                         pattern: pattern.into(),
                     },
                     "prefix" => GatewayPattern::Prefix {
-                        field: field.clone(),
+                        field: compatibility_field(field).into(),
                         prefix: pattern.into(),
                     },
                     _ => GatewayPattern::Wildcard {
-                        field: field.clone(),
+                        field: compatibility_field(field).into(),
                         pattern: pattern.into(),
                     },
                 };
@@ -1261,8 +1261,12 @@ fn source_field<'a>(source: &'a Value, field: &str) -> Option<&'a Value> {
         .try_fold(source, |value, part| value.get(part))
 }
 
+fn compatibility_field(field: &str) -> &str {
+    field.strip_suffix(".keyword").unwrap_or(field)
+}
+
 fn sortable_source_field<'a>(source: &'a Value, field: &str) -> Option<&'a Value> {
-    source_field(source, field.strip_suffix(".keyword").unwrap_or(field))
+    source_field(source, compatibility_field(field))
 }
 
 fn source_value_exists(source: &Value, field: &str) -> bool {
@@ -1379,7 +1383,7 @@ fn source_matches_query(source: &Value, query: &Value) -> bool {
     if let Some(term) = object.get("term").and_then(Value::as_object) {
         return term.iter().next().is_some_and(|(field, value)| {
             let expected = value.get("value").unwrap_or(value);
-            source_field(source, field.strip_suffix(".keyword").unwrap_or(field))
+            source_field(source, compatibility_field(field))
                 .is_some_and(|actual| source_value_matches(actual, &|actual| actual == expected))
         });
     }
@@ -1388,18 +1392,14 @@ fn source_matches_query(source: &Value, query: &Value) -> bool {
             let Some(values) = values.as_array() else {
                 return false;
             };
-            source_field(source, field.strip_suffix(".keyword").unwrap_or(field)).is_some_and(
-                |actual| {
-                    source_value_matches(actual, &|actual| {
-                        values.iter().any(|value| value == actual)
-                    })
-                },
-            )
+            source_field(source, compatibility_field(field)).is_some_and(|actual| {
+                source_value_matches(actual, &|actual| values.iter().any(|value| value == actual))
+            })
         });
     }
     if let Some(range) = object.get("range").and_then(Value::as_object) {
         return range.iter().next().is_some_and(|(field, bounds)| {
-            let Some(actual) = source_field(source, field) else {
+            let Some(actual) = source_field(source, compatibility_field(field)) else {
                 return false;
             };
             bounds.as_object().is_some_and(|bounds| {
@@ -1426,7 +1426,7 @@ fn source_matches_query(source: &Value, query: &Value) -> bool {
         return exists
             .get("field")
             .and_then(Value::as_str)
-            .is_some_and(|field| source_value_exists(source, field));
+            .is_some_and(|field| source_value_exists(source, compatibility_field(field)));
     }
     if let Some(bool_query) = object.get("bool").and_then(Value::as_object) {
         let has_required_clause = !bool_clauses(bool_query, "must").is_empty()
@@ -1512,14 +1512,14 @@ fn query_filter(q: &Value) -> Result<FilterResult, GatewayError> {
                     let arr = val.as_array().ok_or_else(|| {
                         GatewayError::bad("terms", "terms value must be an array")
                     })?;
-                    must.push(json!({"key":f,"match":{"any":arr}}));
+                    must.push(json!({"key":compatibility_field(f),"match":{"any":arr}}));
                 }
                 "exists" => {
                     let f = v
                         .get("field")
                         .and_then(Value::as_str)
                         .ok_or_else(|| GatewayError::bad("exists", "exists requires field"))?;
-                    must.push(json!({"must_not":[{"is_empty":{"key":f}}]}));
+                    must.push(json!({"must_not":[{"is_empty":{"key":compatibility_field(f)}}]}));
                 }
                 "range" => {
                     let (f, r) = v
@@ -1566,7 +1566,7 @@ fn query_filter(q: &Value) -> Result<FilterResult, GatewayError> {
                         };
                         range.insert(op.into(), x.clone());
                     }
-                    must.push(json!({"key":f,"range":range}));
+                    must.push(json!({"key":compatibility_field(f),"range":range}));
                 }
                 "ids" => {
                     let vals = v
@@ -1866,7 +1866,7 @@ fn words(value: &str) -> Vec<String> {
 }
 
 fn field_text(source: &Value, field: &str) -> String {
-    source_field(source, field.strip_suffix(".keyword").unwrap_or(field))
+    source_field(source, compatibility_field(field))
         .map(|value| match value {
             Value::String(text) => text.clone(),
             Value::Array(values) => values
@@ -5474,6 +5474,7 @@ mod tests {
             {"range":{"price":{"from":10,"to":50,"include_lower":true,"include_upper":false,"boost":1.0}}}
         ]}})).unwrap();
         let filter = filter.unwrap();
+        assert_eq!(filter["must"][0]["key"], "brand");
         assert_eq!(filter["must"][0]["match"]["value"], "Acme");
         assert_eq!(filter["must"][1]["range"]["gte"], 10);
         assert_eq!(filter["must"][1]["range"]["lt"], 50);
@@ -5686,7 +5687,41 @@ mod tests {
             }
         ));
         let mut patterns = Vec::new();
-        collect_patterns(&json!({"prefix":{"sku":"ABC-"}}), &mut patterns).unwrap();
+        collect_patterns(&json!({"prefix":{"sku.keyword":"ABC-"}}), &mut patterns).unwrap();
         assert_eq!(patterns.len(), 1);
+        assert!(pattern_matches(&source, &patterns[0]));
+    }
+
+    #[test]
+    fn keyword_multifield_aliases_use_the_base_payload_field() {
+        let (filter, _) = query_filter(&json!({"bool":{"filter":[
+            {"term":{"brand.keyword":"Acme"}},
+            {"terms":{"tags.keyword":["sale", "featured"]}},
+            {"exists":{"field":"sku.keyword"}},
+            {"range":{"price.keyword":{"gte":10}}}
+        ]}}))
+        .unwrap();
+        let clauses = filter.unwrap()["must"].as_array().unwrap().clone();
+
+        assert_eq!(clauses[0]["key"], "brand");
+        assert_eq!(clauses[1]["key"], "tags");
+        assert_eq!(clauses[2]["must_not"][0]["is_empty"]["key"], "sku");
+        assert_eq!(clauses[3]["key"], "price");
+
+        let source = json!({
+            "brand":"Acme",
+            "tags":["featured"],
+            "sku":"ABC-100",
+            "price":25
+        });
+        assert!(source_matches_query(
+            &source,
+            &json!({"bool":{"filter":[
+                {"term":{"brand.keyword":"Acme"}},
+                {"terms":{"tags.keyword":["sale", "featured"]}},
+                {"exists":{"field":"sku.keyword"}},
+                {"range":{"price.keyword":{"gte":10}}}
+            ]}})
+        ));
     }
 }
