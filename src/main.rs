@@ -2142,6 +2142,11 @@ async fn search(
             "deep pagination is capped at 10000; use search_after in a future release",
         ));
     }
+    let exact_total = if !has_text && patterns.is_empty() && body.get("post_filter").is_none() {
+        Some(qdrant_exact_count(&state, &coll, filter.as_ref()).await?)
+    } else {
+        None
+    };
     let mut hits: Vec<Value> = Vec::new();
     if approximate_text {
         let scan_collection = if state.cfg.document_projection {
@@ -2337,6 +2342,12 @@ async fn search(
                 .is_some_and(|source| source_matches_query(source, post_filter))
         });
     }
+    let total = exact_total.unwrap_or(hits.len() as u64);
+    let total_relation = if exact_total.is_some() || approximate_text || !patterns.is_empty() {
+        "eq"
+    } else {
+        "gte"
+    };
     if !sort_specs.is_empty() {
         for (field, dir) in sort_specs.iter().rev() {
             hits.sort_by(|a, b| {
@@ -2397,7 +2408,6 @@ async fn search(
             })
             .collect();
     }
-    let total = hits.len();
     if let Some(cursor) = body.get("search_after").and_then(Value::as_array) {
         if sort_specs.is_empty() || cursor.len() != sort_specs.len() {
             return Err(GatewayError::bad(
@@ -2456,7 +2466,7 @@ async fn search(
             h
         })
         .collect::<Vec<_>>();
-    let mut response = json!({"took":started.elapsed().as_millis(),"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},"hits":{"total":{"value":total,"relation":"eq"},"max_score":page.iter().filter_map(|h|h.get("_score").and_then(Value::as_f64)).fold(0.0,f64::max),"hits":page}});
+    let mut response = json!({"took":started.elapsed().as_millis(),"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},"hits":{"total":{"value":total,"relation":total_relation},"max_score":page.iter().filter_map(|h|h.get("_score").and_then(Value::as_f64)).fold(0.0,f64::max),"hits":page}});
     if let Some(aggs) = body.get("aggs").or_else(|| body.get("aggregations")) {
         let output = response.as_object_mut().unwrap();
         let mut agg_result = Map::new();
@@ -2616,23 +2626,7 @@ async fn count(
     collect_patterns(&query, &mut patterns)?;
     if pick_text(&query).is_none() && patterns.is_empty() {
         let (filter, _) = query_filter(&query)?;
-        let mut request = json!({"exact":true});
-        if let Some(filter) = filter {
-            request["filter"] = filter;
-        }
-        let result = state
-            .qdrant
-            .request(
-                Method::POST,
-                &format!("/collections/{coll}/points/count"),
-                Some(request),
-            )
-            .await?;
-        let count = result
-            .get("result")
-            .and_then(|r| r.get("count"))
-            .cloned()
-            .unwrap_or_else(|| json!(0));
+        let count = qdrant_exact_count(&state, &coll, filter.as_ref()).await?;
         return Ok(es_ok(
             json!({"count":count,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0}}),
         ));
@@ -2648,6 +2642,30 @@ async fn count(
     Ok(es_ok(
         json!({"count":v.get("hits").and_then(|h|h.get("total")).and_then(|t|t.get("value")).cloned().unwrap_or(json!(0)),"_shards":{"total":1,"successful":1,"skipped":0,"failed":0}}),
     ))
+}
+
+async fn qdrant_exact_count(
+    state: &AppState,
+    collection: &str,
+    filter: Option<&Value>,
+) -> Result<u64, GatewayError> {
+    let mut request = json!({"exact":true});
+    if let Some(filter) = filter {
+        request["filter"] = filter.clone();
+    }
+    let response = state
+        .qdrant
+        .request(
+            Method::POST,
+            &format!("/collections/{collection}/points/count"),
+            Some(request),
+        )
+        .await?;
+    response
+        .get("result")
+        .and_then(|result| result.get("count"))
+        .and_then(Value::as_u64)
+        .ok_or_else(|| GatewayError::upstream("Qdrant count response did not contain result.count"))
 }
 
 fn bulk_response_has_errors(items: &[Value]) -> bool {
@@ -3765,7 +3783,9 @@ mod tests {
                         .lock()
                         .unwrap()
                         .push(format!("{method} {}", uri.path()));
-                    if method == Method::GET {
+                    if uri.path().ends_with("/points/count") {
+                        Json(json!({"result":{"count":1}})).into_response()
+                    } else if method == Method::GET {
                         Json(json!({"result":{"payload":{"_es_id":"1","_source":{"title":"Alias target"}}}})).into_response()
                     } else {
                         Json(json!({"result":{"points":[{"payload":{"_es_id":"1","_source":{"title":"Alias target"}}}],"next_page_offset":null}})).into_response()
@@ -3852,6 +3872,7 @@ mod tests {
                     "GET /collections/es_products/points/{}",
                     point_id("products", "1")
                 ),
+                "POST /collections/es_products/points/count".into(),
                 "POST /collections/es_products/points/scroll".into()
             ]
         );
@@ -4656,15 +4677,22 @@ mod tests {
 
     #[tokio::test]
     async fn zero_size_search_uses_a_positive_qdrant_scroll_limit() {
-        let observed_body = Arc::new(Mutex::new(None));
-        let captured_body = observed_body.clone();
-        let mock = Router::new().fallback(any(move |body: Body| {
-            let captured_body = captured_body.clone();
+        let observed_requests = Arc::new(Mutex::new(Vec::new()));
+        let captured_requests = observed_requests.clone();
+        let mock = Router::new().fallback(any(move |uri: axum::http::Uri, body: Body| {
+            let captured_requests = captured_requests.clone();
             async move {
                 let bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
-                *captured_body.lock().unwrap() =
-                    Some(serde_json::from_slice::<Value>(&bytes).unwrap());
-                Json(json!({"result":{"points":[{"payload":{"_es_id":"1","_source":{"brand":"Acme"}}}],"next_page_offset":null}})).into_response()
+                let request = serde_json::from_slice::<Value>(&bytes).unwrap();
+                captured_requests
+                    .lock()
+                    .unwrap()
+                    .push((uri.path().to_string(), request));
+                if uri.path().ends_with("/points/count") {
+                    Json(json!({"result":{"count":37}})).into_response()
+                } else {
+                    Json(json!({"result":{"points":[{"payload":{"_es_id":"1","_source":{"brand":"Acme"}}}],"next_page_offset":null}})).into_response()
+                }
             }
         }));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -4702,18 +4730,32 @@ mod tests {
         let body: Value = serde_json::from_slice(&bytes).unwrap();
 
         assert_eq!(body["hits"]["hits"], json!([]));
-        assert_eq!(observed_body.lock().unwrap().as_ref().unwrap()["limit"], 1);
+        assert_eq!(body["hits"]["total"], json!({"value":37,"relation":"eq"}));
+        let observed_requests = observed_requests.lock().unwrap();
+        assert_eq!(observed_requests.len(), 2);
+        assert_eq!(
+            observed_requests[0],
+            (
+                "/collections/es_products/points/count".into(),
+                json!({"exact":true})
+            )
+        );
+        assert_eq!(observed_requests[1].1["limit"], 1);
         server.abort();
     }
 
     #[tokio::test]
     async fn elasticsearch_sort_shapes_drive_order_and_search_after() {
-        let mock = Router::new().fallback(any(|| async {
-            Json(json!({"result":{"points":[
-                {"payload":{"_es_id":"a","_source":{"price":10}}},
-                {"payload":{"_es_id":"c","_source":{"price":30}}},
-                {"payload":{"_es_id":"b","_source":{"price":30}}}
-            ],"next_page_offset":null}}))
+        let mock = Router::new().fallback(any(|uri: axum::http::Uri| async move {
+            if uri.path().ends_with("/points/count") {
+                Json(json!({"result":{"count":3}}))
+            } else {
+                Json(json!({"result":{"points":[
+                    {"payload":{"_es_id":"a","_source":{"price":10}}},
+                    {"payload":{"_es_id":"c","_source":{"price":30}}},
+                    {"payload":{"_es_id":"b","_source":{"price":30}}}
+                ],"next_page_offset":null}}))
+            }
         }));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
