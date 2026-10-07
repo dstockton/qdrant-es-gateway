@@ -56,3 +56,36 @@ recorded source revision, and Qdrant **1.15.3**, using the default embedded-sour
 mode and synchronous writes. `reported_version` is the endpoint's Elasticsearch
 API version advertisement, not the gateway binary version. No latency or ranking
 comparison is claimed. No gateway implementation change was needed.
+
+## Logistics: parcels missing tracking
+
+The [field note](../docs/_posts/2026-10-07-logistics-missing-tracking.md) uses
+[five synthetic parcels](fixtures/logistics.json) to find packed York shipments
+with missing or null tracking, count them by carrier, and assign one tracking
+number without changing the parcel's other fields.
+
+```sh
+python3 validation/logistics.py \
+  --native http://localhost:19200 \
+  --gateway http://localhost:9200 \
+  --gateway-version 0.2.0 --qdrant-version 1.15.5 \
+  --output validation/results/logistics.json
+```
+
+Use disposable endpoints with no `field_note_parcels` index. Creation failure
+aborts that endpoint without deleting existing data; successful creation is
+cleaned up after replay. Python 3 is the only dependency. Supply the actual
+binary/backend versions; the report also records the current checkout revision
+and each endpoint's advertised API version (not the gateway binary version).
+Run from the same revision used to build the gateway, with default embedded-source
+storage and synchronous writes. The same five-second pause follows bulk and
+update on both servers; `--settle-seconds` changes both equally.
+
+The [2026-10-07 evidence](evidence/logistics-2026-10-07.json) records **66/66**
+checks passing on Elasticsearch **8.15.0**, gateway **0.2.0** at `7e56704`, and
+Qdrant **1.15.5**. The replay verifies identical request sequences, exact HTTP
+and bulk statuses/results, all stored IDs/sources, search IDs/sources and exact
+totals, carrier buckets, and preservation after adding tracking. Missing and null
+tracking are included; labelled, dispatched, and other-depot parcels are excluded.
+Failures exit nonzero and remain in the report. This is correctness evidence,
+not a performance, refresh-timing, or concurrent-update guarantee.
