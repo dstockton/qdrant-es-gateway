@@ -1286,6 +1286,176 @@ fn source_value_matches(value: &Value, predicate: &impl Fn(&Value) -> bool) -> b
     }
 }
 
+fn single_filter_field<'a>(
+    value: &'a Value,
+    feature: &str,
+) -> Result<(&'a str, &'a Value), GatewayError> {
+    let fields = value
+        .as_object()
+        .ok_or_else(|| GatewayError::bad(feature, "filter body must be an object"))?;
+    if fields.len() != 1 {
+        return Err(GatewayError::bad(
+            feature,
+            "filter must contain exactly one field",
+        ));
+    }
+    let (field, value) = fields.iter().next().expect("one filter field");
+    if field.is_empty() {
+        return Err(GatewayError::bad(feature, "filter field must not be empty"));
+    }
+    Ok((field, value))
+}
+
+fn validate_post_filter(query: &Value) -> Result<(), GatewayError> {
+    fn validate(query: &Value, feature: &str) -> Result<(), GatewayError> {
+        let clauses = query
+            .as_object()
+            .ok_or_else(|| GatewayError::bad(feature, "filter clause must be an object"))?;
+        if clauses.len() != 1 {
+            return Err(GatewayError::bad(
+                feature,
+                "filter clause must contain exactly one query type",
+            ));
+        }
+        let (kind, value) = clauses.iter().next().expect("one filter clause");
+        match kind.as_str() {
+            "match_all" => {
+                if !value.is_object() {
+                    return Err(GatewayError::bad(
+                        format!("{feature}.match_all"),
+                        "match_all body must be an object",
+                    ));
+                }
+            }
+            "term" => {
+                let (_, expected) = single_filter_field(value, &format!("{feature}.term"))?;
+                if expected.is_array() || expected.is_null() {
+                    return Err(GatewayError::bad(
+                        format!("{feature}.term"),
+                        "term value must be a scalar or an options object",
+                    ));
+                }
+                if let Some(options) = expected.as_object() {
+                    if options.get("value").is_none()
+                        || options.keys().any(|key| key != "value" && key != "boost")
+                        || options.get("boost").is_some_and(|boost| !boost.is_number())
+                    {
+                        return Err(GatewayError::bad(
+                            format!("{feature}.term"),
+                            "term options require value and support only a numeric boost",
+                        ));
+                    }
+                }
+            }
+            "terms" => {
+                let (_, values) = single_filter_field(value, &format!("{feature}.terms"))?;
+                if !values.is_array() {
+                    return Err(GatewayError::bad(
+                        format!("{feature}.terms"),
+                        "terms value must be an array",
+                    ));
+                }
+            }
+            "range" => {
+                let (_, bounds) = single_filter_field(value, &format!("{feature}.range"))?;
+                let bounds = bounds.as_object().ok_or_else(|| {
+                    GatewayError::bad(format!("{feature}.range"), "range body must be an object")
+                })?;
+                for (operator, value) in bounds {
+                    match operator.as_str() {
+                        "gt" | "gte" | "lt" | "lte" | "from" | "to" if value.is_number() => {}
+                        "include_lower" | "include_upper" if value.is_boolean() => {}
+                        "boost" if value.is_number() => {}
+                        "gt" | "gte" | "lt" | "lte" | "from" | "to" => {
+                            return Err(GatewayError::bad(
+                                format!("{feature}.range.{operator}"),
+                                "post_filter range bounds must be numeric",
+                            ));
+                        }
+                        "include_lower" | "include_upper" | "boost" => {
+                            return Err(GatewayError::bad(
+                                format!("{feature}.range.{operator}"),
+                                "invalid range option value",
+                            ));
+                        }
+                        _ => {
+                            return Err(GatewayError::bad(
+                                format!("{feature}.range.{operator}"),
+                                "unsupported range operator",
+                            ));
+                        }
+                    }
+                }
+            }
+            "exists" => {
+                let options = value.as_object().ok_or_else(|| {
+                    GatewayError::bad(format!("{feature}.exists"), "exists body must be an object")
+                })?;
+                if options.len() != 1
+                    || options
+                        .get("field")
+                        .and_then(Value::as_str)
+                        .is_none_or(str::is_empty)
+                {
+                    return Err(GatewayError::bad(
+                        format!("{feature}.exists"),
+                        "exists requires exactly one non-empty field",
+                    ));
+                }
+            }
+            "bool" => {
+                let bool_query = value.as_object().ok_or_else(|| {
+                    GatewayError::bad(format!("{feature}.bool"), "bool filter must be an object")
+                })?;
+                for (key, clauses) in bool_query {
+                    match key.as_str() {
+                        "must" | "filter" | "must_not" | "should" => {
+                            if let Some(clauses) = clauses.as_array() {
+                                for clause in clauses {
+                                    validate(clause, &format!("{feature}.bool.{key}"))?;
+                                }
+                            } else {
+                                validate(clauses, &format!("{feature}.bool.{key}"))?;
+                            }
+                        }
+                        "minimum_should_match" => {
+                            let supported = clauses.as_u64().is_some()
+                                || clauses.as_str().is_some_and(|value| {
+                                    value.parse::<u64>().is_ok()
+                                        || value
+                                            .strip_suffix('%')
+                                            .and_then(|percent| percent.parse::<u64>().ok())
+                                            .is_some_and(|percent| percent <= 100)
+                                });
+                            if !supported {
+                                return Err(GatewayError::bad(
+                                    format!("{feature}.bool.minimum_should_match"),
+                                    "minimum_should_match must be a non-negative integer or percentage from 0% to 100%",
+                                ));
+                            }
+                        }
+                        _ => {
+                            return Err(GatewayError::bad(
+                                format!("{feature}.bool.{key}"),
+                                "unsupported bool filter option",
+                            ));
+                        }
+                    }
+                }
+            }
+            _ => {
+                return Err(GatewayError::bad(
+                    format!("{feature}.{kind}"),
+                    format!("{kind} is not supported in post_filter"),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    validate(query, "post_filter")
+}
+
 fn bool_clauses<'a>(bool_query: &'a Map<String, Value>, key: &str) -> Vec<&'a Value> {
     match bool_query.get(key) {
         Some(value) => value
@@ -2117,6 +2287,9 @@ async fn search(
     Json(body): Json<Value>,
 ) -> Result<Response, GatewayError> {
     let started = Instant::now();
+    if let Some(post_filter) = body.get("post_filter") {
+        validate_post_filter(post_filter)?;
+    }
     let (index, coll, _, vectors) = get_index(&state, &index)?;
     let mut query = body
         .get("query")
@@ -5627,6 +5800,76 @@ mod tests {
             &source,
             &json!({"range":{"price":{"gt":50}}})
         ));
+    }
+
+    #[test]
+    fn post_filter_validation_rejects_unsupported_and_ambiguous_clauses() {
+        for (query, feature) in [
+            (json!({"match":{"title":"shoe"}}), "post_filter.match"),
+            (
+                json!({"term":{"brand":"Acme","status":"live"}}),
+                "post_filter.term",
+            ),
+            (
+                json!({"term":{"brand":{"case_insensitive":true,"value":"Acme"}}}),
+                "post_filter.term",
+            ),
+            (
+                json!({"bool":{"filter":{"range":{"price":{"gte":"10"}}}}}),
+                "post_filter.bool.filter.range.gte",
+            ),
+            (
+                json!({"bool":{"filter":{"term":{"brand":"Acme"}},"adjust_pure_negative":true}}),
+                "post_filter.bool.adjust_pure_negative",
+            ),
+        ] {
+            let error = validate_post_filter(&query).unwrap_err();
+            assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(error.body()["error"]["feature"], feature);
+        }
+
+        validate_post_filter(&json!({"bool":{
+            "filter":[
+                {"term":{"brand.keyword":{"value":"Acme"}}},
+                {"terms":{"tags":["sale","featured"]}},
+                {"range":{"price":{"gte":10,"lt":50}}},
+                {"exists":{"field":"sku"}}
+            ],
+            "should":{"term":{"featured":true}},
+            "minimum_should_match":"0%"
+        }}))
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn invalid_post_filter_fails_before_index_or_qdrant_lookup() {
+        let cfg = Config::from_env();
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL);")
+            .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: "http://127.0.0.1:1".into(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        let error = search(
+            State(state),
+            Path("missing-index".into()),
+            Json(json!({"post_filter":{"wildcard":{"sku":"ABC-*"}}})),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(error.body()["error"]["feature"], "post_filter.wildcard");
     }
 
     #[test]
