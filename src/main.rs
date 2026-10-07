@@ -2509,6 +2509,19 @@ async fn search(
                 .all(|pattern| pattern_matches(&source, pattern))
         });
     }
+    // Elasticsearch applies post_filter, collapse, and search_after only to
+    // hits. Preserve the query-matched candidate window for gateway-computed
+    // aggregations before those hit-only transformations run.
+    let aggregation_hits = body
+        .get("aggs")
+        .or_else(|| body.get("aggregations"))
+        .and_then(Value::as_object)
+        .filter(|aggregations| {
+            aggregations
+                .values()
+                .any(|aggregation| aggregation.get("terms").is_none())
+        })
+        .map(|_| hits.clone());
     if let Some(post_filter) = body.get("post_filter") {
         hits.retain(|hit| {
             hit.get("_source")
@@ -2675,13 +2688,16 @@ async fn search(
                 let buckets = facet.get("result").and_then(|r| r.get("hits")).and_then(Value::as_array).cloned().unwrap_or_default().into_iter().map(|h| json!({"key":h.get("value").cloned().unwrap_or(Value::Null),"doc_count":h.get("count").cloned().unwrap_or(json!(0))})).collect::<Vec<_>>();
                 agg_result.insert(name.clone(), json!({"doc_count_error_upper_bound":0,"sum_other_doc_count":0,"buckets":buckets}));
             } else if let Some(metric) = spec.get("min").or_else(|| spec.get("max")) {
+                let aggregation_hits = aggregation_hits
+                    .as_ref()
+                    .expect("gateway-computed aggregations retain candidates");
                 let field = metric.get("field").and_then(Value::as_str).ok_or_else(|| {
                     GatewayError::bad(
                         format!("aggs.{name}.metric.field"),
                         "metric aggregation requires field",
                     )
                 })?;
-                let mut values = hits
+                let mut values = aggregation_hits
                     .iter()
                     .filter_map(|hit| {
                         hit.get("_source")
@@ -2701,9 +2717,12 @@ async fn search(
                 .and_then(|v| v.get("filters"))
                 .and_then(Value::as_object)
             {
+                let aggregation_hits = aggregation_hits
+                    .as_ref()
+                    .expect("gateway-computed aggregations retain candidates");
                 let mut buckets = Map::new();
                 for (key, filter_query) in filters {
-                    let count = hits
+                    let count = aggregation_hits
                         .iter()
                         .filter(|hit| {
                             hit.get("_source")
@@ -2714,7 +2733,10 @@ async fn search(
                 }
                 agg_result.insert(name.clone(), json!({"buckets":buckets}));
             } else if let Some(filter_query) = spec.get("filter") {
-                let count = hits
+                let aggregation_hits = aggregation_hits
+                    .as_ref()
+                    .expect("gateway-computed aggregations retain candidates");
+                let count = aggregation_hits
                     .iter()
                     .filter(|hit| {
                         hit.get("_source")
@@ -5870,6 +5892,65 @@ mod tests {
 
         assert_eq!(error.status(), StatusCode::BAD_REQUEST);
         assert_eq!(error.body()["error"]["feature"], "post_filter.wildcard");
+    }
+
+    #[tokio::test]
+    async fn post_filter_does_not_narrow_gateway_computed_aggregations() {
+        let mock = Router::new().fallback(any(|| async {
+            Json(json!({"result":{"points":[
+                {"payload":{"_es_id":"acme","_source":{"brand":"Acme","price":30}}},
+                {"payload":{"_es_id":"beta-low","_source":{"brand":"Beta","price":10}}},
+                {"payload":{"_es_id":"beta-high","_source":{"brand":"Beta","price":20}}}
+            ],"next_page_offset":null}}))
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        let mut cfg = Config::from_env();
+        cfg.qdrant_url = format!("http://{address}");
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[]');")
+            .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: cfg.qdrant_url.clone(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        let response = search(
+            State(state),
+            Path("products".into()),
+            Json(json!({
+                "size":3,
+                "post_filter":{"term":{"brand":"Acme"}},
+                "aggs":{
+                    "lowest_price":{"min":{"field":"price"}},
+                    "beta":{"filter":{"term":{"brand":"Beta"}}}
+                }
+            })),
+        )
+        .await
+        .unwrap();
+        let body: Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(body["hits"]["hits"].as_array().unwrap().len(), 1);
+        assert_eq!(body["hits"]["hits"][0]["_id"], "acme");
+        assert_eq!(body["aggregations"]["lowest_price"]["value"], 10.0);
+        assert_eq!(body["aggregations"]["beta"]["doc_count"], 2);
+        server.abort();
     }
 
     #[test]
