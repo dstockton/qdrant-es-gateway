@@ -2269,6 +2269,75 @@ fn parse_sort_specs(sort: Option<&Value>) -> Result<Vec<(String, String)>, Gatew
         .collect()
 }
 
+fn parse_search_window(body: &Value, max_page_size: u64) -> Result<(u64, u64), GatewayError> {
+    fn non_negative_integer(
+        body: &Value,
+        field: &'static str,
+        default: u64,
+    ) -> Result<u64, GatewayError> {
+        match body.get(field) {
+            None => Ok(default),
+            Some(value) => value.as_u64().ok_or_else(|| {
+                GatewayError::bad(field, format!("{field} must be a non-negative integer"))
+            }),
+        }
+    }
+
+    let from = non_negative_integer(body, "from", 0)?;
+    let size = non_negative_integer(body, "size", 10_u64.min(max_page_size))?;
+    if size > max_page_size {
+        return Err(GatewayError::bad(
+            "size",
+            format!("size is capped at {max_page_size} by MAX_PAGE_SIZE"),
+        ));
+    }
+    if from.checked_add(size).is_none_or(|window| window > 10_000) {
+        return Err(GatewayError::bad(
+            "from",
+            "from + size is capped at 10000; use search_after for later pages",
+        ));
+    }
+    Ok((from, size))
+}
+
+fn validate_search_after(
+    body: &Value,
+    sort_specs: &[(String, String)],
+    from: u64,
+) -> Result<(), GatewayError> {
+    let Some(cursor) = body.get("search_after") else {
+        return Ok(());
+    };
+    let cursor = cursor.as_array().ok_or_else(|| {
+        GatewayError::bad(
+            "search_after",
+            "search_after must be an array of sort values",
+        )
+    })?;
+    if sort_specs.is_empty() || cursor.len() != sort_specs.len() {
+        return Err(GatewayError::bad(
+            "search_after",
+            "search_after must contain one value for every sort field",
+        ));
+    }
+    if from != 0 {
+        return Err(GatewayError::bad(
+            "search_after",
+            "search_after cannot be combined with a non-zero from offset",
+        ));
+    }
+    if cursor
+        .iter()
+        .any(|value| value.is_array() || value.is_object())
+    {
+        return Err(GatewayError::bad(
+            "search_after",
+            "search_after values must be strings, numbers, booleans, or null",
+        ));
+    }
+    Ok(())
+}
+
 fn hit_sort_value(hit: &Value, field: &str) -> Value {
     match field {
         "_score" => hit.get("_score").cloned().unwrap_or(Value::Null),
@@ -2290,6 +2359,9 @@ async fn search(
     if let Some(post_filter) = body.get("post_filter") {
         validate_post_filter(post_filter)?;
     }
+    let (from, size) = parse_search_window(&body, state.cfg.max_page_size)?;
+    let sort_specs = parse_sort_specs(body.get("sort"))?;
+    validate_search_after(&body, &sort_specs, from)?;
     let (index, coll, _, vectors) = get_index(&state, &index)?;
     let mut query = body
         .get("query")
@@ -2302,19 +2374,6 @@ async fn search(
     let text = pick_text(&query);
     let has_text = text.is_some();
     let approximate_text = contains_approx_text_query(&query);
-    let from = body.get("from").and_then(Value::as_u64).unwrap_or(0);
-    let size = body
-        .get("size")
-        .and_then(Value::as_u64)
-        .unwrap_or(10)
-        .min(state.cfg.max_page_size);
-    let sort_specs = parse_sort_specs(body.get("sort"))?;
-    if from > 10000 {
-        return Err(GatewayError::bad(
-            "from",
-            "deep pagination is capped at 10000; use search_after in a future release",
-        ));
-    }
     let exact_total = if !has_text && patterns.is_empty() && body.get("post_filter").is_none() {
         Some(qdrant_exact_count(&state, &coll, filter.as_ref()).await?)
     } else {
@@ -2595,12 +2654,6 @@ async fn search(
             .collect();
     }
     if let Some(cursor) = body.get("search_after").and_then(Value::as_array) {
-        if sort_specs.is_empty() || cursor.len() != sort_specs.len() {
-            return Err(GatewayError::bad(
-                "search_after",
-                "search_after must contain one value for every sort field",
-            ));
-        }
         let mut after = false;
         hits.retain(|hit| {
             if after {
@@ -2827,7 +2880,10 @@ async fn count(
         ));
     }
     let mut b = body;
-    b["size"] = json!(10000);
+    // Pattern and approximate-text searches compute their total before paging,
+    // so count does not need to build an otherwise unused hit page.
+    b["from"] = json!(0);
+    b["size"] = json!(0);
     let r = search(State(state), Path(index), Json(b)).await?;
     let bytes = axum::body::to_bytes(r.into_body(), usize::MAX)
         .await
@@ -4936,6 +4992,72 @@ mod tests {
             )
         );
         assert_eq!(observed_requests[1].1["limit"], 1);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn invalid_pagination_fails_before_qdrant_work() {
+        let requests = Arc::new(Mutex::new(0_u64));
+        let observed_requests = requests.clone();
+        let mock = Router::new().fallback(any(move || {
+            let observed_requests = observed_requests.clone();
+            async move {
+                *observed_requests.lock().unwrap() += 1;
+                Json(json!({"result":{"points":[],"next_page_offset":null}}))
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        let mut cfg = Config::from_env();
+        cfg.qdrant_url = format!("http://{address}");
+        cfg.max_page_size = 1000;
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[]');")
+            .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: cfg.qdrant_url.clone(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        let cases = [
+            (json!({"from":-1}), "from"),
+            (json!({"from":"1"}), "from"),
+            (json!({"size":-1}), "size"),
+            (json!({"size":1001}), "size"),
+            (json!({"from":9999,"size":2}), "from"),
+            (json!({"sort":"price","search_after":"10"}), "search_after"),
+            (json!({"search_after":[10]}), "search_after"),
+            (
+                json!({"sort":"price","search_after":[10,"extra"]}),
+                "search_after",
+            ),
+            (
+                json!({"sort":"price","search_after":[{"price":10}]}),
+                "search_after",
+            ),
+            (
+                json!({"from":1,"sort":"price","search_after":[10]}),
+                "search_after",
+            ),
+        ];
+
+        for (body, feature) in cases {
+            let error = search(State(state.clone()), Path("products".into()), Json(body))
+                .await
+                .unwrap_err();
+            assert_eq!(error.body()["error"]["feature"], feature);
+        }
+        assert_eq!(*requests.lock().unwrap(), 0);
         server.abort();
     }
 
