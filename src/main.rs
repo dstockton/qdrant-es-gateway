@@ -2028,6 +2028,18 @@ fn project_source(source: &Value, spec: Option<&Value>) -> Option<Value> {
     Some(Value::Object(result))
 }
 
+fn apply_source_projection(hit: &mut Value, spec: Option<&Value>) {
+    let current = hit.get("_source").cloned().unwrap_or_else(|| json!({}));
+    match project_source(&current, spec) {
+        Some(projected) => hit["_source"] = projected,
+        None => {
+            hit.as_object_mut()
+                .expect("search hit is an object")
+                .remove("_source");
+        }
+    }
+}
+
 fn words(value: &str) -> Vec<String> {
     value
         .split_whitespace()
@@ -2338,6 +2350,108 @@ fn validate_search_after(
     Ok(())
 }
 
+#[derive(Clone)]
+struct InnerHitsSpec {
+    name: String,
+    size: usize,
+    source: Option<Value>,
+}
+
+#[derive(Clone)]
+struct CollapseSpec {
+    field: String,
+    inner_hits: Option<InnerHitsSpec>,
+}
+
+fn parse_collapse_spec(
+    collapse: Option<&Value>,
+    max_page_size: u64,
+) -> Result<Option<CollapseSpec>, GatewayError> {
+    let Some(collapse) = collapse else {
+        return Ok(None);
+    };
+    let collapse = collapse
+        .as_object()
+        .ok_or_else(|| GatewayError::bad("collapse", "collapse must be an object"))?;
+    if let Some(option) = collapse
+        .keys()
+        .find(|key| *key != "field" && *key != "inner_hits")
+    {
+        return Err(GatewayError::bad(
+            format!("collapse.{option}"),
+            "unsupported collapse option",
+        ));
+    }
+    let requested_field = collapse
+        .get("field")
+        .and_then(Value::as_str)
+        .filter(|field| !field.is_empty())
+        .ok_or_else(|| GatewayError::bad("collapse.field", "collapse requires a field"))?;
+    let field = compatibility_field(requested_field).to_string();
+    let inner_hits = collapse
+        .get("inner_hits")
+        .map(|inner_hits| {
+            let inner_hits = inner_hits.as_object().ok_or_else(|| {
+                GatewayError::bad("collapse.inner_hits", "inner_hits must be an object")
+            })?;
+            if let Some(option) = inner_hits
+                .keys()
+                .find(|key| !matches!(key.as_str(), "name" | "size" | "fields" | "_source"))
+            {
+                return Err(GatewayError::bad(
+                    format!("collapse.inner_hits.{option}"),
+                    "unsupported inner_hits option",
+                ));
+            }
+            let name = match inner_hits.get("name") {
+                None => requested_field.to_string(),
+                Some(name) => name
+                    .as_str()
+                    .filter(|name| !name.is_empty())
+                    .ok_or_else(|| {
+                        GatewayError::bad(
+                            "collapse.inner_hits.name",
+                            "inner_hits name must be a non-empty string",
+                        )
+                    })?
+                    .to_string(),
+            };
+            let size = match inner_hits.get("size") {
+                None => 3,
+                Some(size) => size.as_u64().ok_or_else(|| {
+                    GatewayError::bad(
+                        "collapse.inner_hits.size",
+                        "inner_hits size must be a non-negative integer",
+                    )
+                })?,
+            };
+            if size > max_page_size {
+                return Err(GatewayError::bad(
+                    "collapse.inner_hits.size",
+                    format!("inner_hits size is capped at {max_page_size} by MAX_PAGE_SIZE"),
+                ));
+            }
+            if let Some(fields) = inner_hits.get("fields") {
+                let valid = fields
+                    .as_array()
+                    .is_some_and(|fields| fields.iter().all(|field| field.as_str() == Some("_id")));
+                if !valid {
+                    return Err(GatewayError::bad(
+                        "collapse.inner_hits.fields",
+                        "only the _id metadata field is supported in inner_hits",
+                    ));
+                }
+            }
+            Ok(InnerHitsSpec {
+                name,
+                size: size as usize,
+                source: inner_hits.get("_source").cloned(),
+            })
+        })
+        .transpose()?;
+    Ok(Some(CollapseSpec { field, inner_hits }))
+}
+
 fn hit_sort_value(hit: &Value, field: &str) -> Value {
     match field {
         "_score" => hit.get("_score").cloned().unwrap_or(Value::Null),
@@ -2362,6 +2476,7 @@ async fn search(
     let (from, size) = parse_search_window(&body, state.cfg.max_page_size)?;
     let sort_specs = parse_sort_specs(body.get("sort"))?;
     validate_search_after(&body, &sort_specs, from)?;
+    let collapse_spec = parse_collapse_spec(body.get("collapse"), state.cfg.max_page_size)?;
     let (index, coll, _, vectors) = get_index(&state, &index)?;
     let mut query = body
         .get("query")
@@ -2615,19 +2730,12 @@ async fn search(
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
     }
-    if let Some(collapse) = body.get("collapse") {
-        let requested_field = collapse
-            .get("field")
-            .and_then(Value::as_str)
-            .ok_or_else(|| GatewayError::bad("collapse.field", "collapse requires field"))?;
-        let field = requested_field
-            .strip_suffix(".keyword")
-            .unwrap_or(requested_field);
+    if let Some(collapse) = &collapse_spec {
         let mut groups: Vec<(String, Vec<Value>)> = Vec::new();
         for hit in hits {
             let key = hit
                 .get("_source")
-                .and_then(|source| source_field(source, field))
+                .and_then(|source| source_field(source, &collapse.field))
                 .map(ToString::to_string)
                 .unwrap_or_else(|| "null".into());
             if let Some((_, group)) = groups.iter_mut().find(|(group_key, _)| group_key == &key) {
@@ -2640,14 +2748,16 @@ async fn search(
             .into_iter()
             .map(|(_, group)| {
                 let mut primary = group[0].clone();
-                if let Some(inner) = collapse.get("inner_hits").and_then(Value::as_object) {
-                    let mut inner_hits = Map::new();
-                    for (name, spec) in inner {
-                        let requested_size = spec.get("size").and_then(Value::as_u64).unwrap_or(3) as usize;
-                        let selected = group.iter().take(requested_size).cloned().collect::<Vec<_>>();
-                        inner_hits.insert(name.clone(), json!({"hits":{"total":{"value":group.len(),"relation":"eq"},"max_score":selected.iter().filter_map(|hit| hit.get("_score").and_then(Value::as_f64)).fold(0.0,f64::max),"hits":selected}}));
+                if let Some(inner) = &collapse.inner_hits {
+                    let mut selected = group
+                        .iter()
+                        .take(inner.size)
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    for hit in &mut selected {
+                        apply_source_projection(hit, inner.source.as_ref());
                     }
-                    primary["inner_hits"] = Value::Object(inner_hits);
+                    primary["inner_hits"][&inner.name] = json!({"hits":{"total":{"value":group.len(),"relation":"eq"},"max_score":selected.iter().filter_map(|hit| hit.get("_score").and_then(Value::as_f64)).fold(0.0,f64::max),"hits":selected}});
                 }
                 primary
             })
@@ -2686,7 +2796,6 @@ async fn search(
     let page = page
         .into_iter()
         .map(|mut h| {
-            let current = h.get("_source").cloned().unwrap_or_else(|| json!({}));
             if !sort_specs.is_empty() {
                 let values = sort_specs
                     .iter()
@@ -2694,14 +2803,7 @@ async fn search(
                     .collect::<Vec<_>>();
                 h["sort"] = Value::Array(values);
             }
-            match project_source(&current, source) {
-                Some(projected) => {
-                    h["_source"] = projected;
-                }
-                None => {
-                    h.as_object_mut().unwrap().remove("_source");
-                }
-            }
+            apply_source_projection(&mut h, source);
             h
         })
         .collect::<Vec<_>>();
@@ -5052,6 +5154,152 @@ mod tests {
         ];
 
         for (body, feature) in cases {
+            let error = search(State(state.clone()), Path("products".into()), Json(body))
+                .await
+                .unwrap_err();
+            assert_eq!(error.body()["error"]["feature"], feature);
+        }
+        assert_eq!(*requests.lock().unwrap(), 0);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn retail_collapse_inner_hits_use_the_requested_name_size_and_source_filter() {
+        let mock = Router::new().fallback(any(|uri: axum::http::Uri| async move {
+            if uri.path().ends_with("/points/count") {
+                Json(json!({"result":{"count":3}}))
+            } else {
+                Json(json!({"result":{"points":[
+                    {"payload":{"_es_id":"shoe-1","_source":{"category":"shoes","name":"Runner"}}},
+                    {"payload":{"_es_id":"shoe-2","_source":{"category":"shoes","name":"Walker"}}},
+                    {"payload":{"_es_id":"watch-1","_source":{"category":"accessories","name":"Watch"}}}
+                ],"next_page_offset":null}}))
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        let mut cfg = Config::from_env();
+        cfg.qdrant_url = format!("http://{address}");
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[]');")
+            .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: cfg.qdrant_url.clone(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        let response = search(
+            State(state),
+            Path("products".into()),
+            Json(json!({
+                "size":3,
+                "_source":false,
+                "collapse":{
+                    "field":"category.keyword",
+                    "inner_hits":{
+                        "name":"category_hits",
+                        "size":2,
+                        "fields":["_id"],
+                        "_source":false
+                    }
+                }
+            })),
+        )
+        .await
+        .unwrap();
+        let body: Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(body["hits"]["total"], json!({"value":3,"relation":"eq"}));
+        assert_eq!(body["hits"]["hits"].as_array().unwrap().len(), 2);
+        let shoe_group = body["hits"]["hits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|hit| hit["inner_hits"]["category_hits"]["hits"]["total"]["value"] == 2)
+            .unwrap();
+        assert!(shoe_group.get("_source").is_none());
+        assert!(shoe_group["inner_hits"].get("name").is_none());
+        assert!(shoe_group["inner_hits"].get("size").is_none());
+        let category_hits = &shoe_group["inner_hits"]["category_hits"]["hits"];
+        assert_eq!(category_hits["total"], json!({"value":2,"relation":"eq"}));
+        assert_eq!(category_hits["hits"].as_array().unwrap().len(), 2);
+        let mut ids = category_hits["hits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|hit| hit["_id"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        ids.sort_unstable();
+        assert_eq!(ids, ["shoe-1", "shoe-2"]);
+        assert!(category_hits["hits"][0].get("_source").is_none());
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn invalid_collapse_fails_before_qdrant_work() {
+        let requests = Arc::new(Mutex::new(0_u64));
+        let observed_requests = requests.clone();
+        let mock = Router::new().fallback(any(move || {
+            let observed_requests = observed_requests.clone();
+            async move {
+                *observed_requests.lock().unwrap() += 1;
+                Json(json!({"result":{"points":[],"next_page_offset":null}}))
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        let mut cfg = Config::from_env();
+        cfg.qdrant_url = format!("http://{address}");
+        cfg.max_page_size = 100;
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[]');")
+            .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: cfg.qdrant_url.clone(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        for (body, feature) in [
+            (json!({"collapse":"category"}), "collapse"),
+            (json!({"collapse":{"field":""}}), "collapse.field"),
+            (
+                json!({"collapse":{"field":"category","inner_hits":[]}}),
+                "collapse.inner_hits",
+            ),
+            (
+                json!({"collapse":{"field":"category","inner_hits":{"size":101}}}),
+                "collapse.inner_hits.size",
+            ),
+            (
+                json!({"collapse":{"field":"category","inner_hits":{"sort":"_score"}}}),
+                "collapse.inner_hits.sort",
+            ),
+        ] {
             let error = search(State(state.clone()), Path("products".into()), Json(body))
                 .await
                 .unwrap_err();

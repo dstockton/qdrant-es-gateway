@@ -11,7 +11,7 @@ The isolated search service in [aws-samples/retail-demo-store](https://github.co
 | `match_bool_prefix` across several fields | ✅ | Accepted through the gateway lexical path; typo/prefix ranking is approximate |
 | `dis_max` with boosts and tie breaker | ✅ | Query shape accepted; Qdrant scoring is not Lucene/OpenSearch scoring |
 | `collapse` on `category.keyword` | ✅ | Gateway-side grouping after retrieval |
-| `inner_hits` with `_source: false` and `_id` consumption | ✅ | Response shape includes grouped hits and totals; source suppression is supported for primary hits |
+| `inner_hits` with `_source: false` and `_id` consumption | ✅ | The standard named definition returns `category_hits`, grouped totals, bounded hits, and independent source suppression |
 | `more_like_this` by document ID | ✅ | Expanded into a gateway lexical query using the referenced source |
 | `from`/`size` | ✅ | Bounded pagination |
 
