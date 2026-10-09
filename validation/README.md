@@ -36,6 +36,13 @@ with an unrefreshed native-engine write. The settle interval remains an honest
 gateway limitation: it does not turn `_refresh` into an Elasticsearch or
 OpenSearch visibility guarantee.
 
+The [2026-10-09 Elasticsearch evidence](evidence/elasticsearch-9.5.5-2026-10-09.json)
+records 11/12 checks passing against native Elasticsearch 9.5.5 and the gateway
+backed by Qdrant 1.15.5, with a one-second gateway convergence allowance. The
+remaining difference is the documented case-sensitive stored-source prefix
+behavior on an analyzed `text` field. This is request-level compatibility
+evidence over six documents, not a performance or complete API-parity claim.
+
 The command exits non-zero when transport errors occur or when a required semantic assertion fails. Search ranking is compared by top-k overlap and returned `_source` values rather than raw `_score`; equivalent engines are not expected to produce identical scores. The report records every request, status, latency, and assertion so a failed case can be reproduced.
 
 For an endpoint-only application check, point the same client at each URL. For example, the repository's Python example changes only its `Elasticsearch(...)` URL; its index, index, search, and response-handling calls remain the same.

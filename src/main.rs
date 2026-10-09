@@ -2469,6 +2469,15 @@ async fn search(
     let (from, size) = parse_search_window(&body, state.cfg.max_page_size)?;
     let sort_specs = parse_sort_specs(body.get("sort"))?;
     validate_search_after(&body, &sort_specs, from)?;
+    // Field sorting happens after Qdrant returns candidates. Fetching only the
+    // requested page makes both the first sorted page and every search_after
+    // page depend on Qdrant's unrelated point order. Keep that local ordering
+    // bounded by the operator's existing page-size limit.
+    let candidate_limit = if sort_specs.is_empty() || size == 0 {
+        (from + size).max(1)
+    } else {
+        (from + size).max(state.cfg.max_page_size).max(1)
+    };
     let collapse_spec = parse_collapse_spec(body.get("collapse"), state.cfg.max_page_size)?;
     let (index, coll, _, vectors) = get_index(&state, &index)?;
     let mut query = body
@@ -2547,7 +2556,7 @@ async fn search(
                 return None;
             }
             let payload_fields = if state.cfg.document_projection && patterns.is_empty() { json!(["_es_id"]) } else { json!(["_es_id","_source"]) };
-            let mut req = json!({"query":{"text":text,"model":"qdrant/bm25"},"using":vecname,"limit":(from+size).max(1),"with_payload":{"include":payload_fields}});
+            let mut req = json!({"query":{"text":text,"model":"qdrant/bm25"},"using":vecname,"limit":candidate_limit,"with_payload":{"include":payload_fields}});
             if let Some(f) = &filter {
                 req["filter"] = f.clone();
             }
@@ -2579,7 +2588,7 @@ async fn search(
             // Qdrant requires a positive scroll limit, while Elasticsearch
             // commonly uses size: 0 for aggregation-only searches. Fetch one
             // candidate for bookkeeping and keep the requested page empty.
-            let mut req = json!({"limit":if patterns.is_empty() { (from + size).max(1) } else { state.cfg.max_page_size },"with_payload":{"include":payload_fields}});
+            let mut req = json!({"limit":if patterns.is_empty() { candidate_limit } else { state.cfg.max_page_size },"with_payload":{"include":payload_fields}});
             if let Some(f) = &filter {
                 req["filter"] = f.clone();
             }
@@ -5304,15 +5313,27 @@ mod tests {
 
     #[tokio::test]
     async fn elasticsearch_sort_shapes_drive_order_and_search_after() {
-        let mock = Router::new().fallback(any(|uri: axum::http::Uri| async move {
-            if uri.path().ends_with("/points/count") {
-                Json(json!({"result":{"count":3}}))
-            } else {
-                Json(json!({"result":{"points":[
-                    {"payload":{"_es_id":"a","_source":{"price":10}}},
-                    {"payload":{"_es_id":"c","_source":{"price":30}}},
-                    {"payload":{"_es_id":"b","_source":{"price":30}}}
-                ],"next_page_offset":null}}))
+        let observed_limits = Arc::new(Mutex::new(Vec::new()));
+        let limits = observed_limits.clone();
+        let mock = Router::new().fallback(any(move |uri: axum::http::Uri, body: Body| {
+            let limits = limits.clone();
+            async move {
+                if uri.path().ends_with("/points/count") {
+                    Json(json!({"result":{"count":3}}))
+                } else {
+                    let request: Value = serde_json::from_slice(
+                        &axum::body::to_bytes(body, usize::MAX).await.unwrap(),
+                    )
+                    .unwrap();
+                    let limit = request["limit"].as_u64().unwrap() as usize;
+                    limits.lock().unwrap().push(limit);
+                    let points = vec![
+                        json!({"payload":{"_es_id":"a","_source":{"price":10}}}),
+                        json!({"payload":{"_es_id":"c","_source":{"price":30}}}),
+                        json!({"payload":{"_es_id":"b","_source":{"price":30}}}),
+                    ];
+                    Json(json!({"result":{"points":points.into_iter().take(limit).collect::<Vec<_>>(),"next_page_offset":null}}))
+                }
             }
         }));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -5321,6 +5342,7 @@ mod tests {
 
         let mut cfg = Config::from_env();
         cfg.qdrant_url = format!("http://{address}");
+        cfg.max_page_size = 3;
         let db = Connection::open_in_memory().unwrap();
         db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[]');")
             .unwrap();
@@ -5342,7 +5364,7 @@ mod tests {
             Path("products".into()),
             Json(json!({
                 "sort":[{"price":{"order":"desc"}},"_id"],
-                "size":3
+                "size":2
             })),
         )
         .await
@@ -5363,7 +5385,7 @@ mod tests {
             Json(json!({
                 "sort":[{"price":{"order":"desc"}},"_id"],
                 "search_after":[30,"c"],
-                "size":3
+                "size":2
             })),
         )
         .await
@@ -5391,6 +5413,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(ascending["hits"]["hits"][0]["_id"], "a");
+        assert_eq!(*observed_limits.lock().unwrap(), vec![3, 3, 3]);
 
         let error = search(
             State(state.clone()),
