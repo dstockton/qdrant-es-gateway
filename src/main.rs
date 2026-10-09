@@ -1497,19 +1497,12 @@ fn minimum_should_match(
 
 fn wildcard_regex(pattern: &str) -> Result<Regex, GatewayError> {
     let mut expression = String::from("^");
-    for piece in pattern.split('*') {
-        if !expression.ends_with('^') {
-            expression.push_str(".*");
+    for character in pattern.chars() {
+        match character {
+            '*' => expression.push_str(".*"),
+            '?' => expression.push('.'),
+            literal => expression.push_str(&regex::escape(&literal.to_string())),
         }
-        let mut escaped = String::new();
-        for c in piece.chars() {
-            if c == '?' {
-                escaped.push('.');
-            } else {
-                escaped.push_str(&regex::escape(&c.to_string()));
-            }
-        }
-        expression.push_str(&escaped);
     }
     expression.push('$');
     Regex::new(&expression).map_err(|e| GatewayError::Internal(e.to_string()))
@@ -6426,6 +6419,33 @@ mod tests {
         collect_patterns(&json!({"prefix":{"sku.keyword":"ABC-"}}), &mut patterns).unwrap();
         assert_eq!(patterns.len(), 1);
         assert!(pattern_matches(&source, &patterns[0]));
+    }
+
+    #[test]
+    fn wildcard_translation_preserves_star_positions_and_escapes_literals() {
+        let source = json!({"title":"Mechanical keyboard (quiet)"});
+
+        for pattern in [
+            "*keyboard*",
+            "**keyboard**",
+            "Mechanical?keyboard*",
+            "*(quiet)",
+        ] {
+            assert!(pattern_matches(
+                &source,
+                &GatewayPattern::Wildcard {
+                    field: "title".into(),
+                    pattern: pattern.into(),
+                }
+            ));
+        }
+        assert!(!pattern_matches(
+            &source,
+            &GatewayPattern::Wildcard {
+                field: "title".into(),
+                pattern: "keyboard*".into(),
+            }
+        ));
     }
 
     #[test]
