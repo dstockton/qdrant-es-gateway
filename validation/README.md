@@ -74,3 +74,33 @@ recorded source revision, and Qdrant **1.15.3**, using the default embedded-sour
 mode and synchronous writes. `reported_version` is the endpoint's Elasticsearch
 API version advertisement, not the gateway binary version. No latency or ranking
 comparison is claimed. No gateway implementation change was needed.
+
+## Media archive clearance shortlist
+
+The [media field note](../docs/_posts/2026-10-09-media-clearance-shortlist.md)
+uses six synthetic clips in [`fixtures/media.json`](fixtures/media.json).
+It checks array membership for topics and cleared territories, a duration limit,
+format facets, and removal of UK clearance while preserving France and all other
+source fields. This is metadata retrieval, not rights adjudication.
+
+```sh
+python3 validation/media.py \
+  --native http://localhost:19200 \
+  --gateway http://localhost:9200 \
+  --output validation/results/media.json
+```
+
+Use disposable endpoints without `field_note_media`. The replay creates and
+removes that index; a failed create aborts without deleting existing data.
+It uses Python's standard library and pauses five seconds after bulk ingestion
+and update on each server (`--settle-seconds` controls both). This is not a
+refresh timing guarantee. Exact statuses, bulk IDs/results, every source,
+search IDs and totals, facet counts, and array replacement are checked against
+independent expectations; requests must also match between endpoints.
+
+The [2026-10-09 evidence](evidence/media-2026-10-09.json) records **70/70**
+checks passing with native Elasticsearch **8.15.0**, gateway **0.2.0** at the
+recorded revision, and Qdrant **1.15.5**, with embedded sources and synchronous
+writes. Optional `--gateway-version` and `--qdrant-version` arguments record
+operator-verified versions; the endpoint's `reported_version` is its API
+advertisement. No gateway implementation change or performance claim was needed.

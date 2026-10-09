@@ -1,0 +1,2501 @@
+{
+  "run_at": "2026-10-09T10:02:22.576453+00:00",
+  "gateway_revision": "a640fd1cb5fd2cb6b0155741e798d7a6438a9281",
+  "fixture": "validation/fixtures/media.json",
+  "gateway_binary_version": "0.2.0",
+  "qdrant_version": "1.15.5",
+  "gateway_mode": "embedded-source, synchronous writes",
+  "settle_seconds_after_each_write_phase": 5,
+  "native": {
+    "calls": [
+      {
+        "name": "create",
+        "method": "PUT",
+        "path": "/field_note_media",
+        "request": {
+          "mappings": {
+            "properties": {
+              "title": {
+                "type": "text"
+              },
+              "topics": {
+                "type": "keyword"
+              },
+              "territories": {
+                "type": "keyword"
+              },
+              "format": {
+                "type": "keyword"
+              },
+              "duration_seconds": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "acknowledged": true,
+            "shards_acknowledged": true,
+            "index": "field_note_media"
+          }
+        }
+      },
+      {
+        "name": "bulk",
+        "method": "POST",
+        "path": "/field_note_media/_bulk?refresh=wait_for",
+        "request": "{\"index\": {\"_id\": \"clip-101\"}}\n{\"title\": \"Whitby harbour at dawn\", \"topics\": [\"coast\", \"harbour\"], \"territories\": [\"GB\", \"FR\"], \"format\": \"landscape\", \"duration_seconds\": 20}\n{\"index\": {\"_id\": \"clip-102\"}}\n{\"title\": \"Cornish surf close-up\", \"topics\": [\"coast\", \"surf\"], \"territories\": [\"GB\"], \"format\": \"portrait\", \"duration_seconds\": 12}\n{\"index\": {\"_id\": \"clip-103\"}}\n{\"title\": \"Brittany lighthouse\", \"topics\": [\"coast\"], \"territories\": [\"FR\"], \"format\": \"landscape\", \"duration_seconds\": 18}\n{\"index\": {\"_id\": \"clip-104\"}}\n{\"title\": \"Northumberland coastal walk\", \"topics\": [\"coast\", \"walking\"], \"territories\": [\"GB\"], \"format\": \"landscape\", \"duration_seconds\": 75}\n{\"index\": {\"_id\": \"clip-105\"}}\n{\"title\": \"York market stalls\", \"topics\": [\"city\", \"food\"], \"territories\": [\"GB\"], \"format\": \"portrait\", \"duration_seconds\": 15}\n{\"index\": {\"_id\": \"clip-106\"}}\n{\"title\": \"Uncleared beach aerial\", \"topics\": [\"coast\"], \"territories\": [], \"format\": \"landscape\", \"duration_seconds\": 25}\n",
+        "response": {
+          "status": 200,
+          "body": {
+            "errors": false,
+            "took": 80996,
+            "items": [
+              {
+                "index": {
+                  "_index": "field_note_media",
+                  "_id": "clip-101",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 0,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_media",
+                  "_id": "clip-102",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 1,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_media",
+                  "_id": "clip-103",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 2,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_media",
+                  "_id": "clip-104",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 3,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_media",
+                  "_id": "clip-105",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 4,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_media",
+                  "_id": "clip-106",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 5,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "read clip-101",
+        "method": "GET",
+        "path": "/field_note_media/_doc/clip-101",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_media",
+            "_id": "clip-101",
+            "_version": 1,
+            "_seq_no": 0,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "title": "Whitby harbour at dawn",
+              "topics": [
+                "coast",
+                "harbour"
+              ],
+              "territories": [
+                "GB",
+                "FR"
+              ],
+              "format": "landscape",
+              "duration_seconds": 20
+            }
+          }
+        }
+      },
+      {
+        "name": "read clip-102",
+        "method": "GET",
+        "path": "/field_note_media/_doc/clip-102",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_media",
+            "_id": "clip-102",
+            "_version": 1,
+            "_seq_no": 1,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "title": "Cornish surf close-up",
+              "topics": [
+                "coast",
+                "surf"
+              ],
+              "territories": [
+                "GB"
+              ],
+              "format": "portrait",
+              "duration_seconds": 12
+            }
+          }
+        }
+      },
+      {
+        "name": "read clip-103",
+        "method": "GET",
+        "path": "/field_note_media/_doc/clip-103",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_media",
+            "_id": "clip-103",
+            "_version": 1,
+            "_seq_no": 2,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "title": "Brittany lighthouse",
+              "topics": [
+                "coast"
+              ],
+              "territories": [
+                "FR"
+              ],
+              "format": "landscape",
+              "duration_seconds": 18
+            }
+          }
+        }
+      },
+      {
+        "name": "read clip-104",
+        "method": "GET",
+        "path": "/field_note_media/_doc/clip-104",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_media",
+            "_id": "clip-104",
+            "_version": 1,
+            "_seq_no": 3,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "title": "Northumberland coastal walk",
+              "topics": [
+                "coast",
+                "walking"
+              ],
+              "territories": [
+                "GB"
+              ],
+              "format": "landscape",
+              "duration_seconds": 75
+            }
+          }
+        }
+      },
+      {
+        "name": "read clip-105",
+        "method": "GET",
+        "path": "/field_note_media/_doc/clip-105",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_media",
+            "_id": "clip-105",
+            "_version": 1,
+            "_seq_no": 4,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "title": "York market stalls",
+              "topics": [
+                "city",
+                "food"
+              ],
+              "territories": [
+                "GB"
+              ],
+              "format": "portrait",
+              "duration_seconds": 15
+            }
+          }
+        }
+      },
+      {
+        "name": "read clip-106",
+        "method": "GET",
+        "path": "/field_note_media/_doc/clip-106",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_media",
+            "_id": "clip-106",
+            "_version": 1,
+            "_seq_no": 5,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "title": "Uncleared beach aerial",
+              "topics": [
+                "coast"
+              ],
+              "territories": [],
+              "format": "landscape",
+              "duration_seconds": 25
+            }
+          }
+        }
+      },
+      {
+        "name": "cleared coastal clips",
+        "method": "POST",
+        "path": "/field_note_media/_search",
+        "request": {
+          "size": 10,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "topics": "coast"
+                  }
+                },
+                {
+                  "term": {
+                    "territories": "GB"
+                  }
+                },
+                {
+                  "range": {
+                    "duration_seconds": {
+                      "lte": 30
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "took": 3,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 2,
+                "relation": "eq"
+              },
+              "max_score": 0.0,
+              "hits": [
+                {
+                  "_index": "field_note_media",
+                  "_id": "clip-101",
+                  "_score": 0.0,
+                  "_source": {
+                    "title": "Whitby harbour at dawn",
+                    "topics": [
+                      "coast",
+                      "harbour"
+                    ],
+                    "territories": [
+                      "GB",
+                      "FR"
+                    ],
+                    "format": "landscape",
+                    "duration_seconds": 20
+                  }
+                },
+                {
+                  "_index": "field_note_media",
+                  "_id": "clip-102",
+                  "_score": 0.0,
+                  "_source": {
+                    "title": "Cornish surf close-up",
+                    "topics": [
+                      "coast",
+                      "surf"
+                    ],
+                    "territories": [
+                      "GB"
+                    ],
+                    "format": "portrait",
+                    "duration_seconds": 12
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "name": "cleared formats",
+        "method": "POST",
+        "path": "/field_note_media/_search",
+        "request": {
+          "size": 0,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "topics": "coast"
+                  }
+                },
+                {
+                  "term": {
+                    "territories": "GB"
+                  }
+                },
+                {
+                  "range": {
+                    "duration_seconds": {
+                      "lte": 30
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "aggs": {
+            "formats": {
+              "terms": {
+                "field": "format",
+                "size": 10
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "took": 3,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 2,
+                "relation": "eq"
+              },
+              "max_score": null,
+              "hits": []
+            },
+            "aggregations": {
+              "formats": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": [
+                  {
+                    "key": "landscape",
+                    "doc_count": 1
+                  },
+                  {
+                    "key": "portrait",
+                    "doc_count": 1
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "remove GB clearance",
+        "method": "POST",
+        "path": "/field_note_media/_update/clip-101?refresh=wait_for",
+        "request": {
+          "doc": {
+            "territories": [
+              "FR"
+            ]
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_media",
+            "_id": "clip-101",
+            "_version": 2,
+            "result": "updated",
+            "_shards": {
+              "total": 2,
+              "successful": 1,
+              "failed": 0
+            },
+            "_seq_no": 6,
+            "_primary_term": 1
+          }
+        }
+      },
+      {
+        "name": "read revised clearance",
+        "method": "GET",
+        "path": "/field_note_media/_doc/clip-101",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_media",
+            "_id": "clip-101",
+            "_version": 2,
+            "_seq_no": 6,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "title": "Whitby harbour at dawn",
+              "topics": [
+                "coast",
+                "harbour"
+              ],
+              "territories": [
+                "FR"
+              ],
+              "format": "landscape",
+              "duration_seconds": 20
+            }
+          }
+        }
+      },
+      {
+        "name": "GB clearance removed",
+        "method": "POST",
+        "path": "/field_note_media/_search",
+        "request": {
+          "size": 10,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "topics": "coast"
+                  }
+                },
+                {
+                  "term": {
+                    "territories": "GB"
+                  }
+                },
+                {
+                  "range": {
+                    "duration_seconds": {
+                      "lte": 30
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "took": 3,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 1,
+                "relation": "eq"
+              },
+              "max_score": 0.0,
+              "hits": [
+                {
+                  "_index": "field_note_media",
+                  "_id": "clip-102",
+                  "_score": 0.0,
+                  "_source": {
+                    "title": "Cornish surf close-up",
+                    "topics": [
+                      "coast",
+                      "surf"
+                    ],
+                    "territories": [
+                      "GB"
+                    ],
+                    "format": "portrait",
+                    "duration_seconds": 12
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "name": "remaining formats",
+        "method": "POST",
+        "path": "/field_note_media/_search",
+        "request": {
+          "size": 0,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "topics": "coast"
+                  }
+                },
+                {
+                  "term": {
+                    "territories": "GB"
+                  }
+                },
+                {
+                  "range": {
+                    "duration_seconds": {
+                      "lte": 30
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "aggs": {
+            "formats": {
+              "terms": {
+                "field": "format",
+                "size": 10
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "took": 5,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 1,
+                "relation": "eq"
+              },
+              "max_score": null,
+              "hits": []
+            },
+            "aggregations": {
+              "formats": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": [
+                  {
+                    "key": "portrait",
+                    "doc_count": 1
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "cleanup",
+        "method": "DELETE",
+        "path": "/field_note_media",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "acknowledged": true
+          }
+        }
+      }
+    ],
+    "checks": [
+      {
+        "name": "create HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "bulk HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "bulk errors",
+        "ok": true,
+        "actual": false,
+        "expected": false
+      },
+      {
+        "name": "bulk items",
+        "ok": true,
+        "actual": [
+          {
+            "_id": "clip-101",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "clip-102",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "clip-103",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "clip-104",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "clip-105",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "clip-106",
+            "status": 201,
+            "result": "created"
+          }
+        ],
+        "expected": [
+          {
+            "_id": "clip-101",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "clip-102",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "clip-103",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "clip-104",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "clip-105",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "clip-106",
+            "status": 201,
+            "result": "created"
+          }
+        ]
+      },
+      {
+        "name": "read clip-101 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read clip-101 ID/source",
+        "ok": true,
+        "actual": [
+          "clip-101",
+          {
+            "title": "Whitby harbour at dawn",
+            "topics": [
+              "coast",
+              "harbour"
+            ],
+            "territories": [
+              "GB",
+              "FR"
+            ],
+            "format": "landscape",
+            "duration_seconds": 20
+          }
+        ],
+        "expected": [
+          "clip-101",
+          {
+            "title": "Whitby harbour at dawn",
+            "topics": [
+              "coast",
+              "harbour"
+            ],
+            "territories": [
+              "GB",
+              "FR"
+            ],
+            "format": "landscape",
+            "duration_seconds": 20
+          }
+        ]
+      },
+      {
+        "name": "read clip-102 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read clip-102 ID/source",
+        "ok": true,
+        "actual": [
+          "clip-102",
+          {
+            "title": "Cornish surf close-up",
+            "topics": [
+              "coast",
+              "surf"
+            ],
+            "territories": [
+              "GB"
+            ],
+            "format": "portrait",
+            "duration_seconds": 12
+          }
+        ],
+        "expected": [
+          "clip-102",
+          {
+            "title": "Cornish surf close-up",
+            "topics": [
+              "coast",
+              "surf"
+            ],
+            "territories": [
+              "GB"
+            ],
+            "format": "portrait",
+            "duration_seconds": 12
+          }
+        ]
+      },
+      {
+        "name": "read clip-103 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read clip-103 ID/source",
+        "ok": true,
+        "actual": [
+          "clip-103",
+          {
+            "title": "Brittany lighthouse",
+            "topics": [
+              "coast"
+            ],
+            "territories": [
+              "FR"
+            ],
+            "format": "landscape",
+            "duration_seconds": 18
+          }
+        ],
+        "expected": [
+          "clip-103",
+          {
+            "title": "Brittany lighthouse",
+            "topics": [
+              "coast"
+            ],
+            "territories": [
+              "FR"
+            ],
+            "format": "landscape",
+            "duration_seconds": 18
+          }
+        ]
+      },
+      {
+        "name": "read clip-104 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read clip-104 ID/source",
+        "ok": true,
+        "actual": [
+          "clip-104",
+          {
+            "title": "Northumberland coastal walk",
+            "topics": [
+              "coast",
+              "walking"
+            ],
+            "territories": [
+              "GB"
+            ],
+            "format": "landscape",
+            "duration_seconds": 75
+          }
+        ],
+        "expected": [
+          "clip-104",
+          {
+            "title": "Northumberland coastal walk",
+            "topics": [
+              "coast",
+              "walking"
+            ],
+            "territories": [
+              "GB"
+            ],
+            "format": "landscape",
+            "duration_seconds": 75
+          }
+        ]
+      },
+      {
+        "name": "read clip-105 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read clip-105 ID/source",
+        "ok": true,
+        "actual": [
+          "clip-105",
+          {
+            "title": "York market stalls",
+            "topics": [
+              "city",
+              "food"
+            ],
+            "territories": [
+              "GB"
+            ],
+            "format": "portrait",
+            "duration_seconds": 15
+          }
+        ],
+        "expected": [
+          "clip-105",
+          {
+            "title": "York market stalls",
+            "topics": [
+              "city",
+              "food"
+            ],
+            "territories": [
+              "GB"
+            ],
+            "format": "portrait",
+            "duration_seconds": 15
+          }
+        ]
+      },
+      {
+        "name": "read clip-106 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read clip-106 ID/source",
+        "ok": true,
+        "actual": [
+          "clip-106",
+          {
+            "title": "Uncleared beach aerial",
+            "topics": [
+              "coast"
+            ],
+            "territories": [],
+            "format": "landscape",
+            "duration_seconds": 25
+          }
+        ],
+        "expected": [
+          "clip-106",
+          {
+            "title": "Uncleared beach aerial",
+            "topics": [
+              "coast"
+            ],
+            "territories": [],
+            "format": "landscape",
+            "duration_seconds": 25
+          }
+        ]
+      },
+      {
+        "name": "cleared coastal clips HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "cleared coastal clips exact total",
+        "ok": true,
+        "actual": {
+          "value": 2,
+          "relation": "eq"
+        },
+        "expected": {
+          "value": 2,
+          "relation": "eq"
+        }
+      },
+      {
+        "name": "cleared coastal clips IDs",
+        "ok": true,
+        "actual": [
+          "clip-101",
+          "clip-102"
+        ],
+        "expected": [
+          "clip-101",
+          "clip-102"
+        ]
+      },
+      {
+        "name": "cleared coastal clips sources",
+        "ok": true,
+        "actual": {
+          "clip-101": {
+            "title": "Whitby harbour at dawn",
+            "topics": [
+              "coast",
+              "harbour"
+            ],
+            "territories": [
+              "GB",
+              "FR"
+            ],
+            "format": "landscape",
+            "duration_seconds": 20
+          },
+          "clip-102": {
+            "title": "Cornish surf close-up",
+            "topics": [
+              "coast",
+              "surf"
+            ],
+            "territories": [
+              "GB"
+            ],
+            "format": "portrait",
+            "duration_seconds": 12
+          }
+        },
+        "expected": {
+          "clip-101": {
+            "title": "Whitby harbour at dawn",
+            "topics": [
+              "coast",
+              "harbour"
+            ],
+            "territories": [
+              "GB",
+              "FR"
+            ],
+            "format": "landscape",
+            "duration_seconds": 20
+          },
+          "clip-102": {
+            "title": "Cornish surf close-up",
+            "topics": [
+              "coast",
+              "surf"
+            ],
+            "territories": [
+              "GB"
+            ],
+            "format": "portrait",
+            "duration_seconds": 12
+          }
+        }
+      },
+      {
+        "name": "cleared formats HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "cleared formats counts",
+        "ok": true,
+        "actual": {
+          "landscape": 1,
+          "portrait": 1
+        },
+        "expected": {
+          "landscape": 1,
+          "portrait": 1
+        }
+      },
+      {
+        "name": "cleared formats zero hits",
+        "ok": true,
+        "actual": [],
+        "expected": []
+      },
+      {
+        "name": "remove GB clearance HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "clearance update ID/result",
+        "ok": true,
+        "actual": [
+          "clip-101",
+          "updated"
+        ],
+        "expected": [
+          "clip-101",
+          "updated"
+        ]
+      },
+      {
+        "name": "read revised clearance HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "territory replacement preserves other metadata",
+        "ok": true,
+        "actual": [
+          "clip-101",
+          {
+            "title": "Whitby harbour at dawn",
+            "topics": [
+              "coast",
+              "harbour"
+            ],
+            "territories": [
+              "FR"
+            ],
+            "format": "landscape",
+            "duration_seconds": 20
+          }
+        ],
+        "expected": [
+          "clip-101",
+          {
+            "title": "Whitby harbour at dawn",
+            "topics": [
+              "coast",
+              "harbour"
+            ],
+            "territories": [
+              "FR"
+            ],
+            "format": "landscape",
+            "duration_seconds": 20
+          }
+        ]
+      },
+      {
+        "name": "GB clearance removed HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "GB clearance removed exact total",
+        "ok": true,
+        "actual": {
+          "value": 1,
+          "relation": "eq"
+        },
+        "expected": {
+          "value": 1,
+          "relation": "eq"
+        }
+      },
+      {
+        "name": "GB clearance removed IDs",
+        "ok": true,
+        "actual": [
+          "clip-102"
+        ],
+        "expected": [
+          "clip-102"
+        ]
+      },
+      {
+        "name": "GB clearance removed sources",
+        "ok": true,
+        "actual": {
+          "clip-102": {
+            "title": "Cornish surf close-up",
+            "topics": [
+              "coast",
+              "surf"
+            ],
+            "territories": [
+              "GB"
+            ],
+            "format": "portrait",
+            "duration_seconds": 12
+          }
+        },
+        "expected": {
+          "clip-102": {
+            "title": "Cornish surf close-up",
+            "topics": [
+              "coast",
+              "surf"
+            ],
+            "territories": [
+              "GB"
+            ],
+            "format": "portrait",
+            "duration_seconds": 12
+          }
+        }
+      },
+      {
+        "name": "remaining formats HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "remaining formats counts",
+        "ok": true,
+        "actual": {
+          "portrait": 1
+        },
+        "expected": {
+          "portrait": 1
+        }
+      },
+      {
+        "name": "remaining formats zero hits",
+        "ok": true,
+        "actual": [],
+        "expected": []
+      },
+      {
+        "name": "cleanup HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      }
+    ],
+    "reported_version": "8.15.0"
+  },
+  "gateway": {
+    "calls": [
+      {
+        "name": "create",
+        "method": "PUT",
+        "path": "/field_note_media",
+        "request": {
+          "mappings": {
+            "properties": {
+              "title": {
+                "type": "text"
+              },
+              "topics": {
+                "type": "keyword"
+              },
+              "territories": {
+                "type": "keyword"
+              },
+              "format": {
+                "type": "keyword"
+              },
+              "duration_seconds": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "acknowledged": true,
+            "index": "field_note_media",
+            "shards_acknowledged": true
+          }
+        }
+      },
+      {
+        "name": "bulk",
+        "method": "POST",
+        "path": "/field_note_media/_bulk?refresh=wait_for",
+        "request": "{\"index\": {\"_id\": \"clip-101\"}}\n{\"title\": \"Whitby harbour at dawn\", \"topics\": [\"coast\", \"harbour\"], \"territories\": [\"GB\", \"FR\"], \"format\": \"landscape\", \"duration_seconds\": 20}\n{\"index\": {\"_id\": \"clip-102\"}}\n{\"title\": \"Cornish surf close-up\", \"topics\": [\"coast\", \"surf\"], \"territories\": [\"GB\"], \"format\": \"portrait\", \"duration_seconds\": 12}\n{\"index\": {\"_id\": \"clip-103\"}}\n{\"title\": \"Brittany lighthouse\", \"topics\": [\"coast\"], \"territories\": [\"FR\"], \"format\": \"landscape\", \"duration_seconds\": 18}\n{\"index\": {\"_id\": \"clip-104\"}}\n{\"title\": \"Northumberland coastal walk\", \"topics\": [\"coast\", \"walking\"], \"territories\": [\"GB\"], \"format\": \"landscape\", \"duration_seconds\": 75}\n{\"index\": {\"_id\": \"clip-105\"}}\n{\"title\": \"York market stalls\", \"topics\": [\"city\", \"food\"], \"territories\": [\"GB\"], \"format\": \"portrait\", \"duration_seconds\": 15}\n{\"index\": {\"_id\": \"clip-106\"}}\n{\"title\": \"Uncleared beach aerial\", \"topics\": [\"coast\"], \"territories\": [], \"format\": \"landscape\", \"duration_seconds\": 25}\n",
+        "response": {
+          "status": 200,
+          "body": {
+            "errors": false,
+            "items": [
+              {
+                "index": {
+                  "_id": "clip-101",
+                  "_index": "field_note_media",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "clip-102",
+                  "_index": "field_note_media",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "clip-103",
+                  "_index": "field_note_media",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "clip-104",
+                  "_index": "field_note_media",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "clip-105",
+                  "_index": "field_note_media",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "clip-106",
+                  "_index": "field_note_media",
+                  "result": "created",
+                  "status": 201
+                }
+              }
+            ],
+            "took": 0
+          }
+        }
+      },
+      {
+        "name": "read clip-101",
+        "method": "GET",
+        "path": "/field_note_media/_doc/clip-101",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "clip-101",
+            "_index": "field_note_media",
+            "_source": {
+              "duration_seconds": 20,
+              "format": "landscape",
+              "territories": [
+                "GB",
+                "FR"
+              ],
+              "title": "Whitby harbour at dawn",
+              "topics": [
+                "coast",
+                "harbour"
+              ]
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "read clip-102",
+        "method": "GET",
+        "path": "/field_note_media/_doc/clip-102",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "clip-102",
+            "_index": "field_note_media",
+            "_source": {
+              "duration_seconds": 12,
+              "format": "portrait",
+              "territories": [
+                "GB"
+              ],
+              "title": "Cornish surf close-up",
+              "topics": [
+                "coast",
+                "surf"
+              ]
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "read clip-103",
+        "method": "GET",
+        "path": "/field_note_media/_doc/clip-103",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "clip-103",
+            "_index": "field_note_media",
+            "_source": {
+              "duration_seconds": 18,
+              "format": "landscape",
+              "territories": [
+                "FR"
+              ],
+              "title": "Brittany lighthouse",
+              "topics": [
+                "coast"
+              ]
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "read clip-104",
+        "method": "GET",
+        "path": "/field_note_media/_doc/clip-104",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "clip-104",
+            "_index": "field_note_media",
+            "_source": {
+              "duration_seconds": 75,
+              "format": "landscape",
+              "territories": [
+                "GB"
+              ],
+              "title": "Northumberland coastal walk",
+              "topics": [
+                "coast",
+                "walking"
+              ]
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "read clip-105",
+        "method": "GET",
+        "path": "/field_note_media/_doc/clip-105",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "clip-105",
+            "_index": "field_note_media",
+            "_source": {
+              "duration_seconds": 15,
+              "format": "portrait",
+              "territories": [
+                "GB"
+              ],
+              "title": "York market stalls",
+              "topics": [
+                "city",
+                "food"
+              ]
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "read clip-106",
+        "method": "GET",
+        "path": "/field_note_media/_doc/clip-106",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "clip-106",
+            "_index": "field_note_media",
+            "_source": {
+              "duration_seconds": 25,
+              "format": "landscape",
+              "territories": [],
+              "title": "Uncleared beach aerial",
+              "topics": [
+                "coast"
+              ]
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "cleared coastal clips",
+        "method": "POST",
+        "path": "/field_note_media/_search",
+        "request": {
+          "size": 10,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "topics": "coast"
+                  }
+                },
+                {
+                  "term": {
+                    "territories": "GB"
+                  }
+                },
+                {
+                  "range": {
+                    "duration_seconds": {
+                      "lte": 30
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "_shards": {
+              "failed": 0,
+              "skipped": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "hits": {
+              "hits": [
+                {
+                  "_id": "clip-102",
+                  "_index": "field_note_media",
+                  "_score": null,
+                  "_source": {
+                    "duration_seconds": 12,
+                    "format": "portrait",
+                    "territories": [
+                      "GB"
+                    ],
+                    "title": "Cornish surf close-up",
+                    "topics": [
+                      "coast",
+                      "surf"
+                    ]
+                  }
+                },
+                {
+                  "_id": "clip-101",
+                  "_index": "field_note_media",
+                  "_score": null,
+                  "_source": {
+                    "duration_seconds": 20,
+                    "format": "landscape",
+                    "territories": [
+                      "GB",
+                      "FR"
+                    ],
+                    "title": "Whitby harbour at dawn",
+                    "topics": [
+                      "coast",
+                      "harbour"
+                    ]
+                  }
+                }
+              ],
+              "max_score": 0.0,
+              "total": {
+                "relation": "eq",
+                "value": 2
+              }
+            },
+            "timed_out": false,
+            "took": 2
+          }
+        }
+      },
+      {
+        "name": "cleared formats",
+        "method": "POST",
+        "path": "/field_note_media/_search",
+        "request": {
+          "size": 0,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "topics": "coast"
+                  }
+                },
+                {
+                  "term": {
+                    "territories": "GB"
+                  }
+                },
+                {
+                  "range": {
+                    "duration_seconds": {
+                      "lte": 30
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "aggs": {
+            "formats": {
+              "terms": {
+                "field": "format",
+                "size": 10
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "_shards": {
+              "failed": 0,
+              "skipped": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "aggregations": {
+              "formats": {
+                "buckets": [
+                  {
+                    "doc_count": 1,
+                    "key": "landscape"
+                  },
+                  {
+                    "doc_count": 1,
+                    "key": "portrait"
+                  }
+                ],
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0
+              }
+            },
+            "hits": {
+              "hits": [],
+              "max_score": 0.0,
+              "total": {
+                "relation": "eq",
+                "value": 2
+              }
+            },
+            "timed_out": false,
+            "took": 1
+          }
+        }
+      },
+      {
+        "name": "remove GB clearance",
+        "method": "POST",
+        "path": "/field_note_media/_update/clip-101?refresh=wait_for",
+        "request": {
+          "doc": {
+            "territories": [
+              "FR"
+            ]
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "clip-101",
+            "_index": "field_note_media",
+            "_shards": {
+              "failed": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "_version": 1,
+            "result": "updated"
+          }
+        }
+      },
+      {
+        "name": "read revised clearance",
+        "method": "GET",
+        "path": "/field_note_media/_doc/clip-101",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "clip-101",
+            "_index": "field_note_media",
+            "_source": {
+              "duration_seconds": 20,
+              "format": "landscape",
+              "territories": [
+                "FR"
+              ],
+              "title": "Whitby harbour at dawn",
+              "topics": [
+                "coast",
+                "harbour"
+              ]
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "GB clearance removed",
+        "method": "POST",
+        "path": "/field_note_media/_search",
+        "request": {
+          "size": 10,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "topics": "coast"
+                  }
+                },
+                {
+                  "term": {
+                    "territories": "GB"
+                  }
+                },
+                {
+                  "range": {
+                    "duration_seconds": {
+                      "lte": 30
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "_shards": {
+              "failed": 0,
+              "skipped": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "hits": {
+              "hits": [
+                {
+                  "_id": "clip-102",
+                  "_index": "field_note_media",
+                  "_score": null,
+                  "_source": {
+                    "duration_seconds": 12,
+                    "format": "portrait",
+                    "territories": [
+                      "GB"
+                    ],
+                    "title": "Cornish surf close-up",
+                    "topics": [
+                      "coast",
+                      "surf"
+                    ]
+                  }
+                }
+              ],
+              "max_score": 0.0,
+              "total": {
+                "relation": "eq",
+                "value": 1
+              }
+            },
+            "timed_out": false,
+            "took": 2
+          }
+        }
+      },
+      {
+        "name": "remaining formats",
+        "method": "POST",
+        "path": "/field_note_media/_search",
+        "request": {
+          "size": 0,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "topics": "coast"
+                  }
+                },
+                {
+                  "term": {
+                    "territories": "GB"
+                  }
+                },
+                {
+                  "range": {
+                    "duration_seconds": {
+                      "lte": 30
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "aggs": {
+            "formats": {
+              "terms": {
+                "field": "format",
+                "size": 10
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "_shards": {
+              "failed": 0,
+              "skipped": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "aggregations": {
+              "formats": {
+                "buckets": [
+                  {
+                    "doc_count": 1,
+                    "key": "portrait"
+                  }
+                ],
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0
+              }
+            },
+            "hits": {
+              "hits": [],
+              "max_score": 0.0,
+              "total": {
+                "relation": "eq",
+                "value": 1
+              }
+            },
+            "timed_out": false,
+            "took": 2
+          }
+        }
+      },
+      {
+        "name": "cleanup",
+        "method": "DELETE",
+        "path": "/field_note_media",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "acknowledged": true
+          }
+        }
+      }
+    ],
+    "checks": [
+      {
+        "name": "create HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "bulk HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "bulk errors",
+        "ok": true,
+        "actual": false,
+        "expected": false
+      },
+      {
+        "name": "bulk items",
+        "ok": true,
+        "actual": [
+          {
+            "_id": "clip-101",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "clip-102",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "clip-103",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "clip-104",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "clip-105",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "clip-106",
+            "status": 201,
+            "result": "created"
+          }
+        ],
+        "expected": [
+          {
+            "_id": "clip-101",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "clip-102",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "clip-103",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "clip-104",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "clip-105",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "clip-106",
+            "status": 201,
+            "result": "created"
+          }
+        ]
+      },
+      {
+        "name": "read clip-101 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read clip-101 ID/source",
+        "ok": true,
+        "actual": [
+          "clip-101",
+          {
+            "duration_seconds": 20,
+            "format": "landscape",
+            "territories": [
+              "GB",
+              "FR"
+            ],
+            "title": "Whitby harbour at dawn",
+            "topics": [
+              "coast",
+              "harbour"
+            ]
+          }
+        ],
+        "expected": [
+          "clip-101",
+          {
+            "title": "Whitby harbour at dawn",
+            "topics": [
+              "coast",
+              "harbour"
+            ],
+            "territories": [
+              "GB",
+              "FR"
+            ],
+            "format": "landscape",
+            "duration_seconds": 20
+          }
+        ]
+      },
+      {
+        "name": "read clip-102 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read clip-102 ID/source",
+        "ok": true,
+        "actual": [
+          "clip-102",
+          {
+            "duration_seconds": 12,
+            "format": "portrait",
+            "territories": [
+              "GB"
+            ],
+            "title": "Cornish surf close-up",
+            "topics": [
+              "coast",
+              "surf"
+            ]
+          }
+        ],
+        "expected": [
+          "clip-102",
+          {
+            "title": "Cornish surf close-up",
+            "topics": [
+              "coast",
+              "surf"
+            ],
+            "territories": [
+              "GB"
+            ],
+            "format": "portrait",
+            "duration_seconds": 12
+          }
+        ]
+      },
+      {
+        "name": "read clip-103 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read clip-103 ID/source",
+        "ok": true,
+        "actual": [
+          "clip-103",
+          {
+            "duration_seconds": 18,
+            "format": "landscape",
+            "territories": [
+              "FR"
+            ],
+            "title": "Brittany lighthouse",
+            "topics": [
+              "coast"
+            ]
+          }
+        ],
+        "expected": [
+          "clip-103",
+          {
+            "title": "Brittany lighthouse",
+            "topics": [
+              "coast"
+            ],
+            "territories": [
+              "FR"
+            ],
+            "format": "landscape",
+            "duration_seconds": 18
+          }
+        ]
+      },
+      {
+        "name": "read clip-104 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read clip-104 ID/source",
+        "ok": true,
+        "actual": [
+          "clip-104",
+          {
+            "duration_seconds": 75,
+            "format": "landscape",
+            "territories": [
+              "GB"
+            ],
+            "title": "Northumberland coastal walk",
+            "topics": [
+              "coast",
+              "walking"
+            ]
+          }
+        ],
+        "expected": [
+          "clip-104",
+          {
+            "title": "Northumberland coastal walk",
+            "topics": [
+              "coast",
+              "walking"
+            ],
+            "territories": [
+              "GB"
+            ],
+            "format": "landscape",
+            "duration_seconds": 75
+          }
+        ]
+      },
+      {
+        "name": "read clip-105 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read clip-105 ID/source",
+        "ok": true,
+        "actual": [
+          "clip-105",
+          {
+            "duration_seconds": 15,
+            "format": "portrait",
+            "territories": [
+              "GB"
+            ],
+            "title": "York market stalls",
+            "topics": [
+              "city",
+              "food"
+            ]
+          }
+        ],
+        "expected": [
+          "clip-105",
+          {
+            "title": "York market stalls",
+            "topics": [
+              "city",
+              "food"
+            ],
+            "territories": [
+              "GB"
+            ],
+            "format": "portrait",
+            "duration_seconds": 15
+          }
+        ]
+      },
+      {
+        "name": "read clip-106 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read clip-106 ID/source",
+        "ok": true,
+        "actual": [
+          "clip-106",
+          {
+            "duration_seconds": 25,
+            "format": "landscape",
+            "territories": [],
+            "title": "Uncleared beach aerial",
+            "topics": [
+              "coast"
+            ]
+          }
+        ],
+        "expected": [
+          "clip-106",
+          {
+            "title": "Uncleared beach aerial",
+            "topics": [
+              "coast"
+            ],
+            "territories": [],
+            "format": "landscape",
+            "duration_seconds": 25
+          }
+        ]
+      },
+      {
+        "name": "cleared coastal clips HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "cleared coastal clips exact total",
+        "ok": true,
+        "actual": {
+          "relation": "eq",
+          "value": 2
+        },
+        "expected": {
+          "value": 2,
+          "relation": "eq"
+        }
+      },
+      {
+        "name": "cleared coastal clips IDs",
+        "ok": true,
+        "actual": [
+          "clip-101",
+          "clip-102"
+        ],
+        "expected": [
+          "clip-101",
+          "clip-102"
+        ]
+      },
+      {
+        "name": "cleared coastal clips sources",
+        "ok": true,
+        "actual": {
+          "clip-102": {
+            "duration_seconds": 12,
+            "format": "portrait",
+            "territories": [
+              "GB"
+            ],
+            "title": "Cornish surf close-up",
+            "topics": [
+              "coast",
+              "surf"
+            ]
+          },
+          "clip-101": {
+            "duration_seconds": 20,
+            "format": "landscape",
+            "territories": [
+              "GB",
+              "FR"
+            ],
+            "title": "Whitby harbour at dawn",
+            "topics": [
+              "coast",
+              "harbour"
+            ]
+          }
+        },
+        "expected": {
+          "clip-101": {
+            "title": "Whitby harbour at dawn",
+            "topics": [
+              "coast",
+              "harbour"
+            ],
+            "territories": [
+              "GB",
+              "FR"
+            ],
+            "format": "landscape",
+            "duration_seconds": 20
+          },
+          "clip-102": {
+            "title": "Cornish surf close-up",
+            "topics": [
+              "coast",
+              "surf"
+            ],
+            "territories": [
+              "GB"
+            ],
+            "format": "portrait",
+            "duration_seconds": 12
+          }
+        }
+      },
+      {
+        "name": "cleared formats HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "cleared formats counts",
+        "ok": true,
+        "actual": {
+          "landscape": 1,
+          "portrait": 1
+        },
+        "expected": {
+          "landscape": 1,
+          "portrait": 1
+        }
+      },
+      {
+        "name": "cleared formats zero hits",
+        "ok": true,
+        "actual": [],
+        "expected": []
+      },
+      {
+        "name": "remove GB clearance HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "clearance update ID/result",
+        "ok": true,
+        "actual": [
+          "clip-101",
+          "updated"
+        ],
+        "expected": [
+          "clip-101",
+          "updated"
+        ]
+      },
+      {
+        "name": "read revised clearance HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "territory replacement preserves other metadata",
+        "ok": true,
+        "actual": [
+          "clip-101",
+          {
+            "duration_seconds": 20,
+            "format": "landscape",
+            "territories": [
+              "FR"
+            ],
+            "title": "Whitby harbour at dawn",
+            "topics": [
+              "coast",
+              "harbour"
+            ]
+          }
+        ],
+        "expected": [
+          "clip-101",
+          {
+            "title": "Whitby harbour at dawn",
+            "topics": [
+              "coast",
+              "harbour"
+            ],
+            "territories": [
+              "FR"
+            ],
+            "format": "landscape",
+            "duration_seconds": 20
+          }
+        ]
+      },
+      {
+        "name": "GB clearance removed HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "GB clearance removed exact total",
+        "ok": true,
+        "actual": {
+          "relation": "eq",
+          "value": 1
+        },
+        "expected": {
+          "value": 1,
+          "relation": "eq"
+        }
+      },
+      {
+        "name": "GB clearance removed IDs",
+        "ok": true,
+        "actual": [
+          "clip-102"
+        ],
+        "expected": [
+          "clip-102"
+        ]
+      },
+      {
+        "name": "GB clearance removed sources",
+        "ok": true,
+        "actual": {
+          "clip-102": {
+            "duration_seconds": 12,
+            "format": "portrait",
+            "territories": [
+              "GB"
+            ],
+            "title": "Cornish surf close-up",
+            "topics": [
+              "coast",
+              "surf"
+            ]
+          }
+        },
+        "expected": {
+          "clip-102": {
+            "title": "Cornish surf close-up",
+            "topics": [
+              "coast",
+              "surf"
+            ],
+            "territories": [
+              "GB"
+            ],
+            "format": "portrait",
+            "duration_seconds": 12
+          }
+        }
+      },
+      {
+        "name": "remaining formats HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "remaining formats counts",
+        "ok": true,
+        "actual": {
+          "portrait": 1
+        },
+        "expected": {
+          "portrait": 1
+        }
+      },
+      {
+        "name": "remaining formats zero hits",
+        "ok": true,
+        "actual": [],
+        "expected": []
+      },
+      {
+        "name": "cleanup HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      }
+    ],
+    "reported_version": "8.15.0"
+  },
+  "identical_requests": true,
+  "passed": 70,
+  "total": 70,
+  "ok": true
+}
