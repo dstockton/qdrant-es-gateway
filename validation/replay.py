@@ -62,16 +62,27 @@ def sources(response):
     return {hit.get("_id"): hit.get("_source") for hit in response.get("hits", {}).get("hits", [])}
 
 
-def run_endpoint(base, index):
+def endpoint_identity(body):
+    if not isinstance(body, dict):
+        return body
+    return {key: body[key] for key in ("version", "tagline") if key in body}
+
+
+def run_endpoint(base, index, settle_seconds=0.0):
     calls = []
     def do(path, method="GET", body=None, content_type="application/json"):
         result = call(base, path, method, body, content_type)
         calls.append({"path": path, "method": method, **result})
         return result
 
+    identity_response = call(base, "/")
+    identity = endpoint_identity(identity_response.get("body"))
+    calls.append({"path": "/", "method": "GET", **identity_response, "body": identity})
     do(f"/{index}", "DELETE")
     created = do(f"/{index}", "PUT", json.dumps(MAPPING))
     bulk = do(f"/{index}/_bulk?refresh=wait_for", "POST", ndjson_bulk(), "application/x-ndjson")
+    if settle_seconds > 0:
+        time.sleep(settle_seconds)
     search_body = {"query": {"bool": {"must": {"match": {"title": "wireless headphones"}}, "filter": [{"term": {"brand": "Acme"}}, {"range": {"price": {"lte": 400}}}]}}, "_source": ["title", "brand", "price"], "sort": [{"price": "asc"}], "size": 3}
     filtered = do(f"/{index}/_search", "POST", json.dumps(search_body))
     facet = do(f"/{index}/_search", "POST", json.dumps({"size": 0, "aggs": {"brands": {"terms": {"field": "brand", "size": 10}}}}))
@@ -92,9 +103,9 @@ def run_endpoint(base, index):
     updated = do(f"/{index}/_update/p-001", "POST", json.dumps({"doc": {"price": 119.0, "stock": 40}}))
     refreshed = do(f"/{index}/_refresh", "POST")
     after_update = do(f"/{index}/_doc/p-001")
-    deleted = do(f"/{index}/_doc/p-004", "DELETE", None)
+    deleted = do(f"/{index}/_doc/p-004?refresh=wait_for", "DELETE", None)
     count = do(f"/{index}/_count", "POST", json.dumps({"query": {"match_all": {}}}))
-    return {"calls": calls, "key_results": {
+    return {"identity": identity, "calls": calls, "key_results": {
         "filtered": filtered.get("body") if filtered.get("status") else None,
         "facet": facet.get("body") if facet.get("status") else None,
         "prefix": prefix.get("body") if prefix.get("status") else None,
@@ -145,10 +156,25 @@ def main():
     parser.add_argument("--gateway", default="http://localhost:9200")
     parser.add_argument("--index", default="validation_products")
     parser.add_argument("--output", default="validation/results/latest.json")
+    parser.add_argument(
+        "--settle-seconds",
+        type=float,
+        default=0.0,
+        help="optional pause after bulk ingestion before read/search checks",
+    )
     args = parser.parse_args()
-    native = run_endpoint(args.native, args.index)
-    gateway = run_endpoint(args.gateway, args.index)
-    report = {"index": args.index, "documents": len(PRODUCTS), "native": native, "gateway": gateway, "comparison": compare(native, gateway)}
+    if args.settle_seconds < 0:
+        parser.error("--settle-seconds must be non-negative")
+    native = run_endpoint(args.native, args.index, args.settle_seconds)
+    gateway = run_endpoint(args.gateway, args.index, args.settle_seconds)
+    report = {
+        "index": args.index,
+        "documents": len(PRODUCTS),
+        "settle_seconds": args.settle_seconds,
+        "native": native,
+        "gateway": gateway,
+        "comparison": compare(native, gateway),
+    }
     parent = os.path.dirname(args.output)
     if parent:
         os.makedirs(parent, exist_ok=True)

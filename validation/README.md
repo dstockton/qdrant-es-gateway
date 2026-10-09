@@ -18,6 +18,24 @@ python3 validation/replay.py \
   --output validation/results/latest.json
 ```
 
+For a gateway using Qdrant's sparse index, add a deliberate post-ingest settle
+when measuring search semantics rather than refresh timing:
+
+```sh
+python3 validation/replay.py \
+  --native http://localhost:19200 \
+  --gateway http://localhost:9200 \
+  --settle-seconds 1 \
+  --output validation/results/latest.json
+```
+
+The report records both root endpoint identities, including their advertised
+engine versions, and the settle interval. Deletes use `refresh=wait_for` on
+both endpoints so the final count does not compare a refreshed gateway write
+with an unrefreshed native-engine write. The settle interval remains an honest
+gateway limitation: it does not turn `_refresh` into an Elasticsearch or
+OpenSearch visibility guarantee.
+
 The command exits non-zero when transport errors occur or when a required semantic assertion fails. Search ranking is compared by top-k overlap and returned `_source` values rather than raw `_score`; equivalent engines are not expected to produce identical scores. The report records every request, status, latency, and assertion so a failed case can be reproduced.
 
 For an endpoint-only application check, point the same client at each URL. For example, the repository's Python example changes only its `Elasticsearch(...)` URL; its index, index, search, and response-handling calls remain the same.
