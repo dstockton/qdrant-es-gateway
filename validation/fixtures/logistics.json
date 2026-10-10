@@ -1,0 +1,139 @@
+{
+  "index": "field_note_parcels",
+  "mapping": {
+    "mappings": {
+      "properties": {
+        "contents": {
+          "type": "keyword"
+        },
+        "depot": {
+          "type": "keyword"
+        },
+        "carrier": {
+          "type": "keyword"
+        },
+        "status": {
+          "type": "keyword"
+        },
+        "tracking": {
+          "type": "keyword"
+        }
+      }
+    }
+  },
+  "documents": {
+    "parcel-101": {
+      "contents": "Ceramic mugs",
+      "depot": "York",
+      "carrier": "Parcel North",
+      "status": "packed"
+    },
+    "parcel-102": {
+      "contents": "Cotton towels",
+      "depot": "York",
+      "carrier": "City Express",
+      "status": "packed",
+      "tracking": null
+    },
+    "parcel-103": {
+      "contents": "Desk lamps",
+      "depot": "York",
+      "carrier": "Parcel North",
+      "status": "packed",
+      "tracking": "PN-103"
+    },
+    "parcel-104": {
+      "contents": "Plant pots",
+      "depot": "Leeds",
+      "carrier": "Parcel North",
+      "status": "packed"
+    },
+    "parcel-105": {
+      "contents": "Wool blankets",
+      "depot": "York",
+      "carrier": "City Express",
+      "status": "dispatched",
+      "tracking": "CE-105"
+    }
+  },
+  "search": {
+    "size": 10,
+    "query": {
+      "bool": {
+        "filter": [
+          {
+            "term": {
+              "depot": "York"
+            }
+          },
+          {
+            "term": {
+              "status": "packed"
+            }
+          }
+        ],
+        "must_not": [
+          {
+            "exists": {
+              "field": "tracking"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "facet": {
+    "size": 0,
+    "query": {
+      "bool": {
+        "filter": [
+          {
+            "term": {
+              "depot": "York"
+            }
+          },
+          {
+            "term": {
+              "status": "packed"
+            }
+          }
+        ],
+        "must_not": [
+          {
+            "exists": {
+              "field": "tracking"
+            }
+          }
+        ]
+      }
+    },
+    "aggs": {
+      "carriers": {
+        "terms": {
+          "field": "carrier",
+          "size": 10
+        }
+      }
+    }
+  },
+  "update_id": "parcel-101",
+  "update": {
+    "doc": {
+      "tracking": "PN-101"
+    }
+  },
+  "expected_search_ids": [
+    "parcel-101",
+    "parcel-102"
+  ],
+  "expected_search_after": [
+    "parcel-102"
+  ],
+  "expected_facets_before": {
+    "Parcel North": 1,
+    "City Express": 1
+  },
+  "expected_facets_after": {
+    "City Express": 1
+  }
+}
