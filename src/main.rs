@@ -2343,6 +2343,43 @@ fn validate_search_after(
     Ok(())
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TrackTotalHits {
+    Enabled,
+    Disabled,
+    Threshold(u64),
+}
+
+fn parse_track_total_hits(body: &Value) -> Result<TrackTotalHits, GatewayError> {
+    match body.get("track_total_hits") {
+        None | Some(Value::Bool(true)) => Ok(TrackTotalHits::Enabled),
+        Some(Value::Bool(false)) => Ok(TrackTotalHits::Disabled),
+        Some(value) => value
+            .as_u64()
+            .map(TrackTotalHits::Threshold)
+            .ok_or_else(|| {
+                GatewayError::bad(
+                    "track_total_hits",
+                    "track_total_hits must be true, false, or a non-negative integer",
+                )
+            }),
+    }
+}
+
+fn total_hits_value(mode: TrackTotalHits, total: u64, exact: bool) -> Option<Value> {
+    match mode {
+        TrackTotalHits::Disabled => None,
+        TrackTotalHits::Enabled => Some(json!({
+            "value": total,
+            "relation": if exact { "eq" } else { "gte" },
+        })),
+        TrackTotalHits::Threshold(threshold) => Some(json!({
+            "value": total.min(threshold),
+            "relation": if exact && total <= threshold { "eq" } else { "gte" },
+        })),
+    }
+}
+
 #[derive(Clone)]
 struct InnerHitsSpec {
     name: String,
@@ -2469,6 +2506,7 @@ async fn search(
     let (from, size) = parse_search_window(&body, state.cfg.max_page_size)?;
     let sort_specs = parse_sort_specs(body.get("sort"))?;
     validate_search_after(&body, &sort_specs, from)?;
+    let track_total_hits = parse_track_total_hits(&body)?;
     // Field sorting happens after Qdrant returns candidates. Fetching only the
     // requested page makes both the first sorted page and every search_after
     // page depend on Qdrant's unrelated point order. Keep that local ordering
@@ -2491,7 +2529,11 @@ async fn search(
     let text = pick_text(&query);
     let has_text = text.is_some();
     let approximate_text = contains_approx_text_query(&query);
-    let exact_total = if !has_text && patterns.is_empty() && body.get("post_filter").is_none() {
+    let exact_total = if track_total_hits != TrackTotalHits::Disabled
+        && !has_text
+        && patterns.is_empty()
+        && body.get("post_filter").is_none()
+    {
         Some(qdrant_exact_count(&state, &coll, filter.as_ref()).await?)
     } else {
         None
@@ -2705,11 +2747,7 @@ async fn search(
         });
     }
     let total = exact_total.unwrap_or(hits.len() as u64);
-    let total_relation = if exact_total.is_some() || approximate_text || !patterns.is_empty() {
-        "eq"
-    } else {
-        "gte"
-    };
+    let total_is_exact = exact_total.is_some() || approximate_text || !patterns.is_empty();
     if !sort_specs.is_empty() {
         for (field, dir) in sort_specs.iter().rev() {
             hits.sort_by(|a, b| {
@@ -2809,7 +2847,10 @@ async fn search(
             h
         })
         .collect::<Vec<_>>();
-    let mut response = json!({"took":started.elapsed().as_millis(),"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},"hits":{"total":{"value":total,"relation":total_relation},"max_score":page.iter().filter_map(|h|h.get("_score").and_then(Value::as_f64)).fold(0.0,f64::max),"hits":page}});
+    let mut response = json!({"took":started.elapsed().as_millis(),"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},"hits":{"max_score":page.iter().filter_map(|h|h.get("_score").and_then(Value::as_f64)).fold(0.0,f64::max),"hits":page}});
+    if let Some(total) = total_hits_value(track_total_hits, total, total_is_exact) {
+        response["hits"]["total"] = total;
+    }
     if let Some(aggs) = body.get("aggs").or_else(|| body.get("aggregations")) {
         let output = response.as_object_mut().unwrap();
         let mut agg_result = Map::new();
@@ -5073,7 +5114,7 @@ mod tests {
         };
 
         let response = search(
-            State(state),
+            State(state.clone()),
             Path("products".into()),
             Json(json!({"size":0,"query":{"match_all":{}}})),
         )
@@ -5086,17 +5127,73 @@ mod tests {
 
         assert_eq!(body["hits"]["hits"], json!([]));
         assert_eq!(body["hits"]["total"], json!({"value":37,"relation":"eq"}));
-        let observed_requests = observed_requests.lock().unwrap();
-        assert_eq!(observed_requests.len(), 2);
-        assert_eq!(
-            observed_requests[0],
-            (
-                "/collections/es_products/points/count".into(),
-                json!({"exact":true})
-            )
-        );
-        assert_eq!(observed_requests[1].1["limit"], 1);
+        {
+            let requests = observed_requests.lock().unwrap();
+            assert_eq!(requests.len(), 2);
+            assert_eq!(
+                requests[0],
+                (
+                    "/collections/es_products/points/count".into(),
+                    json!({"exact":true})
+                )
+            );
+            assert_eq!(requests[1].1["limit"], 1);
+        }
+
+        observed_requests.lock().unwrap().clear();
+        let response = search(
+            State(state),
+            Path("products".into()),
+            Json(json!({"size":0,"track_total_hits":false,"query":{"match_all":{}}})),
+        )
+        .await
+        .unwrap();
+        let body: Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+
+        assert!(body["hits"].get("total").is_none());
+        let requests = observed_requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].1["limit"], 1);
         server.abort();
+    }
+
+    #[test]
+    fn track_total_hits_shapes_exact_and_bounded_totals() {
+        assert_eq!(
+            parse_track_total_hits(&json!({})).unwrap(),
+            TrackTotalHits::Enabled
+        );
+        assert_eq!(
+            parse_track_total_hits(&json!({"track_total_hits":false})).unwrap(),
+            TrackTotalHits::Disabled
+        );
+        assert_eq!(
+            parse_track_total_hits(&json!({"track_total_hits":5})).unwrap(),
+            TrackTotalHits::Threshold(5)
+        );
+        assert_eq!(
+            total_hits_value(TrackTotalHits::Threshold(5), 15, true),
+            Some(json!({"value":5,"relation":"gte"}))
+        );
+        assert_eq!(
+            total_hits_value(TrackTotalHits::Threshold(20), 15, true),
+            Some(json!({"value":15,"relation":"eq"}))
+        );
+        assert_eq!(
+            total_hits_value(TrackTotalHits::Threshold(20), 15, false),
+            Some(json!({"value":15,"relation":"gte"}))
+        );
+        assert_eq!(total_hits_value(TrackTotalHits::Disabled, 15, true), None);
+
+        for value in [json!(null), json!("5"), json!(-1), json!(1.5), json!({})] {
+            let error = parse_track_total_hits(&json!({"track_total_hits":value})).unwrap_err();
+            assert_eq!(error.body()["error"]["feature"], "track_total_hits");
+        }
     }
 
     #[tokio::test]
@@ -5153,6 +5250,9 @@ mod tests {
                 json!({"from":1,"sort":"price","search_after":[10]}),
                 "search_after",
             ),
+            (json!({"track_total_hits":null}), "track_total_hits"),
+            (json!({"track_total_hits":-1}), "track_total_hits"),
+            (json!({"track_total_hits":"5"}), "track_total_hits"),
         ];
 
         for (body, feature) in cases {
