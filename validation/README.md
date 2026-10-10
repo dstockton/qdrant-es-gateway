@@ -43,6 +43,14 @@ remaining difference is the documented case-sensitive stored-source prefix
 behavior on an analyzed `text` field. This is request-level compatibility
 evidence over six documents, not a performance or complete API-parity claim.
 
+The [OpenSearch 3.6.0 `track_total_hits` probe](evidence/opensearch-3.6-track-total-hits-2026-10-10.json)
+records the native response shapes for enabled, disabled, and thresholded hit
+counts over 15 documents. A live gateway backed by Qdrant 1.15.5 matched all
+four response shapes after write visibility converged. A separate request-level
+mock proves that disabling totals reduces the filter-only Qdrant request count
+from two to one. This is not a latency benchmark or a synchronized cross-engine
+replay.
+
 The command exits non-zero when transport errors occur or when a required semantic assertion fails. Search ranking is compared by top-k overlap and returned `_source` values rather than raw `_score`; equivalent engines are not expected to produce identical scores. The report records every request, status, latency, and assertion so a failed case can be reproduced.
 
 For an endpoint-only application check, point the same client at each URL. For example, the repository's Python example changes only its `Elasticsearch(...)` URL; its index, index, search, and response-handling calls remain the same.
