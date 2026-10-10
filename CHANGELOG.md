@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.3.0](https://github.com/dstockton/qdrant-es-gateway/compare/v0.2.0...v0.3.0) (2026-10-10)
+
+
+### Features
+
+* honor track total hits modes ([#52](https://github.com/dstockton/qdrant-es-gateway/issues/52)) ([562eb19](https://github.com/dstockton/qdrant-es-gateway/commit/562eb19cd440c702fe6ed8e3d391f51d1d26c09f))
+
+
+### Bug Fixes
+
+* apply pattern queries to count requests ([2b99044](https://github.com/dstockton/qdrant-es-gateway/commit/2b99044bd178eea632236dcbdb6eb5195af22d43))
+* honor named collapse inner hits ([#47](https://github.com/dstockton/qdrant-es-gateway/issues/47)) ([3b5a17d](https://github.com/dstockton/qdrant-es-gateway/commit/3b5a17d2bb754bb7ec60e913fb2f56da129b6af1))
+* honor optional bool should clauses ([e7cd8c1](https://github.com/dstockton/qdrant-es-gateway/commit/e7cd8c1cc5fcee696ff27863fe71b694ba8da69b))
+* keep post filters out of aggregations ([#44](https://github.com/dstockton/qdrant-es-gateway/issues/44)) ([4f1f6ef](https://github.com/dstockton/qdrant-es-gateway/commit/4f1f6ef6ec9e4bfd9513e7312e50e3d9dddb9884))
+* match array-valued source fields ([493bc46](https://github.com/dstockton/qdrant-es-gateway/commit/493bc46d538994cf984c74a6307118a5c9a46854))
+* match array-valued source fields ([c683a93](https://github.com/dstockton/qdrant-es-gateway/commit/c683a93d7a78c82b9e230d930df4c37ae85a3b07))
+* parse Elasticsearch sort shapes ([cc1da5f](https://github.com/dstockton/qdrant-es-gateway/commit/cc1da5f0263905cf9def450ce49b1a2d25279e7d))
+* preserve leading wildcard operators ([#49](https://github.com/dstockton/qdrant-es-gateway/issues/49)) ([a640fd1](https://github.com/dstockton/qdrant-es-gateway/commit/a640fd1cb5fd2cb6b0155741e798d7a6438a9281))
+* preserve nested bool negation semantics ([c1e5432](https://github.com/dstockton/qdrant-es-gateway/commit/c1e5432a0f1d1c4c7bcec0f715e53dbc0dd10c69))
+* preserve nested bool negation semantics ([a52eb34](https://github.com/dstockton/qdrant-es-gateway/commit/a52eb34f41aa99af2c3a7ef60ad4ff0e66e945cf))
+* reject unsupported post filters ([#42](https://github.com/dstockton/qdrant-es-gateway/issues/42)) ([7e56704](https://github.com/dstockton/qdrant-es-gateway/commit/7e5670497fbe3141f1db749752ffd94328e1184a))
+* report exact filter search totals ([#40](https://github.com/dstockton/qdrant-es-gateway/issues/40)) ([4934279](https://github.com/dstockton/qdrant-es-gateway/commit/493427991cdd4a24b7e5f3650225d91e6e3e1a5c))
+* route keyword multifield filters consistently ([#39](https://github.com/dstockton/qdrant-es-gateway/issues/39)) ([e2d046c](https://github.com/dstockton/qdrant-es-gateway/commit/e2d046cf193aa44a4d353689e600eb0ec1d06c97))
+* validate search pagination before querying ([#45](https://github.com/dstockton/qdrant-es-gateway/issues/45)) ([4841af5](https://github.com/dstockton/qdrant-es-gateway/commit/4841af51641f82617d791fa4b80972eb6ac99434))
+* widen sorted search candidate window ([#51](https://github.com/dstockton/qdrant-es-gateway/issues/51)) ([0225386](https://github.com/dstockton/qdrant-es-gateway/commit/02253861cb9b6dd07752623c74037d7b346e4a2e))
+
 ## [0.2.0](https://github.com/dstockton/qdrant-es-gateway/compare/v0.1.3...v0.2.0) (2026-10-03)
 
 
