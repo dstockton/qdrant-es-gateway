@@ -1,0 +1,101 @@
+{
+  "date": "2026-10-11",
+  "scope": "Elasticsearch _source filtering response semantics",
+  "native_engine": {
+    "product": "Elasticsearch",
+    "version": "9.5.5"
+  },
+  "gateway_backend": {
+    "product": "Qdrant",
+    "version": "1.15.5"
+  },
+  "fixture": {
+    "title": "Example",
+    "profile": {
+      "name": "Ada",
+      "contact": {
+        "email": "ada@example.test",
+        "phone": "123"
+      }
+    },
+    "secret": "hidden"
+  },
+  "probes": [
+    {
+      "request": {
+        "query": { "match_all": {} },
+        "_source": "profile.name"
+      },
+      "native_status": 200,
+      "native_source": { "profile": { "name": "Ada" } },
+      "gateway_status": 200,
+      "gateway_source": { "profile": { "name": "Ada" } }
+    },
+    {
+      "request": {
+        "query": { "match_all": {} },
+        "_source": ["profile.contact.*"]
+      },
+      "native_status": 200,
+      "native_source": {
+        "profile": {
+          "contact": {
+            "email": "ada@example.test",
+            "phone": "123"
+          }
+        }
+      },
+      "gateway_status": 200,
+      "gateway_source": {
+        "profile": {
+          "contact": {
+            "email": "ada@example.test",
+            "phone": "123"
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "query": { "match_all": {} },
+        "_source": {
+          "includes": ["profile.*"],
+          "excludes": ["profile.contact.phone"]
+        }
+      },
+      "native_status": 200,
+      "native_source": {
+        "profile": {
+          "name": "Ada",
+          "contact": { "email": "ada@example.test" }
+        }
+      },
+      "gateway_status": 200,
+      "gateway_source": {
+        "profile": {
+          "name": "Ada",
+          "contact": { "email": "ada@example.test" }
+        }
+      }
+    },
+    {
+      "request": {
+        "query": { "match_all": {} },
+        "_source": 123
+      },
+      "native_status": 400,
+      "native_error_type": "parsing_exception",
+      "gateway_status": 400,
+      "gateway_error_feature": "_source"
+    }
+  ],
+  "method": {
+    "native": "Live endpoint probe against the official Elasticsearch 9.5.5 container.",
+    "gateway": "Live endpoint probe against the changed gateway backed by Qdrant 1.15.5.",
+    "limitations": [
+      "This is response-shape evidence, not a performance benchmark.",
+      "OpenSearch was not probed and no OpenSearch parity claim is made.",
+      "The probe covers nested objects and * wildcards; every Elasticsearch source-filtering edge case was not exercised."
+    ]
+  }
+}
