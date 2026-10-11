@@ -95,3 +95,34 @@ recorded source revision, and Qdrant **1.15.3**, using the default embedded-sour
 mode and synchronous writes. `reported_version` is the endpoint's Elasticsearch
 API version advertisement, not the gateway binary version. No latency or ranking
 comparison is claimed. No gateway implementation change was needed.
+
+## Travel disruption desk
+
+The [travel field note](../docs/_posts/2026-10-11-travel-disruption-desk.md)
+uses six synthetic departures in [`fixtures/travel.json`](fixtures/travel.json).
+It selects scheduled departures from York to either London or Peterborough with
+at least two seats, counts operators, and verifies that cancellation removes a
+departure from both results and facets while preserving its stored metadata.
+
+```sh
+python3 validation/travel.py \
+  --native http://localhost:19200 \
+  --gateway http://localhost:9200 \
+  --output validation/results/travel.json
+```
+
+Use disposable endpoints without `field_note_travel`. The standard-library-only
+replay creates and removes that index; a failed create aborts without deleting
+existing data. It pauses five seconds after bulk ingestion and update on each
+endpoint (`--settle-seconds` controls both). This is not a refresh guarantee.
+Exact statuses, bulk IDs/results, every source, search IDs/totals, operator counts,
+and cancellation exclusion must satisfy independent expectations. Both endpoints
+must receive identical requests.
+
+The [2026-10-11 evidence](evidence/travel-2026-10-11.json) records **70/70**
+checks passing on Elasticsearch **8.15.0**, gateway **0.2.0** at the recorded
+revision, and Qdrant **1.15.5**, using embedded sources and synchronous writes.
+Optional `--gateway-version` and `--qdrant-version` record operator-verified
+versions; `reported_version` is the endpoint's API advertisement. This checks
+inventory retrieval, not connection feasibility or atomic seat reservations.
+No gateway implementation change or performance claim was needed.
