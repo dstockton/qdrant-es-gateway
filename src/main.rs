@@ -2484,7 +2484,18 @@ fn parse_track_total_hits(body: &Value) -> Result<TrackTotalHits, GatewayError> 
     }
 }
 
-fn total_hits_value(mode: TrackTotalHits, total: u64, exact: bool) -> Option<Value> {
+fn total_hits_value(
+    mode: TrackTotalHits,
+    total: u64,
+    exact: bool,
+    rest_total_hits_as_int: bool,
+) -> Option<Value> {
+    if rest_total_hits_as_int {
+        return Some(match mode {
+            TrackTotalHits::Disabled => json!(-1),
+            TrackTotalHits::Enabled | TrackTotalHits::Threshold(_) => json!(total),
+        });
+    }
     match mode {
         TrackTotalHits::Disabled => None,
         TrackTotalHits::Enabled => Some(json!({
@@ -2496,6 +2507,33 @@ fn total_hits_value(mode: TrackTotalHits, total: u64, exact: bool) -> Option<Val
             "relation": if exact && total <= threshold { "eq" } else { "gte" },
         })),
     }
+}
+
+fn parse_rest_total_hits_as_int(query: Option<&str>) -> Result<bool, GatewayError> {
+    let mut enabled = false;
+    for parameter in query.unwrap_or_default().split('&') {
+        let (name, value) = parameter.split_once('=').unwrap_or((parameter, ""));
+        if name != "rest_total_hits_as_int" {
+            continue;
+        }
+        let value = percent_decode_str(value).decode_utf8().map_err(|_| {
+            GatewayError::bad(
+                "rest_total_hits_as_int",
+                "rest_total_hits_as_int must be true or false",
+            )
+        })?;
+        enabled = match value.as_ref() {
+            "" | "true" => true,
+            "false" => false,
+            _ => {
+                return Err(GatewayError::bad(
+                    "rest_total_hits_as_int",
+                    "rest_total_hits_as_int must be true or false",
+                ))
+            }
+        };
+    }
+    Ok(enabled)
 }
 
 #[derive(Clone)]
@@ -2620,6 +2658,15 @@ async fn search(
     Path(index): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Response, GatewayError> {
+    search_with_total_format(State(state), Path(index), Json(body), false).await
+}
+
+async fn search_with_total_format(
+    State(state): State<AppState>,
+    Path(index): Path<String>,
+    Json(body): Json<Value>,
+    rest_total_hits_as_int: bool,
+) -> Result<Response, GatewayError> {
     let started = Instant::now();
     if let Some(post_filter) = body.get("post_filter") {
         validate_post_filter(post_filter)?;
@@ -2628,6 +2675,12 @@ async fn search(
     let sort_specs = parse_sort_specs(body.get("sort"))?;
     validate_search_after(&body, &sort_specs, from)?;
     let track_total_hits = parse_track_total_hits(&body)?;
+    if rest_total_hits_as_int && matches!(track_total_hits, TrackTotalHits::Threshold(_)) {
+        return Err(GatewayError::bad(
+            "rest_total_hits_as_int",
+            "rest_total_hits_as_int cannot be combined with a numeric track_total_hits threshold",
+        ));
+    }
     let source_filter = parse_source_filter(body.get("_source"), "_source")?;
     // Field sorting happens after Qdrant returns candidates. Fetching only the
     // requested page makes both the first sorted page and every search_after
@@ -2969,7 +3022,12 @@ async fn search(
         })
         .collect::<Vec<_>>();
     let mut response = json!({"took":started.elapsed().as_millis(),"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},"hits":{"max_score":page.iter().filter_map(|h|h.get("_score").and_then(Value::as_f64)).fold(0.0,f64::max),"hits":page}});
-    if let Some(total) = total_hits_value(track_total_hits, total, total_is_exact) {
+    if let Some(total) = total_hits_value(
+        track_total_hits,
+        total,
+        total_is_exact,
+        rest_total_hits_as_int,
+    ) {
         response["hits"]["total"] = total;
     }
     if let Some(aggs) = body.get("aggs").or_else(|| body.get("aggregations")) {
@@ -3081,10 +3139,11 @@ async fn search(
     Ok(es_ok(response))
 }
 
-async fn msearch(
+async fn msearch_with_total_format(
     State(state): State<AppState>,
     default_index: Option<String>,
     body: String,
+    rest_total_hits_as_int: bool,
 ) -> Result<Response, GatewayError> {
     let lines = body
         .lines()
@@ -3108,7 +3167,14 @@ async fn msearch(
             .map(str::to_owned)
             .or_else(|| default_index.clone())
             .ok_or_else(|| GatewayError::bad("_msearch.header.index", "an index is required"))?;
-        let result = match search(State(state.clone()), Path(index), Json(query)).await {
+        let result = match search_with_total_format(
+            State(state.clone()),
+            Path(index),
+            Json(query),
+            rest_total_hits_as_int,
+        )
+        .await
+        {
             Ok(response) => response,
             Err(error) => error.into_response(),
         };
@@ -3643,6 +3709,7 @@ async fn dispatch(
     state: AppState,
     method: Method,
     path: String,
+    query: Option<String>,
     _headers: HeaderMap,
     body: String,
 ) -> Response {
@@ -3664,14 +3731,23 @@ async fn dispatch(
             .unwrap_or_else(IntoResponse::into_response);
     }
     if method == Method::POST && (path == "/_msearch" || path.ends_with("/_msearch")) {
+        let rest_total_hits_as_int = match parse_rest_total_hits_as_int(query.as_deref()) {
+            Ok(value) => value,
+            Err(error) => return error.into_response(),
+        };
         let default_index = path
             .strip_prefix('/')
             .and_then(|p| p.strip_suffix("/_msearch"))
             .filter(|p| !p.is_empty())
             .map(str::to_owned);
-        return msearch(State(state), default_index, body)
-            .await
-            .unwrap_or_else(IntoResponse::into_response);
+        return msearch_with_total_format(
+            State(state),
+            default_index,
+            body,
+            rest_total_hits_as_int,
+        )
+        .await
+        .unwrap_or_else(IntoResponse::into_response);
     }
     let json_body = if body.trim().is_empty() {
         json!({})
@@ -3828,9 +3904,18 @@ async fn dispatch(
         && parts[1] == "_search"
         && (method == Method::GET || method == Method::POST)
     {
-        return search(State(state), Path(parts[0].clone()), Json(json_body))
-            .await
-            .unwrap_or_else(IntoResponse::into_response);
+        let rest_total_hits_as_int = match parse_rest_total_hits_as_int(query.as_deref()) {
+            Ok(value) => value,
+            Err(error) => return error.into_response(),
+        };
+        return search_with_total_format(
+            State(state),
+            Path(parts[0].clone()),
+            Json(json_body),
+            rest_total_hits_as_int,
+        )
+        .await
+        .unwrap_or_else(IntoResponse::into_response);
     }
     if parts.len() == 2 && parts[1] == "_count" && (method == Method::GET || method == Method::POST)
     {
@@ -3881,7 +3966,15 @@ fn gateway_router(state: AppState) -> Router {
                         .into_response()
                     }
                 };
-                dispatch(state, method, uri.path().to_string(), headers, body).await
+                dispatch(
+                    state,
+                    method,
+                    uri.path().to_string(),
+                    uri.query().map(str::to_owned),
+                    headers,
+                    body,
+                )
+                .await
             },
         ))
         .with_state(state)
@@ -5315,10 +5408,33 @@ mod tests {
         }
 
         observed_requests.lock().unwrap().clear();
-        let response = search(
+        let response = gateway_router(state.clone())
+            .oneshot(
+                axum::http::Request::builder()
+                    .method(Method::POST)
+                    .uri("/products/_search?rest_total_hits_as_int=true")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"size":0,"query":{"match_all":{}}}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(body["hits"]["total"], 37);
+        assert_eq!(observed_requests.lock().unwrap().len(), 2);
+
+        observed_requests.lock().unwrap().clear();
+        let response = search_with_total_format(
             State(state),
             Path("products".into()),
             Json(json!({"size":0,"track_total_hits":false,"query":{"match_all":{}}})),
+            true,
         )
         .await
         .unwrap();
@@ -5329,7 +5445,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(body["hits"].get("total").is_none());
+        assert_eq!(body["hits"]["total"], -1);
         let requests = observed_requests.lock().unwrap();
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].1["limit"], 1);
@@ -5351,22 +5467,57 @@ mod tests {
             TrackTotalHits::Threshold(5)
         );
         assert_eq!(
-            total_hits_value(TrackTotalHits::Threshold(5), 15, true),
+            total_hits_value(TrackTotalHits::Threshold(5), 15, true, false),
             Some(json!({"value":5,"relation":"gte"}))
         );
         assert_eq!(
-            total_hits_value(TrackTotalHits::Threshold(20), 15, true),
+            total_hits_value(TrackTotalHits::Threshold(20), 15, true, false),
             Some(json!({"value":15,"relation":"eq"}))
         );
         assert_eq!(
-            total_hits_value(TrackTotalHits::Threshold(20), 15, false),
+            total_hits_value(TrackTotalHits::Threshold(20), 15, false, false),
             Some(json!({"value":15,"relation":"gte"}))
         );
-        assert_eq!(total_hits_value(TrackTotalHits::Disabled, 15, true), None);
+        assert_eq!(
+            total_hits_value(TrackTotalHits::Disabled, 15, true, false),
+            None
+        );
+        assert_eq!(
+            total_hits_value(TrackTotalHits::Enabled, 15, true, true),
+            Some(json!(15))
+        );
+        assert_eq!(
+            total_hits_value(TrackTotalHits::Disabled, 15, true, true),
+            Some(json!(-1))
+        );
 
         for value in [json!(null), json!("5"), json!(-1), json!(1.5), json!({})] {
             let error = parse_track_total_hits(&json!({"track_total_hits":value})).unwrap_err();
             assert_eq!(error.body()["error"]["feature"], "track_total_hits");
+        }
+    }
+
+    #[test]
+    fn rest_total_hits_as_int_query_parameter_is_strict_and_last_value_wins() {
+        assert!(!parse_rest_total_hits_as_int(None).unwrap());
+        assert!(parse_rest_total_hits_as_int(Some("rest_total_hits_as_int=true")).unwrap());
+        assert!(parse_rest_total_hits_as_int(Some("rest_total_hits_as_int")).unwrap());
+        assert!(parse_rest_total_hits_as_int(Some("rest_total_hits_as_int=")).unwrap());
+        assert!(parse_rest_total_hits_as_int(Some("rest_total_hits_as_int=%74rue")).unwrap());
+        assert!(!parse_rest_total_hits_as_int(Some(
+            "rest_total_hits_as_int=true&rest_total_hits_as_int=false"
+        ))
+        .unwrap());
+        assert!(parse_rest_total_hits_as_int(Some(
+            "ignore_unavailable=true&rest_total_hits_as_int=true"
+        ))
+        .unwrap());
+
+        for value in ["TRUE", "1", "banana"] {
+            let error =
+                parse_rest_total_hits_as_int(Some(&format!("rest_total_hits_as_int={value}")))
+                    .unwrap_err();
+            assert_eq!(error.body()["error"]["feature"], "rest_total_hits_as_int");
         }
     }
 
@@ -5439,6 +5590,15 @@ mod tests {
                 .unwrap_err();
             assert_eq!(error.body()["error"]["feature"], feature);
         }
+        let error = search_with_total_format(
+            State(state),
+            Path("products".into()),
+            Json(json!({"track_total_hits":5})),
+            true,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.body()["error"]["feature"], "rest_total_hits_as_int");
         assert_eq!(*requests.lock().unwrap(), 0);
         server.abort();
     }
