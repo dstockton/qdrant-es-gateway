@@ -1976,54 +1976,172 @@ async fn expand_more_like_this(
     Ok(json!({"multi_match":{"query":text,"fields":fields}}))
 }
 
-fn project_source(source: &Value, spec: Option<&Value>) -> Option<Value> {
-    let Some(spec) = spec else {
-        return Some(source.clone());
-    };
-    if spec.as_bool() == Some(false) {
-        return None;
-    }
-    let object = source.as_object()?;
-    let (includes, excludes) = if let Some(fields) = spec.as_array() {
-        (
-            fields.iter().filter_map(Value::as_str).collect::<Vec<_>>(),
-            Vec::new(),
-        )
-    } else {
-        (
-            spec.get("includes")
-                .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(Value::as_str).collect())
-                .unwrap_or_default(),
-            spec.get("excludes")
-                .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(Value::as_str).collect())
-                .unwrap_or_default(),
-        )
-    };
-    if includes.is_empty() && excludes.is_empty() {
-        return Some(source.clone());
-    }
-    let mut result = Map::new();
-    for (key, value) in object {
-        let included = includes.is_empty()
-            || includes.iter().any(|field| {
-                *field == key
-                    || (*field).ends_with('*') && key.starts_with(&field[..field.len() - 1])
-            });
-        let excluded = excludes.iter().any(|field| {
-            *field == key || (*field).ends_with('*') && key.starts_with(&field[..field.len() - 1])
-        });
-        if included && !excluded {
-            result.insert(key.clone(), value.clone());
-        }
-    }
-    Some(Value::Object(result))
+#[derive(Clone)]
+struct SourceFilter {
+    enabled: bool,
+    includes: Vec<String>,
+    excludes: Vec<String>,
 }
 
-fn apply_source_projection(hit: &mut Value, spec: Option<&Value>) {
+fn parse_source_filter(
+    spec: Option<&Value>,
+    feature: &str,
+) -> Result<Option<SourceFilter>, GatewayError> {
+    fn patterns(value: &Value, feature: &str) -> Result<Vec<String>, GatewayError> {
+        match value {
+            Value::String(pattern) => Ok(vec![pattern.clone()]),
+            Value::Array(patterns) if patterns.iter().all(|pattern| pattern.is_string()) => {
+                Ok(patterns
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect())
+            }
+            _ => Err(GatewayError::bad(
+                feature,
+                "source filters must be a string or an array of strings",
+            )),
+        }
+    }
+
+    let Some(spec) = spec else {
+        return Ok(None);
+    };
+    match spec {
+        Value::Bool(enabled) => Ok(Some(SourceFilter {
+            enabled: *enabled,
+            includes: Vec::new(),
+            excludes: Vec::new(),
+        })),
+        Value::String(_) | Value::Array(_) => Ok(Some(SourceFilter {
+            enabled: true,
+            includes: patterns(spec, feature)?,
+            excludes: Vec::new(),
+        })),
+        Value::Object(options) => {
+            if let Some(option) = options.keys().find(|option| {
+                !matches!(
+                    option.as_str(),
+                    "include" | "includes" | "exclude" | "excludes"
+                )
+            }) {
+                return Err(GatewayError::bad(
+                    format!("{feature}.{option}"),
+                    "unsupported source filter option",
+                ));
+            }
+            let mut includes = Vec::new();
+            for option in ["include", "includes"] {
+                if let Some(value) = options.get(option) {
+                    includes.extend(patterns(value, &format!("{feature}.{option}"))?);
+                }
+            }
+            let mut excludes = Vec::new();
+            for option in ["exclude", "excludes"] {
+                if let Some(value) = options.get(option) {
+                    excludes.extend(patterns(value, &format!("{feature}.{option}"))?);
+                }
+            }
+            Ok(Some(SourceFilter {
+                enabled: true,
+                includes,
+                excludes,
+            }))
+        }
+        _ => Err(GatewayError::bad(
+            feature,
+            "_source must be a boolean, string, array of strings, or includes/excludes object",
+        )),
+    }
+}
+
+fn glob_matches(pattern: &str, value: &str) -> bool {
+    let pattern = pattern.chars().collect::<Vec<_>>();
+    let value = value.chars().collect::<Vec<_>>();
+    let (mut pattern_index, mut value_index) = (0, 0);
+    let (mut star_index, mut star_value_index) = (None, 0);
+    while value_index < value.len() {
+        if pattern_index < pattern.len()
+            && (pattern[pattern_index] == '?' || pattern[pattern_index] == value[value_index])
+        {
+            pattern_index += 1;
+            value_index += 1;
+        } else if pattern_index < pattern.len() && pattern[pattern_index] == '*' {
+            star_index = Some(pattern_index);
+            pattern_index += 1;
+            star_value_index = value_index;
+        } else if let Some(star) = star_index {
+            pattern_index = star + 1;
+            star_value_index += 1;
+            value_index = star_value_index;
+        } else {
+            return false;
+        }
+    }
+    while pattern_index < pattern.len() && pattern[pattern_index] == '*' {
+        pattern_index += 1;
+    }
+    pattern_index == pattern.len()
+}
+
+fn project_source_value(value: &Value, path: &str, filter: &SourceFilter) -> Option<Value> {
+    let excluded = filter.excludes.iter().any(|pattern| {
+        glob_matches(pattern, path)
+            || (!pattern.contains('*')
+                && !pattern.contains('?')
+                && path.starts_with(&format!("{pattern}.")))
+    });
+    if excluded {
+        return None;
+    }
+    let explicitly_included = filter.includes.is_empty()
+        || filter.includes.iter().any(|pattern| {
+            glob_matches(pattern, path)
+                || (!pattern.contains('*')
+                    && !pattern.contains('?')
+                    && path.starts_with(&format!("{pattern}.")))
+        });
+    match value {
+        Value::Object(object) => {
+            let mut result = Map::new();
+            for (key, child) in object {
+                let child_path = if path.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{path}.{key}")
+                };
+                if let Some(projected) = project_source_value(child, &child_path, filter) {
+                    result.insert(key.clone(), projected);
+                }
+            }
+            (!result.is_empty() || path.is_empty() || (object.is_empty() && explicitly_included))
+                .then_some(Value::Object(result))
+        }
+        Value::Array(values) => {
+            let projected = values
+                .iter()
+                .filter_map(|value| project_source_value(value, path, filter))
+                .collect::<Vec<_>>();
+            (!projected.is_empty() || (values.is_empty() && explicitly_included))
+                .then_some(Value::Array(projected))
+        }
+        _ => explicitly_included.then(|| value.clone()),
+    }
+}
+
+fn project_source(source: &Value, filter: Option<&SourceFilter>) -> Option<Value> {
+    let Some(filter) = filter else {
+        return Some(source.clone());
+    };
+    if !filter.enabled {
+        return None;
+    }
+    project_source_value(source, "", filter)
+}
+
+fn apply_source_projection(hit: &mut Value, filter: Option<&SourceFilter>) {
     let current = hit.get("_source").cloned().unwrap_or_else(|| json!({}));
-    match project_source(&current, spec) {
+    match project_source(&current, filter) {
         Some(projected) => hit["_source"] = projected,
         None => {
             hit.as_object_mut()
@@ -2384,7 +2502,7 @@ fn total_hits_value(mode: TrackTotalHits, total: u64, exact: bool) -> Option<Val
 struct InnerHitsSpec {
     name: String,
     size: usize,
-    source: Option<Value>,
+    source: Option<SourceFilter>,
 }
 
 #[derive(Clone)]
@@ -2475,7 +2593,10 @@ fn parse_collapse_spec(
             Ok(InnerHitsSpec {
                 name,
                 size: size as usize,
-                source: inner_hits.get("_source").cloned(),
+                source: parse_source_filter(
+                    inner_hits.get("_source"),
+                    "collapse.inner_hits._source",
+                )?,
             })
         })
         .transpose()?;
@@ -2507,6 +2628,7 @@ async fn search(
     let sort_specs = parse_sort_specs(body.get("sort"))?;
     validate_search_after(&body, &sort_specs, from)?;
     let track_total_hits = parse_track_total_hits(&body)?;
+    let source_filter = parse_source_filter(body.get("_source"), "_source")?;
     // Field sorting happens after Qdrant returns candidates. Fetching only the
     // requested page makes both the first sorted page and every search_after
     // page depend on Qdrant's unrelated point order. Keep that local ordering
@@ -2832,7 +2954,6 @@ async fn search(
         .skip(from as usize)
         .take(size as usize)
         .collect::<Vec<_>>();
-    let source = body.get("_source");
     let page = page
         .into_iter()
         .map(|mut h| {
@@ -2843,7 +2964,7 @@ async fn search(
                     .collect::<Vec<_>>();
                 h["sort"] = Value::Array(values);
             }
-            apply_source_projection(&mut h, source);
+            apply_source_projection(&mut h, source_filter.as_ref());
             h
         })
         .collect::<Vec<_>>();
@@ -3844,6 +3965,59 @@ mod tests {
             error,
             GatewayError::Bad { ref feature, .. } if feature == "request.path"
         ));
+    }
+
+    #[test]
+    fn source_filters_preserve_nested_shape_and_apply_wildcards() {
+        let source = json!({
+            "title":"Example",
+            "profile":{
+                "name":"Ada",
+                "contact":{"email":"ada@example.test","phone":"123"}
+            },
+            "secret":"hidden"
+        });
+
+        let name = parse_source_filter(Some(&json!("profile.name")), "_source").unwrap();
+        assert_eq!(
+            project_source(&source, name.as_ref()),
+            Some(json!({"profile":{"name":"Ada"}}))
+        );
+
+        let contact = parse_source_filter(Some(&json!(["profile.contact.*"])), "_source").unwrap();
+        assert_eq!(
+            project_source(&source, contact.as_ref()),
+            Some(json!({"profile":{"contact":{
+                "email":"ada@example.test",
+                "phone":"123"
+            }}}))
+        );
+
+        let filtered = parse_source_filter(
+            Some(&json!({
+                "includes":["profile.*"],
+                "excludes":["profile.contact.phone"]
+            })),
+            "_source",
+        )
+        .unwrap();
+        assert_eq!(
+            project_source(&source, filtered.as_ref()),
+            Some(json!({"profile":{
+                "name":"Ada",
+                "contact":{"email":"ada@example.test"}
+            }}))
+        );
+
+        let singular = parse_source_filter(
+            Some(&json!({"include":"profile.n?me","exclude":"secret"})),
+            "_source",
+        )
+        .unwrap();
+        assert_eq!(
+            project_source(&source, singular.as_ref()),
+            Some(json!({"profile":{"name":"Ada"}}))
+        );
     }
 
     #[test]
@@ -5197,7 +5371,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn invalid_pagination_fails_before_qdrant_work() {
+    async fn invalid_search_options_fail_before_qdrant_work() {
         let requests = Arc::new(Mutex::new(0_u64));
         let observed_requests = requests.clone();
         let mock = Router::new().fallback(any(move || {
@@ -5253,6 +5427,10 @@ mod tests {
             (json!({"track_total_hits":null}), "track_total_hits"),
             (json!({"track_total_hits":-1}), "track_total_hits"),
             (json!({"track_total_hits":"5"}), "track_total_hits"),
+            (json!({"_source":123}), "_source"),
+            (json!({"_source":["title",123]}), "_source"),
+            (json!({"_source":{"includes":123}}), "_source.includes"),
+            (json!({"_source":{"unknown":["title"]}}), "_source.unknown"),
         ];
 
         for (body, feature) in cases {

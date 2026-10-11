@@ -51,6 +51,12 @@ mock proves that disabling totals reduces the filter-only Qdrant request count
 from two to one. This is not a latency benchmark or a synchronized cross-engine
 replay.
 
+The [Elasticsearch 9.5.5 source-filtering probe](evidence/elasticsearch-9.5.5-source-filtering-2026-10-11.json)
+records matching native and live-gateway response shapes for a single dotted
+field, a nested wildcard, include/exclude composition, and an invalid numeric
+filter. The gateway endpoint used Qdrant 1.15.5. This evidence is specific to
+Elasticsearch; OpenSearch was not probed for this field note.
+
 The command exits non-zero when transport errors occur or when a required semantic assertion fails. Search ranking is compared by top-k overlap and returned `_source` values rather than raw `_score`; equivalent engines are not expected to produce identical scores. The report records every request, status, latency, and assertion so a failed case can be reproduced.
 
 For an endpoint-only application check, point the same client at each URL. For example, the repository's Python example changes only its `Elasticsearch(...)` URL; its index, index, search, and response-handling calls remain the same.
