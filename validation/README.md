@@ -51,6 +51,15 @@ mock proves that disabling totals reduces the filter-only Qdrant request count
 from two to one. This is not a latency benchmark or a synchronized cross-engine
 replay.
 
+The [OpenSearch 3.9.0 integer-total probe](evidence/opensearch-3.9-rest-total-hits-as-int-2026-10-11.json)
+records `_search` and `_msearch` response shapes for
+`rest_total_hits_as_int=true`, including the `-1` sentinel paired with
+`track_total_hits: false`, lowercase and valueless boolean parsing, and rejection
+of a numeric tracking threshold. A live gateway backed by Qdrant 1.15.5 matched the
+six saved single-search cases and the two multi-search totals. This is
+OpenSearch-specific request/response evidence over three documents, not an
+Elasticsearch claim or a performance benchmark.
+
 The [Elasticsearch 9.5.5 source-filtering probe](evidence/elasticsearch-9.5.5-source-filtering-2026-10-11.json)
 records matching native and live-gateway response shapes for a single dotted
 field, a nested wildcard, include/exclude composition, and an invalid numeric

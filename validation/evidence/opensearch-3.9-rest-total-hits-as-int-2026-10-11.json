@@ -1,0 +1,106 @@
+{
+  "recorded_at": "2026-10-11T21:03:00Z",
+  "engine": {
+    "distribution": "opensearch",
+    "version": "3.9.0",
+    "lucene_version": "10.5.1"
+  },
+  "fixture": {
+    "index": "qeg_total_probe",
+    "documents": 3,
+    "query": {
+      "match_all": {}
+    }
+  },
+  "native_cases": [
+    {
+      "query_string": "",
+      "body": {
+        "size": 0
+      },
+      "status": 200,
+      "hits_total": {
+        "value": 3,
+        "relation": "eq"
+      }
+    },
+    {
+      "query_string": "rest_total_hits_as_int=true",
+      "body": {
+        "size": 0
+      },
+      "status": 200,
+      "hits_total": 3
+    },
+    {
+      "query_string": "rest_total_hits_as_int=false",
+      "body": {
+        "size": 0
+      },
+      "status": 200,
+      "hits_total": {
+        "value": 3,
+        "relation": "eq"
+      }
+    },
+    {
+      "query_string": "rest_total_hits_as_int=true",
+      "body": {
+        "size": 0,
+        "track_total_hits": false
+      },
+      "status": 200,
+      "hits_total": -1
+    },
+    {
+      "query_string": "rest_total_hits_as_int=true",
+      "body": {
+        "size": 0,
+        "track_total_hits": 2
+      },
+      "status": 400,
+      "reason": "integer totals require accurate total-hit tracking"
+    },
+    {
+      "query_string": "rest_total_hits_as_int=TRUE",
+      "body": {
+        "size": 0
+      },
+      "status": 400,
+      "reason": "only lowercase true or false are accepted"
+    }
+  ],
+  "native_msearch": {
+    "query_string": "rest_total_hits_as_int=true",
+    "request_totals": [
+      "default",
+      "disabled"
+    ],
+    "status": 200,
+    "hits_totals": [
+      3,
+      -1
+    ]
+  },
+  "gateway_validation": {
+    "kind": "live gateway with Qdrant plus request-level mocked Qdrant",
+    "base_revision": "cfe5ba2dcabf666d6d0887eeca164438cc3e612d",
+    "qdrant_version": "1.15.5",
+    "live_cases_matched": 6,
+    "live_msearch_totals": [
+      3,
+      -1
+    ],
+    "unit_tests": {
+      "passed": 57,
+      "failed": 0,
+      "ignored_live_compose": 1
+    },
+    "limitations": [
+      "This is request and response-shape evidence over three documents, not a latency or throughput benchmark.",
+      "Elasticsearch was not run, so this evidence makes no Elasticsearch parity claim.",
+      "Integer totals cannot carry the gateway's usual eq/gte accuracy relation for bounded text searches.",
+      "The gateway rejects numeric track_total_hits thresholds with integer formatting before upstream work, matching the observed OpenSearch 3.9.0 boundary."
+    ]
+  }
+}
