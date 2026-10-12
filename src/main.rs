@@ -314,6 +314,15 @@ fn es_ok(body: Value) -> Response {
     es_response(StatusCode::OK, body)
 }
 
+fn es_empty_response(status: StatusCode) -> Response {
+    let mut response = status.into_response();
+    response.headers_mut().insert(
+        "x-elastic-product",
+        HeaderValue::from_static("Elasticsearch"),
+    );
+    response
+}
+
 fn init_db() -> anyhow::Result<Connection> {
     let path = env::var("METADATA_DB").unwrap_or_else(|_| "gateway.db".into());
     let db = Connection::open(path)?;
@@ -683,9 +692,9 @@ async fn get_index_info(
 }
 async fn head_index(State(state): State<AppState>, Path(index): Path<String>) -> Response {
     if get_index(&state, &index).is_ok() {
-        StatusCode::OK.into_response()
+        es_empty_response(StatusCode::OK)
     } else {
-        StatusCode::NOT_FOUND.into_response()
+        es_empty_response(StatusCode::NOT_FOUND)
     }
 }
 
@@ -823,6 +832,32 @@ async fn retrieve_source(
         .and_then(|result| result.get("payload"))
         .and_then(|payload| payload.get("_source"))
         .cloned())
+}
+
+async fn document_exists(
+    state: &AppState,
+    index: &str,
+    collection: &str,
+    id: &str,
+) -> Result<bool, GatewayError> {
+    if state.cfg.document_projection {
+        return Ok(
+            retrieve_existing_ids(state, index, collection, &[id.to_string()])
+                .await?
+                .contains(id),
+        );
+    }
+    let point = state
+        .qdrant
+        .request_optional_point(&format!(
+            "/collections/{collection}/points/{}?with_payload=false",
+            point_id(index, id)
+        ))
+        .await?;
+    Ok(point
+        .as_ref()
+        .and_then(|point| point.get("result"))
+        .is_some_and(|result| !result.is_null()))
 }
 
 async fn retrieve_existing_ids(
@@ -979,32 +1014,14 @@ async fn head_doc(
     State(state): State<AppState>,
     Path((index, id)): Path<(String, String)>,
 ) -> Response {
-    let Ok((index, coll, _, _)) = get_index(&state, &index) else {
-        return StatusCode::NOT_FOUND.into_response();
+    let (index, coll, _, _) = match get_index(&state, &index) {
+        Ok(index) => index,
+        Err(error) => return es_empty_response(error.status()),
     };
-    if state.cfg.document_projection {
-        return match retrieve_sources(&state, &index, &[point_id(&index, &id)]).await {
-            Ok(sources) if sources.contains_key(&id) => StatusCode::OK.into_response(),
-            _ => StatusCode::NOT_FOUND.into_response(),
-        };
-    }
-    match state
-        .qdrant
-        .request(
-            Method::GET,
-            &format!(
-                "/collections/{}/points/{}?with_payload=false",
-                coll,
-                point_id(&index, &id)
-            ),
-            None,
-        )
-        .await
-    {
-        Ok(result) if !result.get("result").is_some_and(Value::is_null) => {
-            StatusCode::OK.into_response()
-        }
-        _ => StatusCode::NOT_FOUND.into_response(),
+    match document_exists(&state, &index, &coll, &id).await {
+        Ok(true) => es_empty_response(StatusCode::OK),
+        Ok(false) => es_empty_response(StatusCode::NOT_FOUND),
+        Err(error) => es_empty_response(error.status()),
     }
 }
 async fn delete_doc(
@@ -3567,8 +3584,8 @@ async fn alias_get(
 
 async fn alias_head(State(state): State<AppState>, Path(alias): Path<String>) -> Response {
     match alias_get(State(state), Path(alias)).await {
-        Ok(_) => StatusCode::OK.into_response(),
-        Err(_) => StatusCode::NOT_FOUND.into_response(),
+        Ok(_) => es_empty_response(StatusCode::OK),
+        Err(_) => es_empty_response(StatusCode::NOT_FOUND),
     }
 }
 async fn compatibility(State(state): State<AppState>) -> Response {
@@ -4744,6 +4761,53 @@ mod tests {
 
         assert_eq!(error.status(), StatusCode::BAD_GATEWAY);
         assert!(error.to_string().contains("Collection `es_products`"));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn head_document_does_not_hide_qdrant_failures_as_not_found() {
+        let mock = Router::new().fallback(any(|| async {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({"status":{"error":"storage temporarily unavailable"}})),
+            )
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        for document_projection in [false, true] {
+            let mut cfg = Config::from_env();
+            cfg.qdrant_url = format!("http://{address}");
+            cfg.document_projection = document_projection;
+            let db = Connection::open_in_memory().unwrap();
+            db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[]');")
+                .unwrap();
+            let state = AppState {
+                qdrant: Qdrant {
+                    client: Client::new(),
+                    base: cfg.qdrant_url.clone(),
+                    key: None,
+                    async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+                },
+                db: Arc::new(Mutex::new(db)),
+                analytics: Arc::new(Mutex::new(Analytics::default())),
+                index_admin: Arc::new(AsyncMutex::new(())),
+                cfg,
+            };
+
+            let response = head_doc(State(state), Path(("products".into(), "item".into()))).await;
+
+            assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+            assert_eq!(
+                response.headers().get("x-elastic-product").unwrap(),
+                "Elasticsearch"
+            );
+            assert!(axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .is_empty());
+        }
         server.abort();
     }
 
