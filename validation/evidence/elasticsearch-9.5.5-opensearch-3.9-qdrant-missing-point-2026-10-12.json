@@ -1,0 +1,88 @@
+{
+  "recorded_at": "2026-10-12T09:02:00Z",
+  "contract": "PUT /<index>/_doc/<id> distinguishes a new document from a replacement",
+  "native_engines": [
+    {
+      "distribution": "elasticsearch",
+      "version": "9.5.5",
+      "cases": [
+        {
+          "operation": "put_new",
+          "status": 201,
+          "result": "created"
+        },
+        {
+          "operation": "put_existing",
+          "status": 200,
+          "result": "updated"
+        }
+      ]
+    },
+    {
+      "distribution": "opensearch",
+      "version": "3.9.0",
+      "cases": [
+        {
+          "operation": "put_new",
+          "status": 201,
+          "result": "created"
+        },
+        {
+          "operation": "put_existing",
+          "status": 200,
+          "result": "updated"
+        }
+      ]
+    }
+  ],
+  "qdrant_observation": {
+    "version": "1.15.5",
+    "request": "GET /collections/<collection>/points/<missing-id>?with_payload=true",
+    "status": 404,
+    "error_shape": {
+      "status": {
+        "error": "Not found: Point with id <id> does not exists!"
+      }
+    }
+  },
+  "gateway_validation": {
+    "kind": "live gateway backed by Qdrant 1.15.5 plus request-level mocked Qdrant",
+    "base_revision": "2c7b0b6ad1307787abed2069e90ec17b7facb1ce",
+    "cases": [
+      {
+        "operation": "get_missing",
+        "status": 404,
+        "found": false
+      },
+      {
+        "operation": "put_new",
+        "status": 201,
+        "result": "created"
+      },
+      {
+        "operation": "put_existing",
+        "status": 200,
+        "result": "updated"
+      },
+      {
+        "operation": "get_existing",
+        "status": 200,
+        "found": true,
+        "source": {
+          "title": "Second"
+        }
+      }
+    ],
+    "unit_tests": {
+      "passed": 58,
+      "failed": 0,
+      "ignored_live_compose": 1
+    },
+    "limitations": [
+      "This is a single-document request and response-shape check, not a throughput or concurrency benchmark.",
+      "Only Qdrant 1.15.5 was used for the live gateway check.",
+      "The gateway accepts only a Qdrant 404 whose error identifies a missing point; a missing collection remains an upstream 502.",
+      "The gateway's sequence number, primary term, and version metadata remain approximate."
+    ]
+  }
+}

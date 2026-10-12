@@ -1,0 +1,16 @@
+---
+layout: post
+title: "A missing point is not a failed upstream"
+date: 2026-10-12
+categories: [compatibility, elasticsearch, opensearch, qdrant]
+---
+
+The Elasticsearch and OpenSearch index APIs are upserts, but their response describes which side of the operation happened. Live probes against Elasticsearch 9.5.5 and OpenSearch 3.9.0 both returned HTTP 201 with `result: "created"` for the first `PUT /<index>/_doc/<id>`, then HTTP 200 with `result: "updated"` for the replacement.
+
+The gateway already performed a point read before this write so it could make the same distinction. Against the repository's pinned Qdrant 1.15.5, however, a missing single point returns HTTP 404 with a structured “Point with id … does not exists” error. The generic Qdrant client treated every non-success response as an upstream failure, so the very first index request returned 502 and never reached the upsert.
+
+Single-point reads now recognize that exact missing-point response as an absent document. The shared path fixes ordinary GETs and the preflight reads used by standalone index, create, update, and delete operations. The exception is deliberately narrow: a Qdrant 404 that says the collection is missing still becomes a gateway 502, preserving a visible signal for storage/catalogue drift instead of pretending the document is absent.
+
+The sanitized [Elasticsearch 9.5.5, OpenSearch 3.9.0, and Qdrant 1.15.5 evidence](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/evidence/elasticsearch-9.5.5-opensearch-3.9-qdrant-missing-point-2026-10-12.json) records the native contract, Qdrant response shape, and live changed-gateway results. The gateway returned 404 for a missing GET, 201/`created` for the first PUT, 200/`updated` for the second PUT, and the replacement source on the final GET. Focused regressions use the observed Qdrant error body in both source-storage modes and prove that missing collections remain upstream errors.
+
+This is a single-document correctness check, not a concurrency or performance benchmark. The extra existence read was already part of the standalone index path, so the fix adds no request. That preflight still is not an atomic compare-and-write across gateway replicas, and the gateway's sequence-number, primary-term, and version fields remain approximate.
