@@ -144,12 +144,12 @@ struct Qdrant {
 }
 
 impl Qdrant {
-    async fn request(
+    async fn raw_request(
         &self,
         method: Method,
         path: &str,
         body: Option<Value>,
-    ) -> Result<Value, GatewayError> {
+    ) -> Result<(StatusCode, Value), GatewayError> {
         let url = format!("{}{}", self.base, path);
         let mut req = self.client.request(method, url);
         if let Some(key) = &self.key {
@@ -169,6 +169,16 @@ impl Qdrant {
             .map_err(|e| GatewayError::upstream(e.to_string()))?;
         let value: Value = serde_json::from_slice(&bytes)
             .unwrap_or_else(|_| json!({"status": String::from_utf8_lossy(&bytes)}));
+        Ok((status, value))
+    }
+
+    async fn request(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<Value>,
+    ) -> Result<Value, GatewayError> {
+        let (status, value) = self.raw_request(method, path, body).await?;
         if !status.is_success() || value.get("status").and_then(Value::as_str) == Some("error") {
             return Err(GatewayError::upstream(format!(
                 "Qdrant returned {status}: {value}"
@@ -176,6 +186,25 @@ impl Qdrant {
         }
         Ok(value)
     }
+
+    async fn request_optional_point(&self, path: &str) -> Result<Option<Value>, GatewayError> {
+        let (status, value) = self.raw_request(Method::GET, path, None).await?;
+        let missing_point = status == StatusCode::NOT_FOUND
+            && value
+                .pointer("/status/error")
+                .and_then(Value::as_str)
+                .is_some_and(|message| message.contains("Point with id"));
+        if missing_point {
+            return Ok(None);
+        }
+        if !status.is_success() || value.get("status").and_then(Value::as_str) == Some("error") {
+            return Err(GatewayError::upstream(format!(
+                "Qdrant returned {status}: {value}"
+            )));
+        }
+        Ok(Some(value))
+    }
+
     async fn health(&self) -> Result<(), GatewayError> {
         self.request(Method::GET, "/", None).await.map(|_| ())
     }
@@ -782,17 +811,14 @@ async fn retrieve_source(
     }
     let point = state
         .qdrant
-        .request(
-            Method::GET,
-            &format!(
-                "/collections/{collection}/points/{}?with_payload=true",
-                point_id(index, id)
-            ),
-            None,
-        )
+        .request_optional_point(&format!(
+            "/collections/{collection}/points/{}?with_payload=true",
+            point_id(index, id)
+        ))
         .await?;
     Ok(point
-        .get("result")
+        .as_ref()
+        .and_then(|point| point.get("result"))
         .filter(|result| !result.is_null())
         .and_then(|result| result.get("payload"))
         .and_then(|payload| payload.get("_source"))
@@ -939,40 +965,15 @@ async fn get_doc(
     Path((index, id)): Path<(String, String)>,
 ) -> Result<Response, GatewayError> {
     let (index, coll, _, _) = get_index(&state, &index)?;
-    if state.cfg.document_projection {
-        let sources = retrieve_sources(&state, &index, &[point_id(&index, &id)]).await?;
-        return Ok(match sources.get(&id) {
-            Some(source) => {
-                es_ok(json!({"_index":index,"_id":id,"found":true,"_source":source,"_version":1}))
-            }
-            None => es_response(
-                StatusCode::NOT_FOUND,
-                json!({"_index":index,"_id":id,"found":false}),
-            ),
-        });
-    }
-    let p = state
-        .qdrant
-        .request(
-            Method::GET,
-            &format!(
-                "/collections/{}/points/{}?with_payload=true",
-                coll,
-                point_id(&index, &id)
-            ),
-            None,
-        )
-        .await?;
-    let result = p.get("result").cloned().unwrap_or(Value::Null);
-    if result.is_null() {
-        return Ok(es_response(
+    Ok(match retrieve_source(&state, &index, &coll, &id).await? {
+        Some(source) => {
+            es_ok(json!({"_index":index,"_id":id,"found":true,"_source":source,"_version":1}))
+        }
+        None => es_response(
             StatusCode::NOT_FOUND,
             json!({"_index":index,"_id":id,"found":false}),
-        ));
-    }
-    Ok(es_ok(
-        json!({"_index":index,"_id":id,"found":true,"_source":result.get("payload").and_then(|p|p.get("_source")).cloned().unwrap_or_else(||json!({})),"_version":1}),
-    ))
+        ),
+    })
 }
 async fn head_doc(
     State(state): State<AppState>,
@@ -4666,7 +4667,11 @@ mod tests {
             if method == Method::POST {
                 Json(json!({"result":[]})).into_response()
             } else {
-                Json(json!({"result":null})).into_response()
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({"status":{"error":"Not found: Point with id 00000000-0000-0000-0000-000000000000 does not exists!"}})),
+                )
+                    .into_response()
             }
         }));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -4711,6 +4716,34 @@ mod tests {
                 json!({"_index":"products","_id":"missing","found":false})
             );
         }
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn missing_qdrant_collection_remains_an_upstream_error() {
+        let mock = Router::new().fallback(any(|| async {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"status":{"error":"Not found: Collection `es_products` doesn't exist!"}})),
+            )
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+        let qdrant = Qdrant {
+            client: Client::new(),
+            base: format!("http://{address}"),
+            key: None,
+            async_write_queue: Arc::new(Semaphore::new(1)),
+        };
+
+        let error = qdrant
+            .request_optional_point("/collections/es_products/points/missing?with_payload=true")
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.status(), StatusCode::BAD_GATEWAY);
+        assert!(error.to_string().contains("Collection `es_products`"));
         server.abort();
     }
 
@@ -6319,12 +6352,16 @@ mod tests {
             for existed in [false, true] {
                 let mock = Router::new().fallback(any(move |method: Method| async move {
                     match method {
-                        Method::GET => Json(if existed {
-                            json!({"result":{"payload":{"_es_id":"item","_source":{"title":"Old"}}}})
+                        Method::GET => if existed {
+                            Json(json!({"result":{"payload":{"_es_id":"item","_source":{"title":"Old"}}}}))
+                                .into_response()
                         } else {
-                            json!({"result":null})
-                        })
-                        .into_response(),
+                            (
+                                StatusCode::NOT_FOUND,
+                                Json(json!({"status":{"error":"Not found: Point with id 00000000-0000-0000-0000-000000000000 does not exists!"}})),
+                            )
+                                .into_response()
+                        },
                         Method::POST => Json(if existed {
                             json!({"result":[{"payload":{"_es_id":"item","_source":{"title":"Old"}}}]})
                         } else {
