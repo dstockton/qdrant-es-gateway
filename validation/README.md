@@ -111,3 +111,36 @@ recorded source revision, and Qdrant **1.15.3**, using the default embedded-sour
 mode and synchronous writes. `reported_version` is the endpoint's Elasticsearch
 API version advertisement, not the gateway binary version. No latency or ranking
 comparison is claimed. No gateway implementation change was needed.
+
+## Support first-reply queue
+
+The [support field note](../docs/_posts/2026-10-13-support-first-reply-queue.md)
+uses seven synthetic tickets in [`fixtures/support.json`](fixtures/support.json).
+It selects open billing tickets with zero replies and no assignee, counts their
+channels, then assigns one ticket and verifies its preserved source and exclusion.
+Missing and null assignees qualify; an empty string counts as present.
+
+```sh
+python3 validation/support.py \
+  --native http://localhost:19200 \
+  --gateway http://localhost:9200 \
+  --output validation/results/support.json
+```
+
+Use disposable endpoints without `field_note_support`. The replay creates and
+removes that index; a failed create aborts without deleting existing data.
+It uses Python's standard library and pauses five seconds after bulk ingestion
+and update on each server (`--settle-seconds` controls both). This is not a
+refresh timing guarantee. Exact statuses, bulk IDs/results, every source,
+search IDs and totals, channel counts, and assignment exclusion are checked
+against independent expectations; requests must also match between endpoints.
+
+The [2026-10-13 replay evidence](evidence/support-2026-10-13.json) records
+**74/74** checks passing with native Elasticsearch **8.15.0**, gateway **0.2.0**
+at the recorded revision, and Qdrant **1.15.5**, with embedded sources and
+synchronous writes. The [article curl evidence](evidence/support-curl-2026-10-13.json)
+records all nine responses per endpoint, including repeated searches after the
+assignment; statuses, bulk results, sources, totals, and buckets were asserted.
+Optional `--gateway-version` and `--qdrant-version` arguments record verified
+versions; the endpoint's `reported_version` is its API advertisement.
+No gateway code change, performance claim, or atomic concurrent claim is implied.
