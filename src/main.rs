@@ -237,6 +237,8 @@ enum GatewayError {
     DocumentNotFound { index: String, id: String },
     #[error("document [{index}]/[{id}] already exists")]
     VersionConflict { index: String, id: String },
+    #[error("index [{index}] already exists")]
+    IndexAlreadyExists { index: String },
     #[error("request body exceeds configured {setting} limit of {limit} bytes")]
     PayloadTooLarge { setting: &'static str, limit: usize },
     #[error("upstream error: {0}")]
@@ -262,6 +264,7 @@ impl GatewayError {
         match self {
             Self::NotFound(_) | Self::DocumentNotFound { .. } => StatusCode::NOT_FOUND,
             Self::VersionConflict { .. } => StatusCode::CONFLICT,
+            Self::IndexAlreadyExists { .. } => StatusCode::BAD_REQUEST,
             Self::Bad { .. } => StatusCode::BAD_REQUEST,
             Self::PayloadTooLarge { .. } => StatusCode::PAYLOAD_TOO_LARGE,
             Self::Upstream(_) => StatusCode::BAD_GATEWAY,
@@ -281,6 +284,10 @@ impl GatewayError {
             }
             Self::VersionConflict { index, id } => {
                 json!({"error":{"type":"version_conflict_engine_exception","reason":format!("[{id}]: version conflict, document already exists (current version [1])"),"index":index,"shard":"0"},"status":409})
+            }
+            Self::IndexAlreadyExists { index } => {
+                let reason = format!("index [{index}] already exists");
+                json!({"error":{"root_cause":[{"type":"resource_already_exists_exception","reason":reason,"index":index}],"type":"resource_already_exists_exception","reason":reason,"index":index},"status":400})
             }
             Self::PayloadTooLarge { setting, limit } => {
                 json!({"error":{"type":"content_too_long_exception","reason":format!("request body exceeds configured {setting} limit of {limit} bytes")},"status":413})
@@ -391,6 +398,11 @@ fn ensure_collection_namespace_available(
 
     for existing in existing {
         let existing = existing.map_err(|e| GatewayError::Internal(e.to_string()))?;
+        if existing == index {
+            return Err(GatewayError::IndexAlreadyExists {
+                index: index.to_string(),
+            });
+        }
         let reserved = [collection(&existing), document_collection(&existing)];
         if requested
             .iter()
@@ -4388,6 +4400,75 @@ mod tests {
                 "DELETE /collections/es_products"
             ]
         );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn duplicate_index_creation_returns_native_conflict_without_qdrant_work() {
+        let requests = Arc::new(Mutex::new(0_u64));
+        let observed = requests.clone();
+        let mock = Router::new().fallback(any(move || {
+            let observed = observed.clone();
+            async move {
+                *observed.lock().unwrap() += 1;
+                Json(json!({"status":"ok"})).into_response()
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        let mut cfg = Config::from_env();
+        cfg.qdrant_url = format!("http://{address}");
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL);")
+            .unwrap();
+        let original_mapping = json!({"properties":{"sku":{"type":"keyword"}}});
+        db.execute(
+            "INSERT INTO indices VALUES ('products', ?1, '[\"text_all\"]')",
+            params![original_mapping.to_string()],
+        )
+        .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: cfg.qdrant_url.clone(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        let error = create_index(
+            State(state.clone()),
+            Path("products".into()),
+            Json(json!({"mappings":{"properties":{"title":{"type":"text"}}}})),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            error.body(),
+            json!({
+                "error": {
+                    "root_cause": [{
+                        "type": "resource_already_exists_exception",
+                        "reason": "index [products] already exists",
+                        "index": "products"
+                    }],
+                    "type": "resource_already_exists_exception",
+                    "reason": "index [products] already exists",
+                    "index": "products"
+                },
+                "status": 400
+            })
+        );
+        assert_eq!(get_index(&state, "products").unwrap().2, original_mapping);
+        assert_eq!(*requests.lock().unwrap(), 0);
         server.abort();
     }
 

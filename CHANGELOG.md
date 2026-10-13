@@ -53,6 +53,7 @@
 
 ## Unreleased
 
+- Return an Elasticsearch/OpenSearch-shaped HTTP 400 `resource_already_exists_exception` without contacting Qdrant or changing mappings when index creation targets an existing index.
 - Recursively merge inner objects during partial document updates so changing one nested member preserves its siblings, while arrays and scalar values retain Elasticsearch's replacement behavior.
 - Support a separate `upsert` source in standalone and bulk partial updates, and avoid a redundant second existence read when a missing document is created by either supported upsert form.
 - Preserve successful bulk `create`, `update`, and `delete` operation metadata, including the concrete index name when requests use an alias.
