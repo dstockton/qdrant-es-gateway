@@ -10,7 +10,7 @@ use futures_util::future::try_join_all;
 use percent_encoding::percent_decode_str;
 use regex::Regex;
 use reqwest::Client;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::{
@@ -3548,6 +3548,59 @@ async fn aliases(
         }
     }
 
+    let affected_aliases = actions
+        .iter()
+        .map(|action| match action {
+            AliasAction::Add { alias, .. } | AliasAction::Remove { alias, .. } => alias.clone(),
+        })
+        .collect::<HashSet<_>>();
+    let mut final_targets = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| GatewayError::Internal(e.to_string()))?;
+        let mut targets = HashMap::<String, HashSet<String>>::new();
+        for alias in affected_aliases {
+            let current = db
+                .query_row(
+                    "SELECT index_name FROM aliases WHERE alias=?1",
+                    params![&alias],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(|e| GatewayError::Internal(e.to_string()))?;
+            let mut alias_targets = HashSet::new();
+            if let Some(index) = current {
+                alias_targets.insert(index);
+            }
+            targets.insert(alias, alias_targets);
+        }
+        targets
+    };
+    for action in &actions {
+        match action {
+            AliasAction::Add { alias, index } => {
+                final_targets
+                    .entry(alias.clone())
+                    .or_default()
+                    .insert(index.clone());
+            }
+            AliasAction::Remove { alias, index } => {
+                if let Some(targets) = final_targets.get_mut(alias) {
+                    targets.remove(index);
+                }
+            }
+        }
+    }
+    if let Some((alias, _)) = final_targets.iter().find(|(_, targets)| targets.len() > 1) {
+        return Err(GatewayError::bad(
+            "_aliases.add.alias",
+            format!(
+                "multi-index alias [{alias}] is unsupported; remove its current index and add the replacement in the same request"
+            ),
+        ));
+    }
+
     let mut db = state
         .db
         .lock()
@@ -4319,6 +4372,77 @@ mod tests {
             Json(json!({"actions":[
                 {"remove":{"index":"products-v1","alias":"current-products"}},
                 {"add":{"index":"products-v2","alias":"current-products"}}
+            ]})),
+        )
+        .await
+        .unwrap();
+        let target: String = state
+            .db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT index_name FROM aliases WHERE alias='current-products'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(target, "products-v2");
+    }
+
+    #[tokio::test]
+    async fn alias_add_does_not_silently_retarget_a_single_index_alias() {
+        let cfg = Config::from_env();
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); \
+             CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); \
+             INSERT INTO indices VALUES ('products-v1', '{}', '[]'); \
+             INSERT INTO indices VALUES ('products-v2', '{}', '[]'); \
+             INSERT INTO aliases VALUES ('current-products', 'products-v1');",
+        )
+        .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: "http://127.0.0.1:1".into(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        let error = aliases(
+            State(state.clone()),
+            Json(json!({"actions":[
+                {"add":{"index":"products-v2","alias":"current-products"}}
+            ]})),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(error.body()["error"]["feature"], "_aliases.add.alias");
+        assert!(error.to_string().contains("multi-index alias"));
+        let target: String = state
+            .db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT index_name FROM aliases WHERE alias='current-products'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(target, "products-v1");
+
+        aliases(
+            State(state.clone()),
+            Json(json!({"actions":[
+                {"add":{"index":"products-v2","alias":"current-products"}},
+                {"remove":{"index":"products-v1","alias":"current-products"}}
             ]})),
         )
         .await
