@@ -3556,6 +3556,18 @@ async fn aliases(
                 "alias action metadata must be an object",
             )
         })?;
+        if let Some(option) = metadata
+            .keys()
+            .filter(|key| !matches!(key.as_str(), "index" | "alias"))
+            .min()
+        {
+            return Err(GatewayError::bad(
+                format!("_aliases.{kind}.{option}"),
+                format!(
+                    "alias action option [{option}] is not supported; only unfiltered, unrouted, single-target aliases are supported"
+                ),
+            ));
+        }
         let alias = metadata
             .get("alias")
             .and_then(Value::as_str)
@@ -4531,6 +4543,67 @@ mod tests {
             )
             .unwrap();
         assert_eq!(target, "products-v2");
+    }
+
+    #[tokio::test]
+    async fn alias_actions_reject_options_the_gateway_cannot_apply() {
+        let cfg = Config::from_env();
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); \
+             CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); \
+             INSERT INTO indices VALUES ('products', '{}', '[]'); \
+             INSERT INTO aliases VALUES ('current-products', 'products');",
+        )
+        .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: "http://127.0.0.1:1".into(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        for (kind, option, value) in [
+            ("add", "filter", json!({"term":{"tenant":"acme"}})),
+            ("add", "routing", json!("acme")),
+            ("add", "index_routing", json!("acme")),
+            ("add", "search_routing", json!("acme")),
+            ("add", "is_write_index", json!(true)),
+            ("add", "is_hidden", json!(true)),
+            ("remove", "must_exist", json!(true)),
+            ("add", "unknown_option", json!(true)),
+        ] {
+            let error = aliases(
+                State(state.clone()),
+                Json(json!({"actions":[{
+                    kind:{"index":"products","alias":"candidate-products",option:value}
+                }]})),
+            )
+            .await
+            .unwrap_err();
+
+            assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(
+                error.body()["error"]["feature"],
+                format!("_aliases.{kind}.{option}")
+            );
+        }
+
+        let aliases = state
+            .db
+            .lock()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM aliases", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap();
+        assert_eq!(aliases, 1);
     }
 
     #[tokio::test]
