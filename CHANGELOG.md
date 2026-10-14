@@ -53,6 +53,7 @@
 
 ## Unreleased
 
+- Reject invalid index names before catalogue or Qdrant work and return an Elasticsearch/OpenSearch-shaped HTTP 400 `invalid_index_name_exception`, including the native 255-byte UTF-8 boundary.
 - Reject alias action batches whose final state would require a multi-index alias instead of silently retargeting the gateway's single-target alias; explicit atomic remove+add swaps remain supported.
 - Return an Elasticsearch/OpenSearch-shaped HTTP 400 `resource_already_exists_exception` without contacting Qdrant or changing mappings when index creation targets an existing index.
 - Recursively merge inner objects during partial document updates so changing one nested member preserves its siblings, while arrays and scalar values retain Elasticsearch's replacement behavior.

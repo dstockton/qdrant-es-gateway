@@ -239,6 +239,8 @@ enum GatewayError {
     VersionConflict { index: String, id: String },
     #[error("index [{index}] already exists")]
     IndexAlreadyExists { index: String },
+    #[error("Invalid index name [{index}], {reason}")]
+    InvalidIndexName { index: String, reason: String },
     #[error("request body exceeds configured {setting} limit of {limit} bytes")]
     PayloadTooLarge { setting: &'static str, limit: usize },
     #[error("upstream error: {0}")]
@@ -264,7 +266,9 @@ impl GatewayError {
         match self {
             Self::NotFound(_) | Self::DocumentNotFound { .. } => StatusCode::NOT_FOUND,
             Self::VersionConflict { .. } => StatusCode::CONFLICT,
-            Self::IndexAlreadyExists { .. } => StatusCode::BAD_REQUEST,
+            Self::IndexAlreadyExists { .. } | Self::InvalidIndexName { .. } => {
+                StatusCode::BAD_REQUEST
+            }
             Self::Bad { .. } => StatusCode::BAD_REQUEST,
             Self::PayloadTooLarge { .. } => StatusCode::PAYLOAD_TOO_LARGE,
             Self::Upstream(_) => StatusCode::BAD_GATEWAY,
@@ -288,6 +292,10 @@ impl GatewayError {
             Self::IndexAlreadyExists { index } => {
                 let reason = format!("index [{index}] already exists");
                 json!({"error":{"root_cause":[{"type":"resource_already_exists_exception","reason":reason,"index":index}],"type":"resource_already_exists_exception","reason":reason,"index":index},"status":400})
+            }
+            Self::InvalidIndexName { index, reason } => {
+                let reason = format!("Invalid index name [{index}], {reason}");
+                json!({"error":{"root_cause":[{"type":"invalid_index_name_exception","reason":reason,"index_uuid":"_na_","index":index}],"type":"invalid_index_name_exception","reason":reason,"index_uuid":"_na_","index":index},"status":400})
             }
             Self::PayloadTooLarge { setting, limit } => {
                 json!({"error":{"type":"content_too_long_exception","reason":format!("request body exceeds configured {setting} limit of {limit} bytes")},"status":413})
@@ -365,6 +373,48 @@ fn collection(index: &str) -> String {
 
 fn document_collection(index: &str) -> String {
     format!("{}_documents", collection(index))
+}
+
+fn validate_index_name(index: &str) -> Result<(), GatewayError> {
+    let invalid = |reason: String| GatewayError::InvalidIndexName {
+        index: index.to_string(),
+        reason,
+    };
+    if index.is_empty() {
+        return Err(invalid("must not be empty".into()));
+    }
+    if index.chars().any(|character| {
+        matches!(
+            character,
+            '\\' | '/' | '*' | '?' | '"' | '<' | '>' | '|' | ' ' | ','
+        )
+    }) {
+        return Err(invalid(
+            "must not contain the following characters [\\, /, *, ?, \", <, >, |, space, ,]".into(),
+        ));
+    }
+    if index.contains('#') {
+        return Err(invalid("must not contain '#'".into()));
+    }
+    if index.contains(':') {
+        return Err(invalid("must not contain ':'".into()));
+    }
+    if matches!(index.chars().next(), Some('_' | '-' | '+')) {
+        return Err(invalid("must not start with '_', '-', or '+'".into()));
+    }
+    let byte_count = index.len();
+    if byte_count > 255 {
+        return Err(invalid(format!(
+            "index name is too long, ({byte_count} > 255)"
+        )));
+    }
+    if matches!(index, "." | "..") {
+        return Err(invalid("must not be '.' or '..'".into()));
+    }
+    if index.to_lowercase() != index {
+        return Err(invalid("must be lowercase".into()));
+    }
+    Ok(())
 }
 
 fn ensure_collection_namespace_available(
@@ -540,6 +590,7 @@ async fn create_index(
     Json(body): Json<Value>,
 ) -> Result<Response, GatewayError> {
     let _index_admin = state.index_admin.lock().await;
+    validate_index_name(&index)?;
     // Collection names predate an explicit per-index namespace column and
     // normalize punctuation for Qdrant. Reject collisions before creating any
     // upstream state, including collisions with the optional document store.
@@ -4144,6 +4195,28 @@ mod tests {
     }
 
     #[test]
+    fn index_name_validation_matches_shared_native_rules() {
+        for valid in ["products", "catalog.v2", "catalog+2026", &"é".repeat(127)] {
+            validate_index_name(valid).unwrap();
+        }
+
+        for (invalid, reason) in [
+            ("Products".to_string(), "must be lowercase"),
+            ("-products".to_string(), "must not start"),
+            ("products:2026".to_string(), "must not contain ':'"),
+            (".".to_string(), "must not be '.' or '..'"),
+            ("é".repeat(128), "index name is too long, (256 > 255)"),
+        ] {
+            let error = validate_index_name(&invalid).unwrap_err();
+            assert!(matches!(
+                error,
+                GatewayError::InvalidIndexName { reason: ref actual, .. }
+                    if actual.contains(reason)
+            ));
+        }
+    }
+
+    #[test]
     fn source_filters_preserve_nested_shape_and_apply_wildcards() {
         let source = json!({
             "title":"Example",
@@ -4592,6 +4665,66 @@ mod tests {
             })
         );
         assert_eq!(get_index(&state, "products").unwrap().2, original_mapping);
+        assert_eq!(*requests.lock().unwrap(), 0);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn invalid_index_creation_fails_before_qdrant_work() {
+        let requests = Arc::new(Mutex::new(0_u64));
+        let observed = requests.clone();
+        let mock = Router::new().fallback(any(move || {
+            let observed = observed.clone();
+            async move {
+                *observed.lock().unwrap() += 1;
+                Json(json!({"status":"ok"})).into_response()
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        let mut cfg = Config::from_env();
+        cfg.qdrant_url = format!("http://{address}");
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL);")
+            .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: cfg.qdrant_url.clone(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        let error = create_index(State(state), Path("Products".into()), Json(json!({})))
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            error.body(),
+            json!({
+                "error": {
+                    "root_cause": [{
+                        "type": "invalid_index_name_exception",
+                        "reason": "Invalid index name [Products], must be lowercase",
+                        "index_uuid": "_na_",
+                        "index": "Products"
+                    }],
+                    "type": "invalid_index_name_exception",
+                    "reason": "Invalid index name [Products], must be lowercase",
+                    "index_uuid": "_na_",
+                    "index": "Products"
+                },
+                "status": 400
+            })
+        );
         assert_eq!(*requests.lock().unwrap(), 0);
         server.abort();
     }
