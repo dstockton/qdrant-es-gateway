@@ -39,7 +39,7 @@ The root endpoint includes `X-Elastic-Product: Elasticsearch` and an 8.x-compati
 | search_after | ⚠️ | Explicit sort fields and returned `sort` cursors within the configured candidate window; stable while that result set is unchanged |
 | field sorting | ⚠️ | String, `{"field":"asc"}`, and `{"field":{"order":"desc"}}` forms; sorts at least `MAX_PAGE_SIZE` candidates, so Qdrant-native ordering is preferred for large data |
 | terms aggregations | ⚠️ | Native Qdrant facet over indexed keyword fields only |
-| aliases | ⚠️ | Durable single-target aliases route CRUD and search; remove+add switching is atomic, while add-only multi-index requests fail instead of silently retargeting |
+| aliases | ⚠️ | Durable unfiltered single-target aliases route CRUD and search; remove+add switching is atomic, while multi-index and unsupported alias-option requests fail instead of silently changing semantics |
 | regexp, wildcard, prefix | ⚠️ | Gateway-side Rust matching in positive must/filter clauses; scans candidate documents and is not suitable for unbounded high-cardinality pattern queries |
 | `dis_max`, `match_bool_prefix`, fuzzy-shaped queries | ⚠️ | Accepted through the lexical path; ranking and typo/prefix behavior are approximate |
 | `post_filter`, min/max/filter aggregations | ⚠️ | Supported for simple clauses over bounded retrieved candidates |

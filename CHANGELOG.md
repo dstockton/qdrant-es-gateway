@@ -53,6 +53,8 @@
 
 ## Unreleased
 
+- Update the locked `rustls` runtime dependency to 0.23.46 to address RUSTSEC-2026-0346 through RUSTSEC-2026-0349.
+- Reject alias filters, routing, write-index/hidden flags, remove `must_exist`, and unknown action options before changing the catalogue instead of acknowledging semantics the gateway cannot apply.
 - Reject invalid index names before catalogue or Qdrant work and return an Elasticsearch/OpenSearch-shaped HTTP 400 `invalid_index_name_exception`, including the native 255-byte UTF-8 boundary.
 - Reject alias action batches whose final state would require a multi-index alias instead of silently retargeting the gateway's single-target alias; explicit atomic remove+add swaps remain supported.
 - Return an Elasticsearch/OpenSearch-shaped HTTP 400 `resource_already_exists_exception` without contacting Qdrant or changing mappings when index creation targets an existing index.
