@@ -21,6 +21,8 @@ The smallest credible sequence is:
 
 The current request-level audit is maintained in [demo-app-compatibility.md](demo-app-compatibility.md). It separates transport/response compatibility from semantic equivalence so “the application can make the request” is not confused with “the two engines rank and aggregate identically.”
 
+The endpoint replay has also been run against native OpenSearch 3.6.0. The [2026-10-09 field note]({{ '/2026/10/09/opensearch-wildcards-keep-the-leading-star.html' | relative_url }}) records 10 of 12 application checks passing after correcting leading-wildcard translation, with analyzed-text prefix case behavior and bounded-window cursor ordering retained as explicit differences. The official `opensearch-py` 3.2.0 client separately completed the supported CRUD/search workflow against the gateway; this verifies client transport behavior, not full server parity.
+
 Do not compare raw `_score` values. Compare exact sources for the same IDs where ordering is not the product contract, and use top-k overlap, nDCG, zero-result rate, facet equality, and pagination continuity for ranked results.
 
 ## Performance protocol

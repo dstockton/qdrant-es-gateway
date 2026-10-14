@@ -10,7 +10,7 @@ use futures_util::future::try_join_all;
 use percent_encoding::percent_decode_str;
 use regex::Regex;
 use reqwest::Client;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::{
@@ -144,12 +144,12 @@ struct Qdrant {
 }
 
 impl Qdrant {
-    async fn request(
+    async fn raw_request(
         &self,
         method: Method,
         path: &str,
         body: Option<Value>,
-    ) -> Result<Value, GatewayError> {
+    ) -> Result<(StatusCode, Value), GatewayError> {
         let url = format!("{}{}", self.base, path);
         let mut req = self.client.request(method, url);
         if let Some(key) = &self.key {
@@ -169,6 +169,16 @@ impl Qdrant {
             .map_err(|e| GatewayError::upstream(e.to_string()))?;
         let value: Value = serde_json::from_slice(&bytes)
             .unwrap_or_else(|_| json!({"status": String::from_utf8_lossy(&bytes)}));
+        Ok((status, value))
+    }
+
+    async fn request(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<Value>,
+    ) -> Result<Value, GatewayError> {
+        let (status, value) = self.raw_request(method, path, body).await?;
         if !status.is_success() || value.get("status").and_then(Value::as_str) == Some("error") {
             return Err(GatewayError::upstream(format!(
                 "Qdrant returned {status}: {value}"
@@ -176,6 +186,25 @@ impl Qdrant {
         }
         Ok(value)
     }
+
+    async fn request_optional_point(&self, path: &str) -> Result<Option<Value>, GatewayError> {
+        let (status, value) = self.raw_request(Method::GET, path, None).await?;
+        let missing_point = status == StatusCode::NOT_FOUND
+            && value
+                .pointer("/status/error")
+                .and_then(Value::as_str)
+                .is_some_and(|message| message.contains("Point with id"));
+        if missing_point {
+            return Ok(None);
+        }
+        if !status.is_success() || value.get("status").and_then(Value::as_str) == Some("error") {
+            return Err(GatewayError::upstream(format!(
+                "Qdrant returned {status}: {value}"
+            )));
+        }
+        Ok(Some(value))
+    }
+
     async fn health(&self) -> Result<(), GatewayError> {
         self.request(Method::GET, "/", None).await.map(|_| ())
     }
@@ -208,6 +237,8 @@ enum GatewayError {
     DocumentNotFound { index: String, id: String },
     #[error("document [{index}]/[{id}] already exists")]
     VersionConflict { index: String, id: String },
+    #[error("index [{index}] already exists")]
+    IndexAlreadyExists { index: String },
     #[error("request body exceeds configured {setting} limit of {limit} bytes")]
     PayloadTooLarge { setting: &'static str, limit: usize },
     #[error("upstream error: {0}")]
@@ -233,6 +264,7 @@ impl GatewayError {
         match self {
             Self::NotFound(_) | Self::DocumentNotFound { .. } => StatusCode::NOT_FOUND,
             Self::VersionConflict { .. } => StatusCode::CONFLICT,
+            Self::IndexAlreadyExists { .. } => StatusCode::BAD_REQUEST,
             Self::Bad { .. } => StatusCode::BAD_REQUEST,
             Self::PayloadTooLarge { .. } => StatusCode::PAYLOAD_TOO_LARGE,
             Self::Upstream(_) => StatusCode::BAD_GATEWAY,
@@ -252,6 +284,10 @@ impl GatewayError {
             }
             Self::VersionConflict { index, id } => {
                 json!({"error":{"type":"version_conflict_engine_exception","reason":format!("[{id}]: version conflict, document already exists (current version [1])"),"index":index,"shard":"0"},"status":409})
+            }
+            Self::IndexAlreadyExists { index } => {
+                let reason = format!("index [{index}] already exists");
+                json!({"error":{"root_cause":[{"type":"resource_already_exists_exception","reason":reason,"index":index}],"type":"resource_already_exists_exception","reason":reason,"index":index},"status":400})
             }
             Self::PayloadTooLarge { setting, limit } => {
                 json!({"error":{"type":"content_too_long_exception","reason":format!("request body exceeds configured {setting} limit of {limit} bytes")},"status":413})
@@ -283,6 +319,15 @@ fn es_response(status: StatusCode, body: Value) -> Response {
 
 fn es_ok(body: Value) -> Response {
     es_response(StatusCode::OK, body)
+}
+
+fn es_empty_response(status: StatusCode) -> Response {
+    let mut response = status.into_response();
+    response.headers_mut().insert(
+        "x-elastic-product",
+        HeaderValue::from_static("Elasticsearch"),
+    );
+    response
 }
 
 fn init_db() -> anyhow::Result<Connection> {
@@ -353,6 +398,11 @@ fn ensure_collection_namespace_available(
 
     for existing in existing {
         let existing = existing.map_err(|e| GatewayError::Internal(e.to_string()))?;
+        if existing == index {
+            return Err(GatewayError::IndexAlreadyExists {
+                index: index.to_string(),
+            });
+        }
         let reserved = [collection(&existing), document_collection(&existing)];
         if requested
             .iter()
@@ -654,9 +704,9 @@ async fn get_index_info(
 }
 async fn head_index(State(state): State<AppState>, Path(index): Path<String>) -> Response {
     if get_index(&state, &index).is_ok() {
-        StatusCode::OK.into_response()
+        es_empty_response(StatusCode::OK)
     } else {
-        StatusCode::NOT_FOUND.into_response()
+        es_empty_response(StatusCode::NOT_FOUND)
     }
 }
 
@@ -782,21 +832,44 @@ async fn retrieve_source(
     }
     let point = state
         .qdrant
-        .request(
-            Method::GET,
-            &format!(
-                "/collections/{collection}/points/{}?with_payload=true",
-                point_id(index, id)
-            ),
-            None,
-        )
+        .request_optional_point(&format!(
+            "/collections/{collection}/points/{}?with_payload=true",
+            point_id(index, id)
+        ))
         .await?;
     Ok(point
-        .get("result")
+        .as_ref()
+        .and_then(|point| point.get("result"))
         .filter(|result| !result.is_null())
         .and_then(|result| result.get("payload"))
         .and_then(|payload| payload.get("_source"))
         .cloned())
+}
+
+async fn document_exists(
+    state: &AppState,
+    index: &str,
+    collection: &str,
+    id: &str,
+) -> Result<bool, GatewayError> {
+    if state.cfg.document_projection {
+        return Ok(
+            retrieve_existing_ids(state, index, collection, &[id.to_string()])
+                .await?
+                .contains(id),
+        );
+    }
+    let point = state
+        .qdrant
+        .request_optional_point(&format!(
+            "/collections/{collection}/points/{}?with_payload=false",
+            point_id(index, id)
+        ))
+        .await?;
+    Ok(point
+        .as_ref()
+        .and_then(|point| point.get("result"))
+        .is_some_and(|result| !result.is_null()))
 }
 
 async fn retrieve_existing_ids(
@@ -939,71 +1012,28 @@ async fn get_doc(
     Path((index, id)): Path<(String, String)>,
 ) -> Result<Response, GatewayError> {
     let (index, coll, _, _) = get_index(&state, &index)?;
-    if state.cfg.document_projection {
-        let sources = retrieve_sources(&state, &index, &[point_id(&index, &id)]).await?;
-        return Ok(match sources.get(&id) {
-            Some(source) => {
-                es_ok(json!({"_index":index,"_id":id,"found":true,"_source":source,"_version":1}))
-            }
-            None => es_response(
-                StatusCode::NOT_FOUND,
-                json!({"_index":index,"_id":id,"found":false}),
-            ),
-        });
-    }
-    let p = state
-        .qdrant
-        .request(
-            Method::GET,
-            &format!(
-                "/collections/{}/points/{}?with_payload=true",
-                coll,
-                point_id(&index, &id)
-            ),
-            None,
-        )
-        .await?;
-    let result = p.get("result").cloned().unwrap_or(Value::Null);
-    if result.is_null() {
-        return Ok(es_response(
+    Ok(match retrieve_source(&state, &index, &coll, &id).await? {
+        Some(source) => {
+            es_ok(json!({"_index":index,"_id":id,"found":true,"_source":source,"_version":1}))
+        }
+        None => es_response(
             StatusCode::NOT_FOUND,
             json!({"_index":index,"_id":id,"found":false}),
-        ));
-    }
-    Ok(es_ok(
-        json!({"_index":index,"_id":id,"found":true,"_source":result.get("payload").and_then(|p|p.get("_source")).cloned().unwrap_or_else(||json!({})),"_version":1}),
-    ))
+        ),
+    })
 }
 async fn head_doc(
     State(state): State<AppState>,
     Path((index, id)): Path<(String, String)>,
 ) -> Response {
-    let Ok((index, coll, _, _)) = get_index(&state, &index) else {
-        return StatusCode::NOT_FOUND.into_response();
+    let (index, coll, _, _) = match get_index(&state, &index) {
+        Ok(index) => index,
+        Err(error) => return es_empty_response(error.status()),
     };
-    if state.cfg.document_projection {
-        return match retrieve_sources(&state, &index, &[point_id(&index, &id)]).await {
-            Ok(sources) if sources.contains_key(&id) => StatusCode::OK.into_response(),
-            _ => StatusCode::NOT_FOUND.into_response(),
-        };
-    }
-    match state
-        .qdrant
-        .request(
-            Method::GET,
-            &format!(
-                "/collections/{}/points/{}?with_payload=false",
-                coll,
-                point_id(&index, &id)
-            ),
-            None,
-        )
-        .await
-    {
-        Ok(result) if !result.get("result").is_some_and(Value::is_null) => {
-            StatusCode::OK.into_response()
-        }
-        _ => StatusCode::NOT_FOUND.into_response(),
+    match document_exists(&state, &index, &coll, &id).await {
+        Ok(true) => es_empty_response(StatusCode::OK),
+        Ok(false) => es_empty_response(StatusCode::NOT_FOUND),
+        Err(error) => es_empty_response(error.status()),
     }
 }
 async fn delete_doc(
@@ -1174,7 +1204,7 @@ async fn update_doc(
 
 fn term_condition(field: &str, v: &Value) -> Value {
     let value = v.get("value").unwrap_or(v);
-    json!({"key":field,"match":{"value":value}})
+    json!({"key":compatibility_field(field),"match":{"value":value}})
 }
 type FilterResult = (Option<Value>, Vec<(String, String)>);
 
@@ -1202,15 +1232,15 @@ fn collect_patterns(q: &Value, patterns: &mut Vec<GatewayPattern>) -> Result<(),
                     .ok_or_else(|| GatewayError::bad(kind, "pattern must be a string"))?;
                 let pattern = match kind.as_str() {
                     "regexp" => GatewayPattern::Regex {
-                        field: field.clone(),
+                        field: compatibility_field(field).into(),
                         pattern: pattern.into(),
                     },
                     "prefix" => GatewayPattern::Prefix {
-                        field: field.clone(),
+                        field: compatibility_field(field).into(),
                         prefix: pattern.into(),
                     },
                     _ => GatewayPattern::Wildcard {
-                        field: field.clone(),
+                        field: compatibility_field(field).into(),
                         pattern: pattern.into(),
                     },
                 };
@@ -1261,8 +1291,12 @@ fn source_field<'a>(source: &'a Value, field: &str) -> Option<&'a Value> {
         .try_fold(source, |value, part| value.get(part))
 }
 
+fn compatibility_field(field: &str) -> &str {
+    field.strip_suffix(".keyword").unwrap_or(field)
+}
+
 fn sortable_source_field<'a>(source: &'a Value, field: &str) -> Option<&'a Value> {
-    source_field(source, field.strip_suffix(".keyword").unwrap_or(field))
+    source_field(source, compatibility_field(field))
 }
 
 fn source_value_exists(source: &Value, field: &str) -> bool {
@@ -1271,6 +1305,185 @@ fn source_value_exists(source: &Value, field: &str) -> bool {
         Value::Array(values) => values.iter().any(|value| !value.is_null()),
         _ => true,
     })
+}
+
+fn source_value_matches(value: &Value, predicate: &impl Fn(&Value) -> bool) -> bool {
+    match value {
+        Value::Array(values) => values
+            .iter()
+            .any(|value| source_value_matches(value, predicate)),
+        value => predicate(value),
+    }
+}
+
+fn single_filter_field<'a>(
+    value: &'a Value,
+    feature: &str,
+) -> Result<(&'a str, &'a Value), GatewayError> {
+    let fields = value
+        .as_object()
+        .ok_or_else(|| GatewayError::bad(feature, "filter body must be an object"))?;
+    if fields.len() != 1 {
+        return Err(GatewayError::bad(
+            feature,
+            "filter must contain exactly one field",
+        ));
+    }
+    let (field, value) = fields.iter().next().expect("one filter field");
+    if field.is_empty() {
+        return Err(GatewayError::bad(feature, "filter field must not be empty"));
+    }
+    Ok((field, value))
+}
+
+fn validate_post_filter(query: &Value) -> Result<(), GatewayError> {
+    fn validate(query: &Value, feature: &str) -> Result<(), GatewayError> {
+        let clauses = query
+            .as_object()
+            .ok_or_else(|| GatewayError::bad(feature, "filter clause must be an object"))?;
+        if clauses.len() != 1 {
+            return Err(GatewayError::bad(
+                feature,
+                "filter clause must contain exactly one query type",
+            ));
+        }
+        let (kind, value) = clauses.iter().next().expect("one filter clause");
+        match kind.as_str() {
+            "match_all" => {
+                if !value.is_object() {
+                    return Err(GatewayError::bad(
+                        format!("{feature}.match_all"),
+                        "match_all body must be an object",
+                    ));
+                }
+            }
+            "term" => {
+                let (_, expected) = single_filter_field(value, &format!("{feature}.term"))?;
+                if expected.is_array() || expected.is_null() {
+                    return Err(GatewayError::bad(
+                        format!("{feature}.term"),
+                        "term value must be a scalar or an options object",
+                    ));
+                }
+                if let Some(options) = expected.as_object() {
+                    if options.get("value").is_none()
+                        || options.keys().any(|key| key != "value" && key != "boost")
+                        || options.get("boost").is_some_and(|boost| !boost.is_number())
+                    {
+                        return Err(GatewayError::bad(
+                            format!("{feature}.term"),
+                            "term options require value and support only a numeric boost",
+                        ));
+                    }
+                }
+            }
+            "terms" => {
+                let (_, values) = single_filter_field(value, &format!("{feature}.terms"))?;
+                if !values.is_array() {
+                    return Err(GatewayError::bad(
+                        format!("{feature}.terms"),
+                        "terms value must be an array",
+                    ));
+                }
+            }
+            "range" => {
+                let (_, bounds) = single_filter_field(value, &format!("{feature}.range"))?;
+                let bounds = bounds.as_object().ok_or_else(|| {
+                    GatewayError::bad(format!("{feature}.range"), "range body must be an object")
+                })?;
+                for (operator, value) in bounds {
+                    match operator.as_str() {
+                        "gt" | "gte" | "lt" | "lte" | "from" | "to" if value.is_number() => {}
+                        "include_lower" | "include_upper" if value.is_boolean() => {}
+                        "boost" if value.is_number() => {}
+                        "gt" | "gte" | "lt" | "lte" | "from" | "to" => {
+                            return Err(GatewayError::bad(
+                                format!("{feature}.range.{operator}"),
+                                "post_filter range bounds must be numeric",
+                            ));
+                        }
+                        "include_lower" | "include_upper" | "boost" => {
+                            return Err(GatewayError::bad(
+                                format!("{feature}.range.{operator}"),
+                                "invalid range option value",
+                            ));
+                        }
+                        _ => {
+                            return Err(GatewayError::bad(
+                                format!("{feature}.range.{operator}"),
+                                "unsupported range operator",
+                            ));
+                        }
+                    }
+                }
+            }
+            "exists" => {
+                let options = value.as_object().ok_or_else(|| {
+                    GatewayError::bad(format!("{feature}.exists"), "exists body must be an object")
+                })?;
+                if options.len() != 1
+                    || options
+                        .get("field")
+                        .and_then(Value::as_str)
+                        .is_none_or(str::is_empty)
+                {
+                    return Err(GatewayError::bad(
+                        format!("{feature}.exists"),
+                        "exists requires exactly one non-empty field",
+                    ));
+                }
+            }
+            "bool" => {
+                let bool_query = value.as_object().ok_or_else(|| {
+                    GatewayError::bad(format!("{feature}.bool"), "bool filter must be an object")
+                })?;
+                for (key, clauses) in bool_query {
+                    match key.as_str() {
+                        "must" | "filter" | "must_not" | "should" => {
+                            if let Some(clauses) = clauses.as_array() {
+                                for clause in clauses {
+                                    validate(clause, &format!("{feature}.bool.{key}"))?;
+                                }
+                            } else {
+                                validate(clauses, &format!("{feature}.bool.{key}"))?;
+                            }
+                        }
+                        "minimum_should_match" => {
+                            let supported = clauses.as_u64().is_some()
+                                || clauses.as_str().is_some_and(|value| {
+                                    value.parse::<u64>().is_ok()
+                                        || value
+                                            .strip_suffix('%')
+                                            .and_then(|percent| percent.parse::<u64>().ok())
+                                            .is_some_and(|percent| percent <= 100)
+                                });
+                            if !supported {
+                                return Err(GatewayError::bad(
+                                    format!("{feature}.bool.minimum_should_match"),
+                                    "minimum_should_match must be a non-negative integer or percentage from 0% to 100%",
+                                ));
+                            }
+                        }
+                        _ => {
+                            return Err(GatewayError::bad(
+                                format!("{feature}.bool.{key}"),
+                                "unsupported bool filter option",
+                            ));
+                        }
+                    }
+                }
+            }
+            _ => {
+                return Err(GatewayError::bad(
+                    format!("{feature}.{kind}"),
+                    format!("{kind} is not supported in post_filter"),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    validate(query, "post_filter")
 }
 
 fn bool_clauses<'a>(bool_query: &'a Map<String, Value>, key: &str) -> Vec<&'a Value> {
@@ -1314,19 +1527,12 @@ fn minimum_should_match(
 
 fn wildcard_regex(pattern: &str) -> Result<Regex, GatewayError> {
     let mut expression = String::from("^");
-    for piece in pattern.split('*') {
-        if !expression.ends_with('^') {
-            expression.push_str(".*");
+    for character in pattern.chars() {
+        match character {
+            '*' => expression.push_str(".*"),
+            '?' => expression.push('.'),
+            literal => expression.push_str(&regex::escape(&literal.to_string())),
         }
-        let mut escaped = String::new();
-        for c in piece.chars() {
-            if c == '?' {
-                escaped.push('.');
-            } else {
-                escaped.push_str(&regex::escape(&c.to_string()));
-            }
-        }
-        expression.push_str(&escaped);
     }
     expression.push('$');
     Regex::new(&expression).map_err(|e| GatewayError::Internal(e.to_string()))
@@ -1334,15 +1540,29 @@ fn wildcard_regex(pattern: &str) -> Result<Regex, GatewayError> {
 
 fn pattern_matches(source: &Value, pattern: &GatewayPattern) -> bool {
     match pattern {
-        GatewayPattern::Regex { field, pattern } => source_field(source, field)
-            .and_then(Value::as_str)
-            .is_some_and(|value| Regex::new(pattern).is_ok_and(|r| r.is_match(value))),
-        GatewayPattern::Prefix { field, prefix } => source_field(source, field)
-            .and_then(Value::as_str)
-            .is_some_and(|value| value.starts_with(prefix)),
-        GatewayPattern::Wildcard { field, pattern } => source_field(source, field)
-            .and_then(Value::as_str)
-            .is_some_and(|value| wildcard_regex(pattern).is_ok_and(|r| r.is_match(value))),
+        GatewayPattern::Regex { field, pattern } => Regex::new(pattern).is_ok_and(|regex| {
+            source_field(source, field).is_some_and(|value| {
+                source_value_matches(value, &|value| {
+                    value.as_str().is_some_and(|value| regex.is_match(value))
+                })
+            })
+        }),
+        GatewayPattern::Prefix { field, prefix } => {
+            source_field(source, field).is_some_and(|value| {
+                source_value_matches(value, &|value| {
+                    value
+                        .as_str()
+                        .is_some_and(|value| value.starts_with(prefix))
+                })
+            })
+        }
+        GatewayPattern::Wildcard { field, pattern } => wildcard_regex(pattern).is_ok_and(|regex| {
+            source_field(source, field).is_some_and(|value| {
+                source_value_matches(value, &|value| {
+                    value.as_str().is_some_and(|value| regex.is_match(value))
+                })
+            })
+        }),
     }
 }
 
@@ -1355,8 +1575,9 @@ fn source_matches_query(source: &Value, query: &Value) -> bool {
     }
     if let Some(term) = object.get("term").and_then(Value::as_object) {
         return term.iter().next().is_some_and(|(field, value)| {
-            source_field(source, field.strip_suffix(".keyword").unwrap_or(field))
-                .is_some_and(|actual| actual == value.get("value").unwrap_or(value))
+            let expected = value.get("value").unwrap_or(value);
+            source_field(source, compatibility_field(field))
+                .is_some_and(|actual| source_value_matches(actual, &|actual| actual == expected))
         });
     }
     if let Some(terms) = object.get("terms").and_then(Value::as_object) {
@@ -1364,27 +1585,32 @@ fn source_matches_query(source: &Value, query: &Value) -> bool {
             let Some(values) = values.as_array() else {
                 return false;
             };
-            source_field(source, field.strip_suffix(".keyword").unwrap_or(field))
-                .is_some_and(|actual| values.iter().any(|value| value == actual))
+            source_field(source, compatibility_field(field)).is_some_and(|actual| {
+                source_value_matches(actual, &|actual| values.iter().any(|value| value == actual))
+            })
         });
     }
     if let Some(range) = object.get("range").and_then(Value::as_object) {
         return range.iter().next().is_some_and(|(field, bounds)| {
-            let Some(actual) = source_field(source, field).and_then(Value::as_f64) else {
+            let Some(actual) = source_field(source, compatibility_field(field)) else {
                 return false;
             };
             bounds.as_object().is_some_and(|bounds| {
-                ["gt", "gte", "lt", "lte"].iter().all(|op| {
-                    match bounds.get(*op).and_then(Value::as_f64) {
-                        None => true,
-                        Some(bound) => match *op {
-                            "gt" => actual > bound,
-                            "gte" => actual >= bound,
-                            "lt" => actual < bound,
-                            "lte" => actual <= bound,
-                            _ => true,
-                        },
-                    }
+                source_value_matches(actual, &|actual| {
+                    actual.as_f64().is_some_and(|actual| {
+                        ["gt", "gte", "lt", "lte"].iter().all(|op| {
+                            match bounds.get(*op).and_then(Value::as_f64) {
+                                None => true,
+                                Some(bound) => match *op {
+                                    "gt" => actual > bound,
+                                    "gte" => actual >= bound,
+                                    "lt" => actual < bound,
+                                    "lte" => actual <= bound,
+                                    _ => true,
+                                },
+                            }
+                        })
+                    })
                 })
             })
         });
@@ -1393,7 +1619,7 @@ fn source_matches_query(source: &Value, query: &Value) -> bool {
         return exists
             .get("field")
             .and_then(Value::as_str)
-            .is_some_and(|field| source_value_exists(source, field));
+            .is_some_and(|field| source_value_exists(source, compatibility_field(field)));
     }
     if let Some(bool_query) = object.get("bool").and_then(Value::as_object) {
         let has_required_clause = !bool_clauses(bool_query, "must").is_empty()
@@ -1479,14 +1705,14 @@ fn query_filter(q: &Value) -> Result<FilterResult, GatewayError> {
                     let arr = val.as_array().ok_or_else(|| {
                         GatewayError::bad("terms", "terms value must be an array")
                     })?;
-                    must.push(json!({"key":f,"match":{"any":arr}}));
+                    must.push(json!({"key":compatibility_field(f),"match":{"any":arr}}));
                 }
                 "exists" => {
                     let f = v
                         .get("field")
                         .and_then(Value::as_str)
                         .ok_or_else(|| GatewayError::bad("exists", "exists requires field"))?;
-                    must.push(json!({"must_not":[{"is_empty":{"key":f}}]}));
+                    must.push(json!({"must_not":[{"is_empty":{"key":compatibility_field(f)}}]}));
                 }
                 "range" => {
                     let (f, r) = v
@@ -1533,7 +1759,7 @@ fn query_filter(q: &Value) -> Result<FilterResult, GatewayError> {
                         };
                         range.insert(op.into(), x.clone());
                     }
-                    must.push(json!({"key":f,"range":range}));
+                    must.push(json!({"key":compatibility_field(f),"range":range}));
                 }
                 "ids" => {
                     let vals = v
@@ -1780,49 +2006,179 @@ async fn expand_more_like_this(
     Ok(json!({"multi_match":{"query":text,"fields":fields}}))
 }
 
-fn project_source(source: &Value, spec: Option<&Value>) -> Option<Value> {
-    let Some(spec) = spec else {
-        return Some(source.clone());
-    };
-    if spec.as_bool() == Some(false) {
-        return None;
-    }
-    let object = source.as_object()?;
-    let (includes, excludes) = if let Some(fields) = spec.as_array() {
-        (
-            fields.iter().filter_map(Value::as_str).collect::<Vec<_>>(),
-            Vec::new(),
-        )
-    } else {
-        (
-            spec.get("includes")
-                .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(Value::as_str).collect())
-                .unwrap_or_default(),
-            spec.get("excludes")
-                .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(Value::as_str).collect())
-                .unwrap_or_default(),
-        )
-    };
-    if includes.is_empty() && excludes.is_empty() {
-        return Some(source.clone());
-    }
-    let mut result = Map::new();
-    for (key, value) in object {
-        let included = includes.is_empty()
-            || includes.iter().any(|field| {
-                *field == key
-                    || (*field).ends_with('*') && key.starts_with(&field[..field.len() - 1])
-            });
-        let excluded = excludes.iter().any(|field| {
-            *field == key || (*field).ends_with('*') && key.starts_with(&field[..field.len() - 1])
-        });
-        if included && !excluded {
-            result.insert(key.clone(), value.clone());
+#[derive(Clone)]
+struct SourceFilter {
+    enabled: bool,
+    includes: Vec<String>,
+    excludes: Vec<String>,
+}
+
+fn parse_source_filter(
+    spec: Option<&Value>,
+    feature: &str,
+) -> Result<Option<SourceFilter>, GatewayError> {
+    fn patterns(value: &Value, feature: &str) -> Result<Vec<String>, GatewayError> {
+        match value {
+            Value::String(pattern) => Ok(vec![pattern.clone()]),
+            Value::Array(patterns) if patterns.iter().all(|pattern| pattern.is_string()) => {
+                Ok(patterns
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect())
+            }
+            _ => Err(GatewayError::bad(
+                feature,
+                "source filters must be a string or an array of strings",
+            )),
         }
     }
-    Some(Value::Object(result))
+
+    let Some(spec) = spec else {
+        return Ok(None);
+    };
+    match spec {
+        Value::Bool(enabled) => Ok(Some(SourceFilter {
+            enabled: *enabled,
+            includes: Vec::new(),
+            excludes: Vec::new(),
+        })),
+        Value::String(_) | Value::Array(_) => Ok(Some(SourceFilter {
+            enabled: true,
+            includes: patterns(spec, feature)?,
+            excludes: Vec::new(),
+        })),
+        Value::Object(options) => {
+            if let Some(option) = options.keys().find(|option| {
+                !matches!(
+                    option.as_str(),
+                    "include" | "includes" | "exclude" | "excludes"
+                )
+            }) {
+                return Err(GatewayError::bad(
+                    format!("{feature}.{option}"),
+                    "unsupported source filter option",
+                ));
+            }
+            let mut includes = Vec::new();
+            for option in ["include", "includes"] {
+                if let Some(value) = options.get(option) {
+                    includes.extend(patterns(value, &format!("{feature}.{option}"))?);
+                }
+            }
+            let mut excludes = Vec::new();
+            for option in ["exclude", "excludes"] {
+                if let Some(value) = options.get(option) {
+                    excludes.extend(patterns(value, &format!("{feature}.{option}"))?);
+                }
+            }
+            Ok(Some(SourceFilter {
+                enabled: true,
+                includes,
+                excludes,
+            }))
+        }
+        _ => Err(GatewayError::bad(
+            feature,
+            "_source must be a boolean, string, array of strings, or includes/excludes object",
+        )),
+    }
+}
+
+fn glob_matches(pattern: &str, value: &str) -> bool {
+    let pattern = pattern.chars().collect::<Vec<_>>();
+    let value = value.chars().collect::<Vec<_>>();
+    let (mut pattern_index, mut value_index) = (0, 0);
+    let (mut star_index, mut star_value_index) = (None, 0);
+    while value_index < value.len() {
+        if pattern_index < pattern.len()
+            && (pattern[pattern_index] == '?' || pattern[pattern_index] == value[value_index])
+        {
+            pattern_index += 1;
+            value_index += 1;
+        } else if pattern_index < pattern.len() && pattern[pattern_index] == '*' {
+            star_index = Some(pattern_index);
+            pattern_index += 1;
+            star_value_index = value_index;
+        } else if let Some(star) = star_index {
+            pattern_index = star + 1;
+            star_value_index += 1;
+            value_index = star_value_index;
+        } else {
+            return false;
+        }
+    }
+    while pattern_index < pattern.len() && pattern[pattern_index] == '*' {
+        pattern_index += 1;
+    }
+    pattern_index == pattern.len()
+}
+
+fn project_source_value(value: &Value, path: &str, filter: &SourceFilter) -> Option<Value> {
+    let excluded = filter.excludes.iter().any(|pattern| {
+        glob_matches(pattern, path)
+            || (!pattern.contains('*')
+                && !pattern.contains('?')
+                && path.starts_with(&format!("{pattern}.")))
+    });
+    if excluded {
+        return None;
+    }
+    let explicitly_included = filter.includes.is_empty()
+        || filter.includes.iter().any(|pattern| {
+            glob_matches(pattern, path)
+                || (!pattern.contains('*')
+                    && !pattern.contains('?')
+                    && path.starts_with(&format!("{pattern}.")))
+        });
+    match value {
+        Value::Object(object) => {
+            let mut result = Map::new();
+            for (key, child) in object {
+                let child_path = if path.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{path}.{key}")
+                };
+                if let Some(projected) = project_source_value(child, &child_path, filter) {
+                    result.insert(key.clone(), projected);
+                }
+            }
+            (!result.is_empty() || path.is_empty() || (object.is_empty() && explicitly_included))
+                .then_some(Value::Object(result))
+        }
+        Value::Array(values) => {
+            let projected = values
+                .iter()
+                .filter_map(|value| project_source_value(value, path, filter))
+                .collect::<Vec<_>>();
+            (!projected.is_empty() || (values.is_empty() && explicitly_included))
+                .then_some(Value::Array(projected))
+        }
+        _ => explicitly_included.then(|| value.clone()),
+    }
+}
+
+fn project_source(source: &Value, filter: Option<&SourceFilter>) -> Option<Value> {
+    let Some(filter) = filter else {
+        return Some(source.clone());
+    };
+    if !filter.enabled {
+        return None;
+    }
+    project_source_value(source, "", filter)
+}
+
+fn apply_source_projection(hit: &mut Value, filter: Option<&SourceFilter>) {
+    let current = hit.get("_source").cloned().unwrap_or_else(|| json!({}));
+    match project_source(&current, filter) {
+        Some(projected) => hit["_source"] = projected,
+        None => {
+            hit.as_object_mut()
+                .expect("search hit is an object")
+                .remove("_source");
+        }
+    }
 }
 
 fn words(value: &str) -> Vec<String> {
@@ -1833,7 +2189,7 @@ fn words(value: &str) -> Vec<String> {
 }
 
 fn field_text(source: &Value, field: &str) -> String {
-    source_field(source, field.strip_suffix(".keyword").unwrap_or(field))
+    source_field(source, compatibility_field(field))
         .map(|value| match value {
             Value::String(text) => text.clone(),
             Value::Array(values) => values
@@ -2008,12 +2364,364 @@ fn value_cmp(left: &Value, right: &Value) -> std::cmp::Ordering {
     }
 }
 
+fn parse_sort_specs(sort: Option<&Value>) -> Result<Vec<(String, String)>, GatewayError> {
+    let Some(sort) = sort else {
+        return Ok(Vec::new());
+    };
+    let clauses = match sort {
+        Value::Array(clauses) => clauses.iter().collect::<Vec<_>>(),
+        clause => vec![clause],
+    };
+    clauses
+        .into_iter()
+        .map(|clause| {
+            let (field, options) = match clause {
+                Value::String(field) if !field.is_empty() => (field.clone(), None),
+                Value::Object(object) if object.len() == 1 => {
+                    let (field, options) = object.iter().next().expect("one sort field");
+                    if field.is_empty() {
+                        return Err(GatewayError::bad("sort", "sort field must not be empty"));
+                    }
+                    (field.clone(), Some(options))
+                }
+                _ => {
+                    return Err(GatewayError::bad(
+                        "sort",
+                        "each sort clause must be a field name or a single-field object",
+                    ))
+                }
+            };
+            let default_order = if field == "_score" { "desc" } else { "asc" };
+            let order = match options {
+                None => default_order,
+                Some(Value::String(order)) => order,
+                Some(Value::Object(options)) => {
+                    if options.keys().any(|key| key != "order") {
+                        return Err(GatewayError::bad(
+                            "sort",
+                            "only the basic sort order option is supported",
+                        ));
+                    }
+                    options
+                        .get("order")
+                        .map(|order| {
+                            order.as_str().ok_or_else(|| {
+                                GatewayError::bad("sort", "sort order must be asc or desc")
+                            })
+                        })
+                        .transpose()?
+                        .unwrap_or(default_order)
+                }
+                _ => return Err(GatewayError::bad("sort", "sort order must be asc or desc")),
+            };
+            if order != "asc" && order != "desc" {
+                return Err(GatewayError::bad("sort", "sort order must be asc or desc"));
+            }
+            Ok((field, order.to_string()))
+        })
+        .collect()
+}
+
+fn parse_search_window(body: &Value, max_page_size: u64) -> Result<(u64, u64), GatewayError> {
+    fn non_negative_integer(
+        body: &Value,
+        field: &'static str,
+        default: u64,
+    ) -> Result<u64, GatewayError> {
+        match body.get(field) {
+            None => Ok(default),
+            Some(value) => value.as_u64().ok_or_else(|| {
+                GatewayError::bad(field, format!("{field} must be a non-negative integer"))
+            }),
+        }
+    }
+
+    let from = non_negative_integer(body, "from", 0)?;
+    let size = non_negative_integer(body, "size", 10_u64.min(max_page_size))?;
+    if size > max_page_size {
+        return Err(GatewayError::bad(
+            "size",
+            format!("size is capped at {max_page_size} by MAX_PAGE_SIZE"),
+        ));
+    }
+    if from.checked_add(size).is_none_or(|window| window > 10_000) {
+        return Err(GatewayError::bad(
+            "from",
+            "from + size is capped at 10000; use search_after for later pages",
+        ));
+    }
+    Ok((from, size))
+}
+
+fn validate_search_after(
+    body: &Value,
+    sort_specs: &[(String, String)],
+    from: u64,
+) -> Result<(), GatewayError> {
+    let Some(cursor) = body.get("search_after") else {
+        return Ok(());
+    };
+    let cursor = cursor.as_array().ok_or_else(|| {
+        GatewayError::bad(
+            "search_after",
+            "search_after must be an array of sort values",
+        )
+    })?;
+    if sort_specs.is_empty() || cursor.len() != sort_specs.len() {
+        return Err(GatewayError::bad(
+            "search_after",
+            "search_after must contain one value for every sort field",
+        ));
+    }
+    if from != 0 {
+        return Err(GatewayError::bad(
+            "search_after",
+            "search_after cannot be combined with a non-zero from offset",
+        ));
+    }
+    if cursor
+        .iter()
+        .any(|value| value.is_array() || value.is_object())
+    {
+        return Err(GatewayError::bad(
+            "search_after",
+            "search_after values must be strings, numbers, booleans, or null",
+        ));
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TrackTotalHits {
+    Enabled,
+    Disabled,
+    Threshold(u64),
+}
+
+fn parse_track_total_hits(body: &Value) -> Result<TrackTotalHits, GatewayError> {
+    match body.get("track_total_hits") {
+        None | Some(Value::Bool(true)) => Ok(TrackTotalHits::Enabled),
+        Some(Value::Bool(false)) => Ok(TrackTotalHits::Disabled),
+        Some(value) => value
+            .as_u64()
+            .map(TrackTotalHits::Threshold)
+            .ok_or_else(|| {
+                GatewayError::bad(
+                    "track_total_hits",
+                    "track_total_hits must be true, false, or a non-negative integer",
+                )
+            }),
+    }
+}
+
+fn total_hits_value(
+    mode: TrackTotalHits,
+    total: u64,
+    exact: bool,
+    rest_total_hits_as_int: bool,
+) -> Option<Value> {
+    if rest_total_hits_as_int {
+        return Some(match mode {
+            TrackTotalHits::Disabled => json!(-1),
+            TrackTotalHits::Enabled | TrackTotalHits::Threshold(_) => json!(total),
+        });
+    }
+    match mode {
+        TrackTotalHits::Disabled => None,
+        TrackTotalHits::Enabled => Some(json!({
+            "value": total,
+            "relation": if exact { "eq" } else { "gte" },
+        })),
+        TrackTotalHits::Threshold(threshold) => Some(json!({
+            "value": total.min(threshold),
+            "relation": if exact && total <= threshold { "eq" } else { "gte" },
+        })),
+    }
+}
+
+fn parse_rest_total_hits_as_int(query: Option<&str>) -> Result<bool, GatewayError> {
+    let mut enabled = false;
+    for parameter in query.unwrap_or_default().split('&') {
+        let (name, value) = parameter.split_once('=').unwrap_or((parameter, ""));
+        if name != "rest_total_hits_as_int" {
+            continue;
+        }
+        let value = percent_decode_str(value).decode_utf8().map_err(|_| {
+            GatewayError::bad(
+                "rest_total_hits_as_int",
+                "rest_total_hits_as_int must be true or false",
+            )
+        })?;
+        enabled = match value.as_ref() {
+            "" | "true" => true,
+            "false" => false,
+            _ => {
+                return Err(GatewayError::bad(
+                    "rest_total_hits_as_int",
+                    "rest_total_hits_as_int must be true or false",
+                ))
+            }
+        };
+    }
+    Ok(enabled)
+}
+
+#[derive(Clone)]
+struct InnerHitsSpec {
+    name: String,
+    size: usize,
+    source: Option<SourceFilter>,
+}
+
+#[derive(Clone)]
+struct CollapseSpec {
+    field: String,
+    inner_hits: Option<InnerHitsSpec>,
+}
+
+fn parse_collapse_spec(
+    collapse: Option<&Value>,
+    max_page_size: u64,
+) -> Result<Option<CollapseSpec>, GatewayError> {
+    let Some(collapse) = collapse else {
+        return Ok(None);
+    };
+    let collapse = collapse
+        .as_object()
+        .ok_or_else(|| GatewayError::bad("collapse", "collapse must be an object"))?;
+    if let Some(option) = collapse
+        .keys()
+        .find(|key| *key != "field" && *key != "inner_hits")
+    {
+        return Err(GatewayError::bad(
+            format!("collapse.{option}"),
+            "unsupported collapse option",
+        ));
+    }
+    let requested_field = collapse
+        .get("field")
+        .and_then(Value::as_str)
+        .filter(|field| !field.is_empty())
+        .ok_or_else(|| GatewayError::bad("collapse.field", "collapse requires a field"))?;
+    let field = compatibility_field(requested_field).to_string();
+    let inner_hits = collapse
+        .get("inner_hits")
+        .map(|inner_hits| {
+            let inner_hits = inner_hits.as_object().ok_or_else(|| {
+                GatewayError::bad("collapse.inner_hits", "inner_hits must be an object")
+            })?;
+            if let Some(option) = inner_hits
+                .keys()
+                .find(|key| !matches!(key.as_str(), "name" | "size" | "fields" | "_source"))
+            {
+                return Err(GatewayError::bad(
+                    format!("collapse.inner_hits.{option}"),
+                    "unsupported inner_hits option",
+                ));
+            }
+            let name = match inner_hits.get("name") {
+                None => requested_field.to_string(),
+                Some(name) => name
+                    .as_str()
+                    .filter(|name| !name.is_empty())
+                    .ok_or_else(|| {
+                        GatewayError::bad(
+                            "collapse.inner_hits.name",
+                            "inner_hits name must be a non-empty string",
+                        )
+                    })?
+                    .to_string(),
+            };
+            let size = match inner_hits.get("size") {
+                None => 3,
+                Some(size) => size.as_u64().ok_or_else(|| {
+                    GatewayError::bad(
+                        "collapse.inner_hits.size",
+                        "inner_hits size must be a non-negative integer",
+                    )
+                })?,
+            };
+            if size > max_page_size {
+                return Err(GatewayError::bad(
+                    "collapse.inner_hits.size",
+                    format!("inner_hits size is capped at {max_page_size} by MAX_PAGE_SIZE"),
+                ));
+            }
+            if let Some(fields) = inner_hits.get("fields") {
+                let valid = fields
+                    .as_array()
+                    .is_some_and(|fields| fields.iter().all(|field| field.as_str() == Some("_id")));
+                if !valid {
+                    return Err(GatewayError::bad(
+                        "collapse.inner_hits.fields",
+                        "only the _id metadata field is supported in inner_hits",
+                    ));
+                }
+            }
+            Ok(InnerHitsSpec {
+                name,
+                size: size as usize,
+                source: parse_source_filter(
+                    inner_hits.get("_source"),
+                    "collapse.inner_hits._source",
+                )?,
+            })
+        })
+        .transpose()?;
+    Ok(Some(CollapseSpec { field, inner_hits }))
+}
+
+fn hit_sort_value(hit: &Value, field: &str) -> Value {
+    match field {
+        "_score" => hit.get("_score").cloned().unwrap_or(Value::Null),
+        "_id" => hit.get("_id").cloned().unwrap_or(Value::Null),
+        _ => hit
+            .get("_source")
+            .and_then(|source| sortable_source_field(source, field))
+            .cloned()
+            .unwrap_or(Value::Null),
+    }
+}
+
 async fn search(
     State(state): State<AppState>,
     Path(index): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Response, GatewayError> {
+    search_with_total_format(State(state), Path(index), Json(body), false).await
+}
+
+async fn search_with_total_format(
+    State(state): State<AppState>,
+    Path(index): Path<String>,
+    Json(body): Json<Value>,
+    rest_total_hits_as_int: bool,
+) -> Result<Response, GatewayError> {
     let started = Instant::now();
+    if let Some(post_filter) = body.get("post_filter") {
+        validate_post_filter(post_filter)?;
+    }
+    let (from, size) = parse_search_window(&body, state.cfg.max_page_size)?;
+    let sort_specs = parse_sort_specs(body.get("sort"))?;
+    validate_search_after(&body, &sort_specs, from)?;
+    let track_total_hits = parse_track_total_hits(&body)?;
+    if rest_total_hits_as_int && matches!(track_total_hits, TrackTotalHits::Threshold(_)) {
+        return Err(GatewayError::bad(
+            "rest_total_hits_as_int",
+            "rest_total_hits_as_int cannot be combined with a numeric track_total_hits threshold",
+        ));
+    }
+    let source_filter = parse_source_filter(body.get("_source"), "_source")?;
+    // Field sorting happens after Qdrant returns candidates. Fetching only the
+    // requested page makes both the first sorted page and every search_after
+    // page depend on Qdrant's unrelated point order. Keep that local ordering
+    // bounded by the operator's existing page-size limit.
+    let candidate_limit = if sort_specs.is_empty() || size == 0 {
+        (from + size).max(1)
+    } else {
+        (from + size).max(state.cfg.max_page_size).max(1)
+    };
+    let collapse_spec = parse_collapse_spec(body.get("collapse"), state.cfg.max_page_size)?;
     let (index, coll, _, vectors) = get_index(&state, &index)?;
     let mut query = body
         .get("query")
@@ -2026,18 +2734,15 @@ async fn search(
     let text = pick_text(&query);
     let has_text = text.is_some();
     let approximate_text = contains_approx_text_query(&query);
-    let from = body.get("from").and_then(Value::as_u64).unwrap_or(0);
-    let size = body
-        .get("size")
-        .and_then(Value::as_u64)
-        .unwrap_or(10)
-        .min(state.cfg.max_page_size);
-    if from > 10000 {
-        return Err(GatewayError::bad(
-            "from",
-            "deep pagination is capped at 10000; use search_after in a future release",
-        ));
-    }
+    let exact_total = if track_total_hits != TrackTotalHits::Disabled
+        && !has_text
+        && patterns.is_empty()
+        && body.get("post_filter").is_none()
+    {
+        Some(qdrant_exact_count(&state, &coll, filter.as_ref()).await?)
+    } else {
+        None
+    };
     let mut hits: Vec<Value> = Vec::new();
     if approximate_text {
         let scan_collection = if state.cfg.document_projection {
@@ -2098,7 +2803,7 @@ async fn search(
                 return None;
             }
             let payload_fields = if state.cfg.document_projection && patterns.is_empty() { json!(["_es_id"]) } else { json!(["_es_id","_source"]) };
-            let mut req = json!({"query":{"text":text,"model":"qdrant/bm25"},"using":vecname,"limit":(from+size).max(1),"with_payload":{"include":payload_fields}});
+            let mut req = json!({"query":{"text":text,"model":"qdrant/bm25"},"using":vecname,"limit":candidate_limit,"with_payload":{"include":payload_fields}});
             if let Some(f) = &filter {
                 req["filter"] = f.clone();
             }
@@ -2130,7 +2835,7 @@ async fn search(
             // Qdrant requires a positive scroll limit, while Elasticsearch
             // commonly uses size: 0 for aggregation-only searches. Fetch one
             // candidate for bookkeeping and keep the requested page empty.
-            let mut req = json!({"limit":if patterns.is_empty() { (from + size).max(1) } else { state.cfg.max_page_size },"with_payload":{"include":payload_fields}});
+            let mut req = json!({"limit":if patterns.is_empty() { candidate_limit } else { state.cfg.max_page_size },"with_payload":{"include":payload_fields}});
             if let Some(f) = &filter {
                 req["filter"] = f.clone();
             }
@@ -2227,46 +2932,32 @@ async fn search(
                 .all(|pattern| pattern_matches(&source, pattern))
         });
     }
+    // Elasticsearch applies post_filter, collapse, and search_after only to
+    // hits. Preserve the query-matched candidate window for gateway-computed
+    // aggregations before those hit-only transformations run.
+    let aggregation_hits = body
+        .get("aggs")
+        .or_else(|| body.get("aggregations"))
+        .and_then(Value::as_object)
+        .filter(|aggregations| {
+            aggregations
+                .values()
+                .any(|aggregation| aggregation.get("terms").is_none())
+        })
+        .map(|_| hits.clone());
     if let Some(post_filter) = body.get("post_filter") {
         hits.retain(|hit| {
             hit.get("_source")
                 .is_some_and(|source| source_matches_query(source, post_filter))
         });
     }
-    let sort_specs = body
-        .get("sort")
-        .and_then(Value::as_array)
-        .map(|sort| {
-            sort.iter()
-                .map(|s| {
-                    s.as_object()
-                        .and_then(|o| o.iter().next())
-                        .map(|(field, value)| {
-                            (field.clone(), value.as_str().unwrap_or("asc").to_string())
-                        })
-                        .unwrap_or(("_score".into(), "desc".into()))
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    if let Some(sort) = body.get("sort").and_then(Value::as_array) {
-        for s in sort.iter().rev() {
-            let (field, dir) = s
-                .as_object()
-                .and_then(|o| o.iter().next())
-                .map(|(k, v)| (k.clone(), v.as_str().unwrap_or("asc").to_string()))
-                .unwrap_or(("_score".into(), "desc".into()));
+    let total = exact_total.unwrap_or(hits.len() as u64);
+    let total_is_exact = exact_total.is_some() || approximate_text || !patterns.is_empty();
+    if !sort_specs.is_empty() {
+        for (field, dir) in sort_specs.iter().rev() {
             hits.sort_by(|a, b| {
-                let av = a
-                    .get("_source")
-                    .and_then(|x| sortable_source_field(x, &field))
-                    .cloned()
-                    .unwrap_or(Value::Null);
-                let bv = b
-                    .get("_source")
-                    .and_then(|x| sortable_source_field(x, &field))
-                    .cloned()
-                    .unwrap_or(Value::Null);
+                let av = hit_sort_value(a, field);
+                let bv = hit_sort_value(b, field);
                 let ord = value_cmp(&av, &bv);
                 if dir == "desc" {
                     ord.reverse()
@@ -2284,19 +2975,12 @@ async fn search(
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
     }
-    if let Some(collapse) = body.get("collapse") {
-        let requested_field = collapse
-            .get("field")
-            .and_then(Value::as_str)
-            .ok_or_else(|| GatewayError::bad("collapse.field", "collapse requires field"))?;
-        let field = requested_field
-            .strip_suffix(".keyword")
-            .unwrap_or(requested_field);
+    if let Some(collapse) = &collapse_spec {
         let mut groups: Vec<(String, Vec<Value>)> = Vec::new();
         for hit in hits {
             let key = hit
                 .get("_source")
-                .and_then(|source| source_field(source, field))
+                .and_then(|source| source_field(source, &collapse.field))
                 .map(ToString::to_string)
                 .unwrap_or_else(|| "null".into());
             if let Some((_, group)) = groups.iter_mut().find(|(group_key, _)| group_key == &key) {
@@ -2309,43 +2993,29 @@ async fn search(
             .into_iter()
             .map(|(_, group)| {
                 let mut primary = group[0].clone();
-                if let Some(inner) = collapse.get("inner_hits").and_then(Value::as_object) {
-                    let mut inner_hits = Map::new();
-                    for (name, spec) in inner {
-                        let requested_size = spec.get("size").and_then(Value::as_u64).unwrap_or(3) as usize;
-                        let selected = group.iter().take(requested_size).cloned().collect::<Vec<_>>();
-                        inner_hits.insert(name.clone(), json!({"hits":{"total":{"value":group.len(),"relation":"eq"},"max_score":selected.iter().filter_map(|hit| hit.get("_score").and_then(Value::as_f64)).fold(0.0,f64::max),"hits":selected}}));
+                if let Some(inner) = &collapse.inner_hits {
+                    let mut selected = group
+                        .iter()
+                        .take(inner.size)
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    for hit in &mut selected {
+                        apply_source_projection(hit, inner.source.as_ref());
                     }
-                    primary["inner_hits"] = Value::Object(inner_hits);
+                    primary["inner_hits"][&inner.name] = json!({"hits":{"total":{"value":group.len(),"relation":"eq"},"max_score":selected.iter().filter_map(|hit| hit.get("_score").and_then(Value::as_f64)).fold(0.0,f64::max),"hits":selected}});
                 }
                 primary
             })
             .collect();
     }
-    let total = hits.len();
     if let Some(cursor) = body.get("search_after").and_then(Value::as_array) {
-        if sort_specs.is_empty() || cursor.len() != sort_specs.len() {
-            return Err(GatewayError::bad(
-                "search_after",
-                "search_after must contain one value for every sort field",
-            ));
-        }
         let mut after = false;
         hits.retain(|hit| {
             if after {
                 return true;
             }
             for ((field, direction), cursor_value) in sort_specs.iter().zip(cursor) {
-                let hit_value = if field == "_score" {
-                    hit.get("_score").cloned().unwrap_or(Value::Null)
-                } else if field == "_id" {
-                    hit.get("_id").cloned().unwrap_or(Value::Null)
-                } else {
-                    hit.get("_source")
-                        .and_then(|source| sortable_source_field(source, field))
-                        .cloned()
-                        .unwrap_or(Value::Null)
-                };
+                let hit_value = hit_sort_value(hit, field);
                 let ordering = value_cmp(&hit_value, cursor_value);
                 if ordering == std::cmp::Ordering::Equal {
                     continue;
@@ -2367,40 +3037,29 @@ async fn search(
         .skip(from as usize)
         .take(size as usize)
         .collect::<Vec<_>>();
-    let source = body.get("_source");
     let page = page
         .into_iter()
         .map(|mut h| {
-            let current = h.get("_source").cloned().unwrap_or_else(|| json!({}));
             if !sort_specs.is_empty() {
                 let values = sort_specs
                     .iter()
-                    .map(|(field, _)| {
-                        if field == "_score" {
-                            h.get("_score").cloned().unwrap_or(Value::Null)
-                        } else if field == "_id" {
-                            h.get("_id").cloned().unwrap_or(Value::Null)
-                        } else {
-                            sortable_source_field(&current, field)
-                                .cloned()
-                                .unwrap_or(Value::Null)
-                        }
-                    })
+                    .map(|(field, _)| hit_sort_value(&h, field))
                     .collect::<Vec<_>>();
                 h["sort"] = Value::Array(values);
             }
-            match project_source(&current, source) {
-                Some(projected) => {
-                    h["_source"] = projected;
-                }
-                None => {
-                    h.as_object_mut().unwrap().remove("_source");
-                }
-            }
+            apply_source_projection(&mut h, source_filter.as_ref());
             h
         })
         .collect::<Vec<_>>();
-    let mut response = json!({"took":started.elapsed().as_millis(),"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},"hits":{"total":{"value":total,"relation":"eq"},"max_score":page.iter().filter_map(|h|h.get("_score").and_then(Value::as_f64)).fold(0.0,f64::max),"hits":page}});
+    let mut response = json!({"took":started.elapsed().as_millis(),"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},"hits":{"max_score":page.iter().filter_map(|h|h.get("_score").and_then(Value::as_f64)).fold(0.0,f64::max),"hits":page}});
+    if let Some(total) = total_hits_value(
+        track_total_hits,
+        total,
+        total_is_exact,
+        rest_total_hits_as_int,
+    ) {
+        response["hits"]["total"] = total;
+    }
     if let Some(aggs) = body.get("aggs").or_else(|| body.get("aggregations")) {
         let output = response.as_object_mut().unwrap();
         let mut agg_result = Map::new();
@@ -2436,13 +3095,16 @@ async fn search(
                 let buckets = facet.get("result").and_then(|r| r.get("hits")).and_then(Value::as_array).cloned().unwrap_or_default().into_iter().map(|h| json!({"key":h.get("value").cloned().unwrap_or(Value::Null),"doc_count":h.get("count").cloned().unwrap_or(json!(0))})).collect::<Vec<_>>();
                 agg_result.insert(name.clone(), json!({"doc_count_error_upper_bound":0,"sum_other_doc_count":0,"buckets":buckets}));
             } else if let Some(metric) = spec.get("min").or_else(|| spec.get("max")) {
+                let aggregation_hits = aggregation_hits
+                    .as_ref()
+                    .expect("gateway-computed aggregations retain candidates");
                 let field = metric.get("field").and_then(Value::as_str).ok_or_else(|| {
                     GatewayError::bad(
                         format!("aggs.{name}.metric.field"),
                         "metric aggregation requires field",
                     )
                 })?;
-                let mut values = hits
+                let mut values = aggregation_hits
                     .iter()
                     .filter_map(|hit| {
                         hit.get("_source")
@@ -2462,9 +3124,12 @@ async fn search(
                 .and_then(|v| v.get("filters"))
                 .and_then(Value::as_object)
             {
+                let aggregation_hits = aggregation_hits
+                    .as_ref()
+                    .expect("gateway-computed aggregations retain candidates");
                 let mut buckets = Map::new();
                 for (key, filter_query) in filters {
-                    let count = hits
+                    let count = aggregation_hits
                         .iter()
                         .filter(|hit| {
                             hit.get("_source")
@@ -2475,7 +3140,10 @@ async fn search(
                 }
                 agg_result.insert(name.clone(), json!({"buckets":buckets}));
             } else if let Some(filter_query) = spec.get("filter") {
-                let count = hits
+                let aggregation_hits = aggregation_hits
+                    .as_ref()
+                    .expect("gateway-computed aggregations retain candidates");
+                let count = aggregation_hits
                     .iter()
                     .filter(|hit| {
                         hit.get("_source")
@@ -2501,10 +3169,11 @@ async fn search(
     Ok(es_ok(response))
 }
 
-async fn msearch(
+async fn msearch_with_total_format(
     State(state): State<AppState>,
     default_index: Option<String>,
     body: String,
+    rest_total_hits_as_int: bool,
 ) -> Result<Response, GatewayError> {
     let lines = body
         .lines()
@@ -2528,7 +3197,14 @@ async fn msearch(
             .map(str::to_owned)
             .or_else(|| default_index.clone())
             .ok_or_else(|| GatewayError::bad("_msearch.header.index", "an index is required"))?;
-        let result = match search(State(state.clone()), Path(index), Json(query)).await {
+        let result = match search_with_total_format(
+            State(state.clone()),
+            Path(index),
+            Json(query),
+            rest_total_hits_as_int,
+        )
+        .await
+        {
             Ok(response) => response,
             Err(error) => error.into_response(),
         };
@@ -2560,29 +3236,16 @@ async fn count(
     collect_patterns(&query, &mut patterns)?;
     if pick_text(&query).is_none() && patterns.is_empty() {
         let (filter, _) = query_filter(&query)?;
-        let mut request = json!({"exact":true});
-        if let Some(filter) = filter {
-            request["filter"] = filter;
-        }
-        let result = state
-            .qdrant
-            .request(
-                Method::POST,
-                &format!("/collections/{coll}/points/count"),
-                Some(request),
-            )
-            .await?;
-        let count = result
-            .get("result")
-            .and_then(|r| r.get("count"))
-            .cloned()
-            .unwrap_or_else(|| json!(0));
+        let count = qdrant_exact_count(&state, &coll, filter.as_ref()).await?;
         return Ok(es_ok(
             json!({"count":count,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0}}),
         ));
     }
     let mut b = body;
-    b["size"] = json!(10000);
+    // Pattern and approximate-text searches compute their total before paging,
+    // so count does not need to build an otherwise unused hit page.
+    b["from"] = json!(0);
+    b["size"] = json!(0);
     let r = search(State(state), Path(index), Json(b)).await?;
     let bytes = axum::body::to_bytes(r.into_body(), usize::MAX)
         .await
@@ -2592,6 +3255,30 @@ async fn count(
     Ok(es_ok(
         json!({"count":v.get("hits").and_then(|h|h.get("total")).and_then(|t|t.get("value")).cloned().unwrap_or(json!(0)),"_shards":{"total":1,"successful":1,"skipped":0,"failed":0}}),
     ))
+}
+
+async fn qdrant_exact_count(
+    state: &AppState,
+    collection: &str,
+    filter: Option<&Value>,
+) -> Result<u64, GatewayError> {
+    let mut request = json!({"exact":true});
+    if let Some(filter) = filter {
+        request["filter"] = filter.clone();
+    }
+    let response = state
+        .qdrant
+        .request(
+            Method::POST,
+            &format!("/collections/{collection}/points/count"),
+            Some(request),
+        )
+        .await?;
+    response
+        .get("result")
+        .and_then(|result| result.get("count"))
+        .and_then(Value::as_u64)
+        .ok_or_else(|| GatewayError::upstream("Qdrant count response did not contain result.count"))
 }
 
 fn bulk_response_has_errors(items: &[Value]) -> bool {
@@ -2861,6 +3548,59 @@ async fn aliases(
         }
     }
 
+    let affected_aliases = actions
+        .iter()
+        .map(|action| match action {
+            AliasAction::Add { alias, .. } | AliasAction::Remove { alias, .. } => alias.clone(),
+        })
+        .collect::<HashSet<_>>();
+    let mut final_targets = {
+        let db = state
+            .db
+            .lock()
+            .map_err(|e| GatewayError::Internal(e.to_string()))?;
+        let mut targets = HashMap::<String, HashSet<String>>::new();
+        for alias in affected_aliases {
+            let current = db
+                .query_row(
+                    "SELECT index_name FROM aliases WHERE alias=?1",
+                    params![&alias],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(|e| GatewayError::Internal(e.to_string()))?;
+            let mut alias_targets = HashSet::new();
+            if let Some(index) = current {
+                alias_targets.insert(index);
+            }
+            targets.insert(alias, alias_targets);
+        }
+        targets
+    };
+    for action in &actions {
+        match action {
+            AliasAction::Add { alias, index } => {
+                final_targets
+                    .entry(alias.clone())
+                    .or_default()
+                    .insert(index.clone());
+            }
+            AliasAction::Remove { alias, index } => {
+                if let Some(targets) = final_targets.get_mut(alias) {
+                    targets.remove(index);
+                }
+            }
+        }
+    }
+    if let Some((alias, _)) = final_targets.iter().find(|(_, targets)| targets.len() > 1) {
+        return Err(GatewayError::bad(
+            "_aliases.add.alias",
+            format!(
+                "multi-index alias [{alias}] is unsupported; remove its current index and add the replacement in the same request"
+            ),
+        ));
+    }
+
     let mut db = state
         .db
         .lock()
@@ -2909,8 +3649,8 @@ async fn alias_get(
 
 async fn alias_head(State(state): State<AppState>, Path(alias): Path<String>) -> Response {
     match alias_get(State(state), Path(alias)).await {
-        Ok(_) => StatusCode::OK.into_response(),
-        Err(_) => StatusCode::NOT_FOUND.into_response(),
+        Ok(_) => es_empty_response(StatusCode::OK),
+        Err(_) => es_empty_response(StatusCode::NOT_FOUND),
     }
 }
 async fn compatibility(State(state): State<AppState>) -> Response {
@@ -3052,6 +3792,7 @@ async fn dispatch(
     state: AppState,
     method: Method,
     path: String,
+    query: Option<String>,
     _headers: HeaderMap,
     body: String,
 ) -> Response {
@@ -3073,14 +3814,23 @@ async fn dispatch(
             .unwrap_or_else(IntoResponse::into_response);
     }
     if method == Method::POST && (path == "/_msearch" || path.ends_with("/_msearch")) {
+        let rest_total_hits_as_int = match parse_rest_total_hits_as_int(query.as_deref()) {
+            Ok(value) => value,
+            Err(error) => return error.into_response(),
+        };
         let default_index = path
             .strip_prefix('/')
             .and_then(|p| p.strip_suffix("/_msearch"))
             .filter(|p| !p.is_empty())
             .map(str::to_owned);
-        return msearch(State(state), default_index, body)
-            .await
-            .unwrap_or_else(IntoResponse::into_response);
+        return msearch_with_total_format(
+            State(state),
+            default_index,
+            body,
+            rest_total_hits_as_int,
+        )
+        .await
+        .unwrap_or_else(IntoResponse::into_response);
     }
     let json_body = if body.trim().is_empty() {
         json!({})
@@ -3237,9 +3987,18 @@ async fn dispatch(
         && parts[1] == "_search"
         && (method == Method::GET || method == Method::POST)
     {
-        return search(State(state), Path(parts[0].clone()), Json(json_body))
-            .await
-            .unwrap_or_else(IntoResponse::into_response);
+        let rest_total_hits_as_int = match parse_rest_total_hits_as_int(query.as_deref()) {
+            Ok(value) => value,
+            Err(error) => return error.into_response(),
+        };
+        return search_with_total_format(
+            State(state),
+            Path(parts[0].clone()),
+            Json(json_body),
+            rest_total_hits_as_int,
+        )
+        .await
+        .unwrap_or_else(IntoResponse::into_response);
     }
     if parts.len() == 2 && parts[1] == "_count" && (method == Method::GET || method == Method::POST)
     {
@@ -3290,7 +4049,15 @@ fn gateway_router(state: AppState) -> Router {
                         .into_response()
                     }
                 };
-                dispatch(state, method, uri.path().to_string(), headers, body).await
+                dispatch(
+                    state,
+                    method,
+                    uri.path().to_string(),
+                    uri.query().map(str::to_owned),
+                    headers,
+                    body,
+                )
+                .await
             },
         ))
         .with_state(state)
@@ -3374,6 +4141,59 @@ mod tests {
             error,
             GatewayError::Bad { ref feature, .. } if feature == "request.path"
         ));
+    }
+
+    #[test]
+    fn source_filters_preserve_nested_shape_and_apply_wildcards() {
+        let source = json!({
+            "title":"Example",
+            "profile":{
+                "name":"Ada",
+                "contact":{"email":"ada@example.test","phone":"123"}
+            },
+            "secret":"hidden"
+        });
+
+        let name = parse_source_filter(Some(&json!("profile.name")), "_source").unwrap();
+        assert_eq!(
+            project_source(&source, name.as_ref()),
+            Some(json!({"profile":{"name":"Ada"}}))
+        );
+
+        let contact = parse_source_filter(Some(&json!(["profile.contact.*"])), "_source").unwrap();
+        assert_eq!(
+            project_source(&source, contact.as_ref()),
+            Some(json!({"profile":{"contact":{
+                "email":"ada@example.test",
+                "phone":"123"
+            }}}))
+        );
+
+        let filtered = parse_source_filter(
+            Some(&json!({
+                "includes":["profile.*"],
+                "excludes":["profile.contact.phone"]
+            })),
+            "_source",
+        )
+        .unwrap();
+        assert_eq!(
+            project_source(&source, filtered.as_ref()),
+            Some(json!({"profile":{
+                "name":"Ada",
+                "contact":{"email":"ada@example.test"}
+            }}))
+        );
+
+        let singular = parse_source_filter(
+            Some(&json!({"include":"profile.n?me","exclude":"secret"})),
+            "_source",
+        )
+        .unwrap();
+        assert_eq!(
+            project_source(&source, singular.as_ref()),
+            Some(json!({"profile":{"name":"Ada"}}))
+        );
     }
 
     #[test]
@@ -3570,6 +4390,77 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn alias_add_does_not_silently_retarget_a_single_index_alias() {
+        let cfg = Config::from_env();
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); \
+             CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); \
+             INSERT INTO indices VALUES ('products-v1', '{}', '[]'); \
+             INSERT INTO indices VALUES ('products-v2', '{}', '[]'); \
+             INSERT INTO aliases VALUES ('current-products', 'products-v1');",
+        )
+        .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: "http://127.0.0.1:1".into(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        let error = aliases(
+            State(state.clone()),
+            Json(json!({"actions":[
+                {"add":{"index":"products-v2","alias":"current-products"}}
+            ]})),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(error.body()["error"]["feature"], "_aliases.add.alias");
+        assert!(error.to_string().contains("multi-index alias"));
+        let target: String = state
+            .db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT index_name FROM aliases WHERE alias='current-products'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(target, "products-v1");
+
+        aliases(
+            State(state.clone()),
+            Json(json!({"actions":[
+                {"add":{"index":"products-v2","alias":"current-products"}},
+                {"remove":{"index":"products-v1","alias":"current-products"}}
+            ]})),
+        )
+        .await
+        .unwrap();
+        let target: String = state
+            .db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT index_name FROM aliases WHERE alias='current-products'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(target, "products-v2");
+    }
+
+    #[tokio::test]
     async fn failed_index_creation_is_not_published_and_cleans_up() {
         let requests = Arc::new(Mutex::new(Vec::new()));
         let observed = requests.clone();
@@ -3633,6 +4524,75 @@ mod tests {
                 "DELETE /collections/es_products"
             ]
         );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn duplicate_index_creation_returns_native_conflict_without_qdrant_work() {
+        let requests = Arc::new(Mutex::new(0_u64));
+        let observed = requests.clone();
+        let mock = Router::new().fallback(any(move || {
+            let observed = observed.clone();
+            async move {
+                *observed.lock().unwrap() += 1;
+                Json(json!({"status":"ok"})).into_response()
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        let mut cfg = Config::from_env();
+        cfg.qdrant_url = format!("http://{address}");
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL);")
+            .unwrap();
+        let original_mapping = json!({"properties":{"sku":{"type":"keyword"}}});
+        db.execute(
+            "INSERT INTO indices VALUES ('products', ?1, '[\"text_all\"]')",
+            params![original_mapping.to_string()],
+        )
+        .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: cfg.qdrant_url.clone(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        let error = create_index(
+            State(state.clone()),
+            Path("products".into()),
+            Json(json!({"mappings":{"properties":{"title":{"type":"text"}}}})),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            error.body(),
+            json!({
+                "error": {
+                    "root_cause": [{
+                        "type": "resource_already_exists_exception",
+                        "reason": "index [products] already exists",
+                        "index": "products"
+                    }],
+                    "type": "resource_already_exists_exception",
+                    "reason": "index [products] already exists",
+                    "index": "products"
+                },
+                "status": 400
+            })
+        );
+        assert_eq!(get_index(&state, "products").unwrap().2, original_mapping);
+        assert_eq!(*requests.lock().unwrap(), 0);
         server.abort();
     }
 
@@ -3709,7 +4669,9 @@ mod tests {
                         .lock()
                         .unwrap()
                         .push(format!("{method} {}", uri.path()));
-                    if method == Method::GET {
+                    if uri.path().ends_with("/points/count") {
+                        Json(json!({"result":{"count":1}})).into_response()
+                    } else if method == Method::GET {
                         Json(json!({"result":{"payload":{"_es_id":"1","_source":{"title":"Alias target"}}}})).into_response()
                     } else {
                         Json(json!({"result":{"points":[{"payload":{"_es_id":"1","_source":{"title":"Alias target"}}}],"next_page_offset":null}})).into_response()
@@ -3796,6 +4758,7 @@ mod tests {
                     "GET /collections/es_products/points/{}",
                     point_id("products", "1")
                 ),
+                "POST /collections/es_products/points/count".into(),
                 "POST /collections/es_products/points/scroll".into()
             ]
         );
@@ -3926,7 +4889,11 @@ mod tests {
             if method == Method::POST {
                 Json(json!({"result":[]})).into_response()
             } else {
-                Json(json!({"result":null})).into_response()
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({"status":{"error":"Not found: Point with id 00000000-0000-0000-0000-000000000000 does not exists!"}})),
+                )
+                    .into_response()
             }
         }));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -3970,6 +4937,81 @@ mod tests {
                 response_body,
                 json!({"_index":"products","_id":"missing","found":false})
             );
+        }
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn missing_qdrant_collection_remains_an_upstream_error() {
+        let mock = Router::new().fallback(any(|| async {
+            (
+                StatusCode::NOT_FOUND,
+                Json(json!({"status":{"error":"Not found: Collection `es_products` doesn't exist!"}})),
+            )
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+        let qdrant = Qdrant {
+            client: Client::new(),
+            base: format!("http://{address}"),
+            key: None,
+            async_write_queue: Arc::new(Semaphore::new(1)),
+        };
+
+        let error = qdrant
+            .request_optional_point("/collections/es_products/points/missing?with_payload=true")
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.status(), StatusCode::BAD_GATEWAY);
+        assert!(error.to_string().contains("Collection `es_products`"));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn head_document_does_not_hide_qdrant_failures_as_not_found() {
+        let mock = Router::new().fallback(any(|| async {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({"status":{"error":"storage temporarily unavailable"}})),
+            )
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        for document_projection in [false, true] {
+            let mut cfg = Config::from_env();
+            cfg.qdrant_url = format!("http://{address}");
+            cfg.document_projection = document_projection;
+            let db = Connection::open_in_memory().unwrap();
+            db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[]');")
+                .unwrap();
+            let state = AppState {
+                qdrant: Qdrant {
+                    client: Client::new(),
+                    base: cfg.qdrant_url.clone(),
+                    key: None,
+                    async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+                },
+                db: Arc::new(Mutex::new(db)),
+                analytics: Arc::new(Mutex::new(Analytics::default())),
+                index_admin: Arc::new(AsyncMutex::new(())),
+                cfg,
+            };
+
+            let response = head_doc(State(state), Path(("products".into(), "item".into()))).await;
+
+            assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+            assert_eq!(
+                response.headers().get("x-elastic-product").unwrap(),
+                "Elasticsearch"
+            );
+            assert!(axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .is_empty());
         }
         server.abort();
     }
@@ -4600,15 +5642,280 @@ mod tests {
 
     #[tokio::test]
     async fn zero_size_search_uses_a_positive_qdrant_scroll_limit() {
-        let observed_body = Arc::new(Mutex::new(None));
-        let captured_body = observed_body.clone();
-        let mock = Router::new().fallback(any(move |body: Body| {
-            let captured_body = captured_body.clone();
+        let observed_requests = Arc::new(Mutex::new(Vec::new()));
+        let captured_requests = observed_requests.clone();
+        let mock = Router::new().fallback(any(move |uri: axum::http::Uri, body: Body| {
+            let captured_requests = captured_requests.clone();
             async move {
                 let bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
-                *captured_body.lock().unwrap() =
-                    Some(serde_json::from_slice::<Value>(&bytes).unwrap());
-                Json(json!({"result":{"points":[{"payload":{"_es_id":"1","_source":{"brand":"Acme"}}}],"next_page_offset":null}})).into_response()
+                let request = serde_json::from_slice::<Value>(&bytes).unwrap();
+                captured_requests
+                    .lock()
+                    .unwrap()
+                    .push((uri.path().to_string(), request));
+                if uri.path().ends_with("/points/count") {
+                    Json(json!({"result":{"count":37}})).into_response()
+                } else {
+                    Json(json!({"result":{"points":[{"payload":{"_es_id":"1","_source":{"brand":"Acme"}}}],"next_page_offset":null}})).into_response()
+                }
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        let mut cfg = Config::from_env();
+        cfg.qdrant_url = format!("http://{address}");
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[]');")
+            .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: cfg.qdrant_url.clone(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        let response = search(
+            State(state.clone()),
+            Path("products".into()),
+            Json(json!({"size":0,"query":{"match_all":{}}})),
+        )
+        .await
+        .unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+
+        assert_eq!(body["hits"]["hits"], json!([]));
+        assert_eq!(body["hits"]["total"], json!({"value":37,"relation":"eq"}));
+        {
+            let requests = observed_requests.lock().unwrap();
+            assert_eq!(requests.len(), 2);
+            assert_eq!(
+                requests[0],
+                (
+                    "/collections/es_products/points/count".into(),
+                    json!({"exact":true})
+                )
+            );
+            assert_eq!(requests[1].1["limit"], 1);
+        }
+
+        observed_requests.lock().unwrap().clear();
+        let response = gateway_router(state.clone())
+            .oneshot(
+                axum::http::Request::builder()
+                    .method(Method::POST)
+                    .uri("/products/_search?rest_total_hits_as_int=true")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"size":0,"query":{"match_all":{}}}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(body["hits"]["total"], 37);
+        assert_eq!(observed_requests.lock().unwrap().len(), 2);
+
+        observed_requests.lock().unwrap().clear();
+        let response = search_with_total_format(
+            State(state),
+            Path("products".into()),
+            Json(json!({"size":0,"track_total_hits":false,"query":{"match_all":{}}})),
+            true,
+        )
+        .await
+        .unwrap();
+        let body: Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(body["hits"]["total"], -1);
+        let requests = observed_requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].1["limit"], 1);
+        server.abort();
+    }
+
+    #[test]
+    fn track_total_hits_shapes_exact_and_bounded_totals() {
+        assert_eq!(
+            parse_track_total_hits(&json!({})).unwrap(),
+            TrackTotalHits::Enabled
+        );
+        assert_eq!(
+            parse_track_total_hits(&json!({"track_total_hits":false})).unwrap(),
+            TrackTotalHits::Disabled
+        );
+        assert_eq!(
+            parse_track_total_hits(&json!({"track_total_hits":5})).unwrap(),
+            TrackTotalHits::Threshold(5)
+        );
+        assert_eq!(
+            total_hits_value(TrackTotalHits::Threshold(5), 15, true, false),
+            Some(json!({"value":5,"relation":"gte"}))
+        );
+        assert_eq!(
+            total_hits_value(TrackTotalHits::Threshold(20), 15, true, false),
+            Some(json!({"value":15,"relation":"eq"}))
+        );
+        assert_eq!(
+            total_hits_value(TrackTotalHits::Threshold(20), 15, false, false),
+            Some(json!({"value":15,"relation":"gte"}))
+        );
+        assert_eq!(
+            total_hits_value(TrackTotalHits::Disabled, 15, true, false),
+            None
+        );
+        assert_eq!(
+            total_hits_value(TrackTotalHits::Enabled, 15, true, true),
+            Some(json!(15))
+        );
+        assert_eq!(
+            total_hits_value(TrackTotalHits::Disabled, 15, true, true),
+            Some(json!(-1))
+        );
+
+        for value in [json!(null), json!("5"), json!(-1), json!(1.5), json!({})] {
+            let error = parse_track_total_hits(&json!({"track_total_hits":value})).unwrap_err();
+            assert_eq!(error.body()["error"]["feature"], "track_total_hits");
+        }
+    }
+
+    #[test]
+    fn rest_total_hits_as_int_query_parameter_is_strict_and_last_value_wins() {
+        assert!(!parse_rest_total_hits_as_int(None).unwrap());
+        assert!(parse_rest_total_hits_as_int(Some("rest_total_hits_as_int=true")).unwrap());
+        assert!(parse_rest_total_hits_as_int(Some("rest_total_hits_as_int")).unwrap());
+        assert!(parse_rest_total_hits_as_int(Some("rest_total_hits_as_int=")).unwrap());
+        assert!(parse_rest_total_hits_as_int(Some("rest_total_hits_as_int=%74rue")).unwrap());
+        assert!(!parse_rest_total_hits_as_int(Some(
+            "rest_total_hits_as_int=true&rest_total_hits_as_int=false"
+        ))
+        .unwrap());
+        assert!(parse_rest_total_hits_as_int(Some(
+            "ignore_unavailable=true&rest_total_hits_as_int=true"
+        ))
+        .unwrap());
+
+        for value in ["TRUE", "1", "banana"] {
+            let error =
+                parse_rest_total_hits_as_int(Some(&format!("rest_total_hits_as_int={value}")))
+                    .unwrap_err();
+            assert_eq!(error.body()["error"]["feature"], "rest_total_hits_as_int");
+        }
+    }
+
+    #[tokio::test]
+    async fn invalid_search_options_fail_before_qdrant_work() {
+        let requests = Arc::new(Mutex::new(0_u64));
+        let observed_requests = requests.clone();
+        let mock = Router::new().fallback(any(move || {
+            let observed_requests = observed_requests.clone();
+            async move {
+                *observed_requests.lock().unwrap() += 1;
+                Json(json!({"result":{"points":[],"next_page_offset":null}}))
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        let mut cfg = Config::from_env();
+        cfg.qdrant_url = format!("http://{address}");
+        cfg.max_page_size = 1000;
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[]');")
+            .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: cfg.qdrant_url.clone(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        let cases = [
+            (json!({"from":-1}), "from"),
+            (json!({"from":"1"}), "from"),
+            (json!({"size":-1}), "size"),
+            (json!({"size":1001}), "size"),
+            (json!({"from":9999,"size":2}), "from"),
+            (json!({"sort":"price","search_after":"10"}), "search_after"),
+            (json!({"search_after":[10]}), "search_after"),
+            (
+                json!({"sort":"price","search_after":[10,"extra"]}),
+                "search_after",
+            ),
+            (
+                json!({"sort":"price","search_after":[{"price":10}]}),
+                "search_after",
+            ),
+            (
+                json!({"from":1,"sort":"price","search_after":[10]}),
+                "search_after",
+            ),
+            (json!({"track_total_hits":null}), "track_total_hits"),
+            (json!({"track_total_hits":-1}), "track_total_hits"),
+            (json!({"track_total_hits":"5"}), "track_total_hits"),
+            (json!({"_source":123}), "_source"),
+            (json!({"_source":["title",123]}), "_source"),
+            (json!({"_source":{"includes":123}}), "_source.includes"),
+            (json!({"_source":{"unknown":["title"]}}), "_source.unknown"),
+        ];
+
+        for (body, feature) in cases {
+            let error = search(State(state.clone()), Path("products".into()), Json(body))
+                .await
+                .unwrap_err();
+            assert_eq!(error.body()["error"]["feature"], feature);
+        }
+        let error = search_with_total_format(
+            State(state),
+            Path("products".into()),
+            Json(json!({"track_total_hits":5})),
+            true,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.body()["error"]["feature"], "rest_total_hits_as_int");
+        assert_eq!(*requests.lock().unwrap(), 0);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn retail_collapse_inner_hits_use_the_requested_name_size_and_source_filter() {
+        let mock = Router::new().fallback(any(|uri: axum::http::Uri| async move {
+            if uri.path().ends_with("/points/count") {
+                Json(json!({"result":{"count":3}}))
+            } else {
+                Json(json!({"result":{"points":[
+                    {"payload":{"_es_id":"shoe-1","_source":{"category":"shoes","name":"Runner"}}},
+                    {"payload":{"_es_id":"shoe-2","_source":{"category":"shoes","name":"Walker"}}},
+                    {"payload":{"_es_id":"watch-1","_source":{"category":"accessories","name":"Watch"}}}
+                ],"next_page_offset":null}}))
             }
         }));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -4636,17 +5943,226 @@ mod tests {
         let response = search(
             State(state),
             Path("products".into()),
-            Json(json!({"size":0,"query":{"match_all":{}}})),
+            Json(json!({
+                "size":3,
+                "_source":false,
+                "collapse":{
+                    "field":"category.keyword",
+                    "inner_hits":{
+                        "name":"category_hits",
+                        "size":2,
+                        "fields":["_id"],
+                        "_source":false
+                    }
+                }
+            })),
         )
         .await
         .unwrap();
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        let body: Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
 
-        assert_eq!(body["hits"]["hits"], json!([]));
-        assert_eq!(observed_body.lock().unwrap().as_ref().unwrap()["limit"], 1);
+        assert_eq!(body["hits"]["total"], json!({"value":3,"relation":"eq"}));
+        assert_eq!(body["hits"]["hits"].as_array().unwrap().len(), 2);
+        let shoe_group = body["hits"]["hits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|hit| hit["inner_hits"]["category_hits"]["hits"]["total"]["value"] == 2)
+            .unwrap();
+        assert!(shoe_group.get("_source").is_none());
+        assert!(shoe_group["inner_hits"].get("name").is_none());
+        assert!(shoe_group["inner_hits"].get("size").is_none());
+        let category_hits = &shoe_group["inner_hits"]["category_hits"]["hits"];
+        assert_eq!(category_hits["total"], json!({"value":2,"relation":"eq"}));
+        assert_eq!(category_hits["hits"].as_array().unwrap().len(), 2);
+        let mut ids = category_hits["hits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|hit| hit["_id"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        ids.sort_unstable();
+        assert_eq!(ids, ["shoe-1", "shoe-2"]);
+        assert!(category_hits["hits"][0].get("_source").is_none());
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn invalid_collapse_fails_before_qdrant_work() {
+        let requests = Arc::new(Mutex::new(0_u64));
+        let observed_requests = requests.clone();
+        let mock = Router::new().fallback(any(move || {
+            let observed_requests = observed_requests.clone();
+            async move {
+                *observed_requests.lock().unwrap() += 1;
+                Json(json!({"result":{"points":[],"next_page_offset":null}}))
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        let mut cfg = Config::from_env();
+        cfg.qdrant_url = format!("http://{address}");
+        cfg.max_page_size = 100;
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[]');")
+            .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: cfg.qdrant_url.clone(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        for (body, feature) in [
+            (json!({"collapse":"category"}), "collapse"),
+            (json!({"collapse":{"field":""}}), "collapse.field"),
+            (
+                json!({"collapse":{"field":"category","inner_hits":[]}}),
+                "collapse.inner_hits",
+            ),
+            (
+                json!({"collapse":{"field":"category","inner_hits":{"size":101}}}),
+                "collapse.inner_hits.size",
+            ),
+            (
+                json!({"collapse":{"field":"category","inner_hits":{"sort":"_score"}}}),
+                "collapse.inner_hits.sort",
+            ),
+        ] {
+            let error = search(State(state.clone()), Path("products".into()), Json(body))
+                .await
+                .unwrap_err();
+            assert_eq!(error.body()["error"]["feature"], feature);
+        }
+        assert_eq!(*requests.lock().unwrap(), 0);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn elasticsearch_sort_shapes_drive_order_and_search_after() {
+        let observed_limits = Arc::new(Mutex::new(Vec::new()));
+        let limits = observed_limits.clone();
+        let mock = Router::new().fallback(any(move |uri: axum::http::Uri, body: Body| {
+            let limits = limits.clone();
+            async move {
+                if uri.path().ends_with("/points/count") {
+                    Json(json!({"result":{"count":3}}))
+                } else {
+                    let request: Value = serde_json::from_slice(
+                        &axum::body::to_bytes(body, usize::MAX).await.unwrap(),
+                    )
+                    .unwrap();
+                    let limit = request["limit"].as_u64().unwrap() as usize;
+                    limits.lock().unwrap().push(limit);
+                    let points = vec![
+                        json!({"payload":{"_es_id":"a","_source":{"price":10}}}),
+                        json!({"payload":{"_es_id":"c","_source":{"price":30}}}),
+                        json!({"payload":{"_es_id":"b","_source":{"price":30}}}),
+                    ];
+                    Json(json!({"result":{"points":points.into_iter().take(limit).collect::<Vec<_>>(),"next_page_offset":null}}))
+                }
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        let mut cfg = Config::from_env();
+        cfg.qdrant_url = format!("http://{address}");
+        cfg.max_page_size = 3;
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[]');")
+            .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: cfg.qdrant_url.clone(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        let first = search(
+            State(state.clone()),
+            Path("products".into()),
+            Json(json!({
+                "sort":[{"price":{"order":"desc"}},"_id"],
+                "size":2
+            })),
+        )
+        .await
+        .unwrap();
+        let first: Value = serde_json::from_slice(
+            &axum::body::to_bytes(first.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(first["hits"]["hits"][0]["_id"], "b");
+        assert_eq!(first["hits"]["hits"][0]["sort"], json!([30, "b"]));
+        assert_eq!(first["hits"]["hits"][1]["_id"], "c");
+
+        let second = search(
+            State(state.clone()),
+            Path("products".into()),
+            Json(json!({
+                "sort":[{"price":{"order":"desc"}},"_id"],
+                "search_after":[30,"c"],
+                "size":2
+            })),
+        )
+        .await
+        .unwrap();
+        let second: Value = serde_json::from_slice(
+            &axum::body::to_bytes(second.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(second["hits"]["hits"].as_array().unwrap().len(), 1);
+        assert_eq!(second["hits"]["hits"][0]["_id"], "a");
+
+        let ascending = search(
+            State(state.clone()),
+            Path("products".into()),
+            Json(json!({"sort":"price","size":3})),
+        )
+        .await
+        .unwrap();
+        let ascending: Value = serde_json::from_slice(
+            &axum::body::to_bytes(ascending.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(ascending["hits"]["hits"][0]["_id"], "a");
+        assert_eq!(*observed_limits.lock().unwrap(), vec![3, 3, 3]);
+
+        let error = search(
+            State(state.clone()),
+            Path("products".into()),
+            Json(json!({"sort":[{"price":{"mode":"max"}}]})),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.body()["error"]["feature"], "sort");
         server.abort();
     }
 
@@ -5105,12 +6621,16 @@ mod tests {
             for existed in [false, true] {
                 let mock = Router::new().fallback(any(move |method: Method| async move {
                     match method {
-                        Method::GET => Json(if existed {
-                            json!({"result":{"payload":{"_es_id":"item","_source":{"title":"Old"}}}})
+                        Method::GET => if existed {
+                            Json(json!({"result":{"payload":{"_es_id":"item","_source":{"title":"Old"}}}}))
+                                .into_response()
                         } else {
-                            json!({"result":null})
-                        })
-                        .into_response(),
+                            (
+                                StatusCode::NOT_FOUND,
+                                Json(json!({"status":{"error":"Not found: Point with id 00000000-0000-0000-0000-000000000000 does not exists!"}})),
+                            )
+                                .into_response()
+                        },
                         Method::POST => Json(if existed {
                             json!({"result":[{"payload":{"_es_id":"item","_source":{"title":"Old"}}}]})
                         } else {
@@ -5321,6 +6841,7 @@ mod tests {
             {"range":{"price":{"from":10,"to":50,"include_lower":true,"include_upper":false,"boost":1.0}}}
         ]}})).unwrap();
         let filter = filter.unwrap();
+        assert_eq!(filter["must"][0]["key"], "brand");
         assert_eq!(filter["must"][0]["match"]["value"], "Acme");
         assert_eq!(filter["must"][1]["range"]["gte"], 10);
         assert_eq!(filter["must"][1]["range"]["lt"], 50);
@@ -5434,6 +6955,178 @@ mod tests {
     }
 
     #[test]
+    fn post_filter_validation_rejects_unsupported_and_ambiguous_clauses() {
+        for (query, feature) in [
+            (json!({"match":{"title":"shoe"}}), "post_filter.match"),
+            (
+                json!({"term":{"brand":"Acme","status":"live"}}),
+                "post_filter.term",
+            ),
+            (
+                json!({"term":{"brand":{"case_insensitive":true,"value":"Acme"}}}),
+                "post_filter.term",
+            ),
+            (
+                json!({"bool":{"filter":{"range":{"price":{"gte":"10"}}}}}),
+                "post_filter.bool.filter.range.gte",
+            ),
+            (
+                json!({"bool":{"filter":{"term":{"brand":"Acme"}},"adjust_pure_negative":true}}),
+                "post_filter.bool.adjust_pure_negative",
+            ),
+        ] {
+            let error = validate_post_filter(&query).unwrap_err();
+            assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(error.body()["error"]["feature"], feature);
+        }
+
+        validate_post_filter(&json!({"bool":{
+            "filter":[
+                {"term":{"brand.keyword":{"value":"Acme"}}},
+                {"terms":{"tags":["sale","featured"]}},
+                {"range":{"price":{"gte":10,"lt":50}}},
+                {"exists":{"field":"sku"}}
+            ],
+            "should":{"term":{"featured":true}},
+            "minimum_should_match":"0%"
+        }}))
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn invalid_post_filter_fails_before_index_or_qdrant_lookup() {
+        let cfg = Config::from_env();
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL);")
+            .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: "http://127.0.0.1:1".into(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        let error = search(
+            State(state),
+            Path("missing-index".into()),
+            Json(json!({"post_filter":{"wildcard":{"sku":"ABC-*"}}})),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(error.body()["error"]["feature"], "post_filter.wildcard");
+    }
+
+    #[tokio::test]
+    async fn post_filter_does_not_narrow_gateway_computed_aggregations() {
+        let mock = Router::new().fallback(any(|| async {
+            Json(json!({"result":{"points":[
+                {"payload":{"_es_id":"acme","_source":{"brand":"Acme","price":30}}},
+                {"payload":{"_es_id":"beta-low","_source":{"brand":"Beta","price":10}}},
+                {"payload":{"_es_id":"beta-high","_source":{"brand":"Beta","price":20}}}
+            ],"next_page_offset":null}}))
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+
+        let mut cfg = Config::from_env();
+        cfg.qdrant_url = format!("http://{address}");
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[]');")
+            .unwrap();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: cfg.qdrant_url.clone(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        let response = search(
+            State(state),
+            Path("products".into()),
+            Json(json!({
+                "size":3,
+                "post_filter":{"term":{"brand":"Acme"}},
+                "aggs":{
+                    "lowest_price":{"min":{"field":"price"}},
+                    "beta":{"filter":{"term":{"brand":"Beta"}}}
+                }
+            })),
+        )
+        .await
+        .unwrap();
+        let body: Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(body["hits"]["hits"].as_array().unwrap().len(), 1);
+        assert_eq!(body["hits"]["hits"][0]["_id"], "acme");
+        assert_eq!(body["aggregations"]["lowest_price"]["value"], 10.0);
+        assert_eq!(body["aggregations"]["beta"]["doc_count"], 2);
+        server.abort();
+    }
+
+    #[test]
+    fn gateway_predicates_treat_arrays_as_multi_valued_fields() {
+        let source = json!({
+            "tags":["clearance", "seasonal"],
+            "prices":[75, 25],
+            "skus":["OLD-001", "ABC-100"]
+        });
+
+        assert!(source_matches_query(
+            &source,
+            &json!({"term":{"tags":"seasonal"}})
+        ));
+        assert!(source_matches_query(
+            &source,
+            &json!({"terms":{"tags":["featured", "clearance"]}})
+        ));
+        assert!(source_matches_query(
+            &source,
+            &json!({"range":{"prices":{"gte":20,"lt":50}}})
+        ));
+        assert!(!source_matches_query(
+            &source,
+            &json!({"range":{"prices":{"lt":20}}})
+        ));
+
+        for pattern in [
+            GatewayPattern::Prefix {
+                field: "skus".into(),
+                prefix: "ABC-".into(),
+            },
+            GatewayPattern::Wildcard {
+                field: "skus".into(),
+                pattern: "ABC-*00".into(),
+            },
+            GatewayPattern::Regex {
+                field: "skus".into(),
+                pattern: "ABC-[12]00".into(),
+            },
+        ] {
+            assert!(pattern_matches(&source, &pattern));
+        }
+    }
+
+    #[test]
     fn post_filter_exists_rejects_missing_null_and_empty_arrays() {
         let query = json!({"exists":{"field":"brand"}});
 
@@ -5490,7 +7183,68 @@ mod tests {
             }
         ));
         let mut patterns = Vec::new();
-        collect_patterns(&json!({"prefix":{"sku":"ABC-"}}), &mut patterns).unwrap();
+        collect_patterns(&json!({"prefix":{"sku.keyword":"ABC-"}}), &mut patterns).unwrap();
         assert_eq!(patterns.len(), 1);
+        assert!(pattern_matches(&source, &patterns[0]));
+    }
+
+    #[test]
+    fn wildcard_translation_preserves_star_positions_and_escapes_literals() {
+        let source = json!({"title":"Mechanical keyboard (quiet)"});
+
+        for pattern in [
+            "*keyboard*",
+            "**keyboard**",
+            "Mechanical?keyboard*",
+            "*(quiet)",
+        ] {
+            assert!(pattern_matches(
+                &source,
+                &GatewayPattern::Wildcard {
+                    field: "title".into(),
+                    pattern: pattern.into(),
+                }
+            ));
+        }
+        assert!(!pattern_matches(
+            &source,
+            &GatewayPattern::Wildcard {
+                field: "title".into(),
+                pattern: "keyboard*".into(),
+            }
+        ));
+    }
+
+    #[test]
+    fn keyword_multifield_aliases_use_the_base_payload_field() {
+        let (filter, _) = query_filter(&json!({"bool":{"filter":[
+            {"term":{"brand.keyword":"Acme"}},
+            {"terms":{"tags.keyword":["sale", "featured"]}},
+            {"exists":{"field":"sku.keyword"}},
+            {"range":{"price.keyword":{"gte":10}}}
+        ]}}))
+        .unwrap();
+        let clauses = filter.unwrap()["must"].as_array().unwrap().clone();
+
+        assert_eq!(clauses[0]["key"], "brand");
+        assert_eq!(clauses[1]["key"], "tags");
+        assert_eq!(clauses[2]["must_not"][0]["is_empty"]["key"], "sku");
+        assert_eq!(clauses[3]["key"], "price");
+
+        let source = json!({
+            "brand":"Acme",
+            "tags":["featured"],
+            "sku":"ABC-100",
+            "price":25
+        });
+        assert!(source_matches_query(
+            &source,
+            &json!({"bool":{"filter":[
+                {"term":{"brand.keyword":"Acme"}},
+                {"terms":{"tags.keyword":["sale", "featured"]}},
+                {"exists":{"field":"sku.keyword"}},
+                {"range":{"price.keyword":{"gte":10}}}
+            ]}})
+        ));
     }
 }

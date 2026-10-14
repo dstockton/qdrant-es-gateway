@@ -1,0 +1,2688 @@
+{
+  "index": "opensearch36_evidence_20261009",
+  "documents": 6,
+  "settle_seconds": 1.0,
+  "native": {
+    "identity": {
+      "version": {
+        "distribution": "opensearch",
+        "number": "3.6.0",
+        "build_type": "tar",
+        "build_hash": "4ca747d8d47f80162db323019357447126732e35",
+        "build_date": "2026-04-04T06:02:53.715432718Z",
+        "build_snapshot": false,
+        "lucene_version": "10.4.0",
+        "minimum_wire_compatibility_version": "2.19.0",
+        "minimum_index_compatibility_version": "2.0.0"
+      },
+      "tagline": "The OpenSearch Project: https://opensearch.org/"
+    },
+    "calls": [
+      {
+        "path": "/",
+        "method": "GET",
+        "status": 200,
+        "elapsed_ms": 18.27,
+        "body": {
+          "version": {
+            "distribution": "opensearch",
+            "number": "3.6.0",
+            "build_type": "tar",
+            "build_hash": "4ca747d8d47f80162db323019357447126732e35",
+            "build_date": "2026-04-04T06:02:53.715432718Z",
+            "build_snapshot": false,
+            "lucene_version": "10.4.0",
+            "minimum_wire_compatibility_version": "2.19.0",
+            "minimum_index_compatibility_version": "2.0.0"
+          },
+          "tagline": "The OpenSearch Project: https://opensearch.org/"
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009",
+        "method": "DELETE",
+        "status": 200,
+        "elapsed_ms": 30.39,
+        "body": {
+          "acknowledged": true
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009",
+        "method": "PUT",
+        "status": 200,
+        "elapsed_ms": 43.53,
+        "body": {
+          "acknowledged": true,
+          "shards_acknowledged": true,
+          "index": "opensearch36_evidence_20261009"
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_bulk?refresh=wait_for",
+        "method": "POST",
+        "status": 200,
+        "elapsed_ms": 1003.03,
+        "body": {
+          "took": 999,
+          "errors": false,
+          "items": [
+            {
+              "index": {
+                "_index": "opensearch36_evidence_20261009",
+                "_id": "p-001",
+                "_version": 1,
+                "result": "created",
+                "_shards": {
+                  "total": 2,
+                  "successful": 1,
+                  "failed": 0
+                },
+                "_seq_no": 0,
+                "_primary_term": 1,
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_index": "opensearch36_evidence_20261009",
+                "_id": "p-002",
+                "_version": 1,
+                "result": "created",
+                "_shards": {
+                  "total": 2,
+                  "successful": 1,
+                  "failed": 0
+                },
+                "_seq_no": 1,
+                "_primary_term": 1,
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_index": "opensearch36_evidence_20261009",
+                "_id": "p-003",
+                "_version": 1,
+                "result": "created",
+                "_shards": {
+                  "total": 2,
+                  "successful": 1,
+                  "failed": 0
+                },
+                "_seq_no": 2,
+                "_primary_term": 1,
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_index": "opensearch36_evidence_20261009",
+                "_id": "p-004",
+                "_version": 1,
+                "result": "created",
+                "_shards": {
+                  "total": 2,
+                  "successful": 1,
+                  "failed": 0
+                },
+                "_seq_no": 3,
+                "_primary_term": 1,
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_index": "opensearch36_evidence_20261009",
+                "_id": "p-005",
+                "_version": 1,
+                "result": "created",
+                "_shards": {
+                  "total": 2,
+                  "successful": 1,
+                  "failed": 0
+                },
+                "_seq_no": 4,
+                "_primary_term": 1,
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_index": "opensearch36_evidence_20261009",
+                "_id": "p-006",
+                "_version": 1,
+                "result": "created",
+                "_shards": {
+                  "total": 2,
+                  "successful": 1,
+                  "failed": 0
+                },
+                "_seq_no": 5,
+                "_primary_term": 1,
+                "status": 201
+              }
+            }
+          ]
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_search",
+        "method": "POST",
+        "status": 200,
+        "elapsed_ms": 14.95,
+        "body": {
+          "took": 6,
+          "timed_out": false,
+          "_shards": {
+            "total": 1,
+            "successful": 1,
+            "skipped": 0,
+            "failed": 0
+          },
+          "hits": {
+            "total": {
+              "value": 1,
+              "relation": "eq"
+            },
+            "max_score": null,
+            "hits": [
+              {
+                "_index": "opensearch36_evidence_20261009",
+                "_id": "p-001",
+                "_score": null,
+                "_source": {
+                  "price": 129.0,
+                  "title": "Wireless headphones",
+                  "brand": "Acme"
+                },
+                "sort": [
+                  129.0
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_search",
+        "method": "POST",
+        "status": 200,
+        "elapsed_ms": 9.93,
+        "body": {
+          "took": 4,
+          "timed_out": false,
+          "terminated_early": true,
+          "_shards": {
+            "total": 1,
+            "successful": 1,
+            "skipped": 0,
+            "failed": 0
+          },
+          "hits": {
+            "total": {
+              "value": 6,
+              "relation": "eq"
+            },
+            "max_score": null,
+            "hits": []
+          },
+          "aggregations": {
+            "brands": {
+              "doc_count_error_upper_bound": 0,
+              "sum_other_doc_count": 0,
+              "buckets": [
+                {
+                  "key": "Acme",
+                  "doc_count": 3
+                },
+                {
+                  "key": "Northstar",
+                  "doc_count": 2
+                },
+                {
+                  "key": "Zenith",
+                  "doc_count": 1
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_search",
+        "method": "POST",
+        "status": 200,
+        "elapsed_ms": 5.79,
+        "body": {
+          "took": 2,
+          "timed_out": false,
+          "_shards": {
+            "total": 1,
+            "successful": 1,
+            "skipped": 0,
+            "failed": 0
+          },
+          "hits": {
+            "total": {
+              "value": 1,
+              "relation": "eq"
+            },
+            "max_score": 1.0,
+            "hits": [
+              {
+                "_index": "opensearch36_evidence_20261009",
+                "_id": "p-001",
+                "_score": 1.0,
+                "_source": {
+                  "sku": "p-001",
+                  "title": "Wireless headphones",
+                  "description": "Noise cancelling audio with long battery life",
+                  "brand": "Acme",
+                  "category": "audio",
+                  "price": 129.0,
+                  "stock": 42
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_search",
+        "method": "POST",
+        "status": 200,
+        "elapsed_ms": 6.21,
+        "body": {
+          "took": 3,
+          "timed_out": false,
+          "_shards": {
+            "total": 1,
+            "successful": 1,
+            "skipped": 0,
+            "failed": 0
+          },
+          "hits": {
+            "total": {
+              "value": 1,
+              "relation": "eq"
+            },
+            "max_score": 1.0,
+            "hits": [
+              {
+                "_index": "opensearch36_evidence_20261009",
+                "_id": "p-003",
+                "_score": 1.0,
+                "_source": {
+                  "sku": "p-003",
+                  "title": "Mechanical keyboard",
+                  "description": "Quiet low profile keyboard for office",
+                  "brand": "Acme",
+                  "category": "office",
+                  "price": 99.0,
+                  "stock": 17
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_search",
+        "method": "POST",
+        "status": 200,
+        "elapsed_ms": 3.95,
+        "body": {
+          "took": 1,
+          "timed_out": false,
+          "_shards": {
+            "total": 1,
+            "successful": 1,
+            "skipped": 0,
+            "failed": 0
+          },
+          "hits": {
+            "total": {
+              "value": 2,
+              "relation": "eq"
+            },
+            "max_score": 1.0,
+            "hits": [
+              {
+                "_index": "opensearch36_evidence_20261009",
+                "_id": "p-001",
+                "_score": 1.0,
+                "_source": {
+                  "sku": "p-001",
+                  "title": "Wireless headphones",
+                  "description": "Noise cancelling audio with long battery life",
+                  "brand": "Acme",
+                  "category": "audio",
+                  "price": 129.0,
+                  "stock": 42
+                }
+              },
+              {
+                "_index": "opensearch36_evidence_20261009",
+                "_id": "p-002",
+                "_score": 1.0,
+                "_source": {
+                  "sku": "p-002",
+                  "title": "USB-C charger",
+                  "description": "Fast compact wall charger for laptops",
+                  "brand": "Northstar",
+                  "category": "accessories",
+                  "price": 39.0,
+                  "stock": 85
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_msearch",
+        "method": "POST",
+        "status": 200,
+        "elapsed_ms": 3.87,
+        "body": {
+          "took": 1,
+          "responses": [
+            {
+              "took": 1,
+              "timed_out": false,
+              "_shards": {
+                "total": 1,
+                "successful": 1,
+                "skipped": 0,
+                "failed": 0
+              },
+              "hits": {
+                "total": {
+                  "value": 1,
+                  "relation": "eq"
+                },
+                "max_score": 0.60500866,
+                "hits": [
+                  {
+                    "_index": "opensearch36_evidence_20261009",
+                    "_id": "p-002",
+                    "_score": 0.60500866,
+                    "_source": {
+                      "sku": "p-002",
+                      "title": "USB-C charger",
+                      "description": "Fast compact wall charger for laptops",
+                      "brand": "Northstar",
+                      "category": "accessories",
+                      "price": 39.0,
+                      "stock": 85
+                    }
+                  }
+                ]
+              },
+              "status": 200
+            },
+            {
+              "took": 1,
+              "timed_out": false,
+              "_shards": {
+                "total": 1,
+                "successful": 1,
+                "skipped": 0,
+                "failed": 0
+              },
+              "hits": {
+                "total": {
+                  "value": 3,
+                  "relation": "eq"
+                },
+                "max_score": 1.0,
+                "hits": [
+                  {
+                    "_index": "opensearch36_evidence_20261009",
+                    "_id": "p-001",
+                    "_score": 1.0,
+                    "_source": {
+                      "sku": "p-001",
+                      "title": "Wireless headphones",
+                      "description": "Noise cancelling audio with long battery life",
+                      "brand": "Acme",
+                      "category": "audio",
+                      "price": 129.0,
+                      "stock": 42
+                    }
+                  },
+                  {
+                    "_index": "opensearch36_evidence_20261009",
+                    "_id": "p-003",
+                    "_score": 1.0,
+                    "_source": {
+                      "sku": "p-003",
+                      "title": "Mechanical keyboard",
+                      "description": "Quiet low profile keyboard for office",
+                      "brand": "Acme",
+                      "category": "office",
+                      "price": 99.0,
+                      "stock": 17
+                    }
+                  }
+                ]
+              },
+              "status": 200
+            }
+          ]
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_search",
+        "method": "POST",
+        "status": 200,
+        "elapsed_ms": 3.31,
+        "body": {
+          "took": 1,
+          "timed_out": false,
+          "_shards": {
+            "total": 1,
+            "successful": 1,
+            "skipped": 0,
+            "failed": 0
+          },
+          "hits": {
+            "total": {
+              "value": 6,
+              "relation": "eq"
+            },
+            "max_score": null,
+            "hits": [
+              {
+                "_index": "opensearch36_evidence_20261009",
+                "_id": "p-004",
+                "_score": null,
+                "_source": {
+                  "sku": "p-004",
+                  "title": "Travel mug",
+                  "description": "Insulated stainless steel cup",
+                  "brand": "Zenith",
+                  "category": "home",
+                  "price": 24.0,
+                  "stock": 0
+                },
+                "sort": [
+                  24.0
+                ]
+              },
+              {
+                "_index": "opensearch36_evidence_20261009",
+                "_id": "p-002",
+                "_score": null,
+                "_source": {
+                  "sku": "p-002",
+                  "title": "USB-C charger",
+                  "description": "Fast compact wall charger for laptops",
+                  "brand": "Northstar",
+                  "category": "accessories",
+                  "price": 39.0,
+                  "stock": 85
+                },
+                "sort": [
+                  39.0
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_search",
+        "method": "POST",
+        "status": 200,
+        "elapsed_ms": 3.04,
+        "body": {
+          "took": 1,
+          "timed_out": false,
+          "_shards": {
+            "total": 1,
+            "successful": 1,
+            "skipped": 0,
+            "failed": 0
+          },
+          "hits": {
+            "total": {
+              "value": 6,
+              "relation": "eq"
+            },
+            "max_score": null,
+            "hits": [
+              {
+                "_index": "opensearch36_evidence_20261009",
+                "_id": "p-006",
+                "_score": null,
+                "_source": {
+                  "sku": "p-006",
+                  "title": "Web camera",
+                  "description": "Sharp video with built-in microphone",
+                  "brand": "Acme",
+                  "category": "office",
+                  "price": 79.0,
+                  "stock": 31
+                },
+                "sort": [
+                  79.0
+                ]
+              },
+              {
+                "_index": "opensearch36_evidence_20261009",
+                "_id": "p-003",
+                "_score": null,
+                "_source": {
+                  "sku": "p-003",
+                  "title": "Mechanical keyboard",
+                  "description": "Quiet low profile keyboard for office",
+                  "brand": "Acme",
+                  "category": "office",
+                  "price": 99.0,
+                  "stock": 17
+                },
+                "sort": [
+                  99.0
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_doc/p-001",
+        "method": "GET",
+        "status": 200,
+        "elapsed_ms": 2.39,
+        "body": {
+          "_index": "opensearch36_evidence_20261009",
+          "_id": "p-001",
+          "_version": 1,
+          "_seq_no": 0,
+          "_primary_term": 1,
+          "found": true,
+          "_source": {
+            "sku": "p-001",
+            "title": "Wireless headphones",
+            "description": "Noise cancelling audio with long battery life",
+            "brand": "Acme",
+            "category": "audio",
+            "price": 129.0,
+            "stock": 42
+          }
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_update/p-001",
+        "method": "POST",
+        "status": 200,
+        "elapsed_ms": 5.01,
+        "body": {
+          "_index": "opensearch36_evidence_20261009",
+          "_id": "p-001",
+          "_version": 2,
+          "result": "updated",
+          "_shards": {
+            "total": 2,
+            "successful": 1,
+            "failed": 0
+          },
+          "_seq_no": 6,
+          "_primary_term": 1
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_refresh",
+        "method": "POST",
+        "status": 200,
+        "elapsed_ms": 8.96,
+        "body": {
+          "_shards": {
+            "total": 2,
+            "successful": 1,
+            "failed": 0
+          }
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_doc/p-001",
+        "method": "GET",
+        "status": 200,
+        "elapsed_ms": 1.75,
+        "body": {
+          "_index": "opensearch36_evidence_20261009",
+          "_id": "p-001",
+          "_version": 2,
+          "_seq_no": 6,
+          "_primary_term": 1,
+          "found": true,
+          "_source": {
+            "sku": "p-001",
+            "title": "Wireless headphones",
+            "description": "Noise cancelling audio with long battery life",
+            "brand": "Acme",
+            "category": "audio",
+            "price": 119.0,
+            "stock": 40
+          }
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_doc/p-004?refresh=wait_for",
+        "method": "DELETE",
+        "status": 200,
+        "elapsed_ms": 951.39,
+        "body": {
+          "_index": "opensearch36_evidence_20261009",
+          "_id": "p-004",
+          "_version": 2,
+          "result": "deleted",
+          "_shards": {
+            "total": 2,
+            "successful": 1,
+            "failed": 0
+          },
+          "_seq_no": 7,
+          "_primary_term": 1
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_count",
+        "method": "POST",
+        "status": 200,
+        "elapsed_ms": 5.09,
+        "body": {
+          "count": 5,
+          "_shards": {
+            "total": 1,
+            "successful": 1,
+            "skipped": 0,
+            "failed": 0
+          }
+        }
+      }
+    ],
+    "key_results": {
+      "filtered": {
+        "took": 6,
+        "timed_out": false,
+        "_shards": {
+          "total": 1,
+          "successful": 1,
+          "skipped": 0,
+          "failed": 0
+        },
+        "hits": {
+          "total": {
+            "value": 1,
+            "relation": "eq"
+          },
+          "max_score": null,
+          "hits": [
+            {
+              "_index": "opensearch36_evidence_20261009",
+              "_id": "p-001",
+              "_score": null,
+              "_source": {
+                "price": 129.0,
+                "title": "Wireless headphones",
+                "brand": "Acme"
+              },
+              "sort": [
+                129.0
+              ]
+            }
+          ]
+        }
+      },
+      "facet": {
+        "took": 4,
+        "timed_out": false,
+        "terminated_early": true,
+        "_shards": {
+          "total": 1,
+          "successful": 1,
+          "skipped": 0,
+          "failed": 0
+        },
+        "hits": {
+          "total": {
+            "value": 6,
+            "relation": "eq"
+          },
+          "max_score": null,
+          "hits": []
+        },
+        "aggregations": {
+          "brands": {
+            "doc_count_error_upper_bound": 0,
+            "sum_other_doc_count": 0,
+            "buckets": [
+              {
+                "key": "Acme",
+                "doc_count": 3
+              },
+              {
+                "key": "Northstar",
+                "doc_count": 2
+              },
+              {
+                "key": "Zenith",
+                "doc_count": 1
+              }
+            ]
+          }
+        }
+      },
+      "prefix": {
+        "took": 2,
+        "timed_out": false,
+        "_shards": {
+          "total": 1,
+          "successful": 1,
+          "skipped": 0,
+          "failed": 0
+        },
+        "hits": {
+          "total": {
+            "value": 1,
+            "relation": "eq"
+          },
+          "max_score": 1.0,
+          "hits": [
+            {
+              "_index": "opensearch36_evidence_20261009",
+              "_id": "p-001",
+              "_score": 1.0,
+              "_source": {
+                "sku": "p-001",
+                "title": "Wireless headphones",
+                "description": "Noise cancelling audio with long battery life",
+                "brand": "Acme",
+                "category": "audio",
+                "price": 129.0,
+                "stock": 42
+              }
+            }
+          ]
+        }
+      },
+      "wildcard": {
+        "took": 3,
+        "timed_out": false,
+        "_shards": {
+          "total": 1,
+          "successful": 1,
+          "skipped": 0,
+          "failed": 0
+        },
+        "hits": {
+          "total": {
+            "value": 1,
+            "relation": "eq"
+          },
+          "max_score": 1.0,
+          "hits": [
+            {
+              "_index": "opensearch36_evidence_20261009",
+              "_id": "p-003",
+              "_score": 1.0,
+              "_source": {
+                "sku": "p-003",
+                "title": "Mechanical keyboard",
+                "description": "Quiet low profile keyboard for office",
+                "brand": "Acme",
+                "category": "office",
+                "price": 99.0,
+                "stock": 17
+              }
+            }
+          ]
+        }
+      },
+      "regexp": {
+        "took": 1,
+        "timed_out": false,
+        "_shards": {
+          "total": 1,
+          "successful": 1,
+          "skipped": 0,
+          "failed": 0
+        },
+        "hits": {
+          "total": {
+            "value": 2,
+            "relation": "eq"
+          },
+          "max_score": 1.0,
+          "hits": [
+            {
+              "_index": "opensearch36_evidence_20261009",
+              "_id": "p-001",
+              "_score": 1.0,
+              "_source": {
+                "sku": "p-001",
+                "title": "Wireless headphones",
+                "description": "Noise cancelling audio with long battery life",
+                "brand": "Acme",
+                "category": "audio",
+                "price": 129.0,
+                "stock": 42
+              }
+            },
+            {
+              "_index": "opensearch36_evidence_20261009",
+              "_id": "p-002",
+              "_score": 1.0,
+              "_source": {
+                "sku": "p-002",
+                "title": "USB-C charger",
+                "description": "Fast compact wall charger for laptops",
+                "brand": "Northstar",
+                "category": "accessories",
+                "price": 39.0,
+                "stock": 85
+              }
+            }
+          ]
+        }
+      },
+      "msearch": {
+        "took": 1,
+        "responses": [
+          {
+            "took": 1,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 1,
+                "relation": "eq"
+              },
+              "max_score": 0.60500866,
+              "hits": [
+                {
+                  "_index": "opensearch36_evidence_20261009",
+                  "_id": "p-002",
+                  "_score": 0.60500866,
+                  "_source": {
+                    "sku": "p-002",
+                    "title": "USB-C charger",
+                    "description": "Fast compact wall charger for laptops",
+                    "brand": "Northstar",
+                    "category": "accessories",
+                    "price": 39.0,
+                    "stock": 85
+                  }
+                }
+              ]
+            },
+            "status": 200
+          },
+          {
+            "took": 1,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 3,
+                "relation": "eq"
+              },
+              "max_score": 1.0,
+              "hits": [
+                {
+                  "_index": "opensearch36_evidence_20261009",
+                  "_id": "p-001",
+                  "_score": 1.0,
+                  "_source": {
+                    "sku": "p-001",
+                    "title": "Wireless headphones",
+                    "description": "Noise cancelling audio with long battery life",
+                    "brand": "Acme",
+                    "category": "audio",
+                    "price": 129.0,
+                    "stock": 42
+                  }
+                },
+                {
+                  "_index": "opensearch36_evidence_20261009",
+                  "_id": "p-003",
+                  "_score": 1.0,
+                  "_source": {
+                    "sku": "p-003",
+                    "title": "Mechanical keyboard",
+                    "description": "Quiet low profile keyboard for office",
+                    "brand": "Acme",
+                    "category": "office",
+                    "price": 99.0,
+                    "stock": 17
+                  }
+                }
+              ]
+            },
+            "status": 200
+          }
+        ]
+      },
+      "first_page": {
+        "took": 1,
+        "timed_out": false,
+        "_shards": {
+          "total": 1,
+          "successful": 1,
+          "skipped": 0,
+          "failed": 0
+        },
+        "hits": {
+          "total": {
+            "value": 6,
+            "relation": "eq"
+          },
+          "max_score": null,
+          "hits": [
+            {
+              "_index": "opensearch36_evidence_20261009",
+              "_id": "p-004",
+              "_score": null,
+              "_source": {
+                "sku": "p-004",
+                "title": "Travel mug",
+                "description": "Insulated stainless steel cup",
+                "brand": "Zenith",
+                "category": "home",
+                "price": 24.0,
+                "stock": 0
+              },
+              "sort": [
+                24.0
+              ]
+            },
+            {
+              "_index": "opensearch36_evidence_20261009",
+              "_id": "p-002",
+              "_score": null,
+              "_source": {
+                "sku": "p-002",
+                "title": "USB-C charger",
+                "description": "Fast compact wall charger for laptops",
+                "brand": "Northstar",
+                "category": "accessories",
+                "price": 39.0,
+                "stock": 85
+              },
+              "sort": [
+                39.0
+              ]
+            }
+          ]
+        }
+      },
+      "second_page": {
+        "took": 1,
+        "timed_out": false,
+        "_shards": {
+          "total": 1,
+          "successful": 1,
+          "skipped": 0,
+          "failed": 0
+        },
+        "hits": {
+          "total": {
+            "value": 6,
+            "relation": "eq"
+          },
+          "max_score": null,
+          "hits": [
+            {
+              "_index": "opensearch36_evidence_20261009",
+              "_id": "p-006",
+              "_score": null,
+              "_source": {
+                "sku": "p-006",
+                "title": "Web camera",
+                "description": "Sharp video with built-in microphone",
+                "brand": "Acme",
+                "category": "office",
+                "price": 79.0,
+                "stock": 31
+              },
+              "sort": [
+                79.0
+              ]
+            },
+            {
+              "_index": "opensearch36_evidence_20261009",
+              "_id": "p-003",
+              "_score": null,
+              "_source": {
+                "sku": "p-003",
+                "title": "Mechanical keyboard",
+                "description": "Quiet low profile keyboard for office",
+                "brand": "Acme",
+                "category": "office",
+                "price": 99.0,
+                "stock": 17
+              },
+              "sort": [
+                99.0
+              ]
+            }
+          ]
+        }
+      },
+      "fetched": {
+        "_index": "opensearch36_evidence_20261009",
+        "_id": "p-001",
+        "_version": 1,
+        "_seq_no": 0,
+        "_primary_term": 1,
+        "found": true,
+        "_source": {
+          "sku": "p-001",
+          "title": "Wireless headphones",
+          "description": "Noise cancelling audio with long battery life",
+          "brand": "Acme",
+          "category": "audio",
+          "price": 129.0,
+          "stock": 42
+        }
+      },
+      "after_update": {
+        "_index": "opensearch36_evidence_20261009",
+        "_id": "p-001",
+        "_version": 2,
+        "_seq_no": 6,
+        "_primary_term": 1,
+        "found": true,
+        "_source": {
+          "sku": "p-001",
+          "title": "Wireless headphones",
+          "description": "Noise cancelling audio with long battery life",
+          "brand": "Acme",
+          "category": "audio",
+          "price": 119.0,
+          "stock": 40
+        }
+      },
+      "count": {
+        "count": 5,
+        "_shards": {
+          "total": 1,
+          "successful": 1,
+          "skipped": 0,
+          "failed": 0
+        }
+      }
+    },
+    "mutations": {
+      "created": {
+        "status": 200,
+        "elapsed_ms": 43.53,
+        "body": {
+          "acknowledged": true,
+          "shards_acknowledged": true,
+          "index": "opensearch36_evidence_20261009"
+        }
+      },
+      "bulk": {
+        "status": 200,
+        "elapsed_ms": 1003.03,
+        "body": {
+          "took": 999,
+          "errors": false,
+          "items": [
+            {
+              "index": {
+                "_index": "opensearch36_evidence_20261009",
+                "_id": "p-001",
+                "_version": 1,
+                "result": "created",
+                "_shards": {
+                  "total": 2,
+                  "successful": 1,
+                  "failed": 0
+                },
+                "_seq_no": 0,
+                "_primary_term": 1,
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_index": "opensearch36_evidence_20261009",
+                "_id": "p-002",
+                "_version": 1,
+                "result": "created",
+                "_shards": {
+                  "total": 2,
+                  "successful": 1,
+                  "failed": 0
+                },
+                "_seq_no": 1,
+                "_primary_term": 1,
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_index": "opensearch36_evidence_20261009",
+                "_id": "p-003",
+                "_version": 1,
+                "result": "created",
+                "_shards": {
+                  "total": 2,
+                  "successful": 1,
+                  "failed": 0
+                },
+                "_seq_no": 2,
+                "_primary_term": 1,
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_index": "opensearch36_evidence_20261009",
+                "_id": "p-004",
+                "_version": 1,
+                "result": "created",
+                "_shards": {
+                  "total": 2,
+                  "successful": 1,
+                  "failed": 0
+                },
+                "_seq_no": 3,
+                "_primary_term": 1,
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_index": "opensearch36_evidence_20261009",
+                "_id": "p-005",
+                "_version": 1,
+                "result": "created",
+                "_shards": {
+                  "total": 2,
+                  "successful": 1,
+                  "failed": 0
+                },
+                "_seq_no": 4,
+                "_primary_term": 1,
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_index": "opensearch36_evidence_20261009",
+                "_id": "p-006",
+                "_version": 1,
+                "result": "created",
+                "_shards": {
+                  "total": 2,
+                  "successful": 1,
+                  "failed": 0
+                },
+                "_seq_no": 5,
+                "_primary_term": 1,
+                "status": 201
+              }
+            }
+          ]
+        }
+      },
+      "updated": {
+        "status": 200,
+        "elapsed_ms": 5.01,
+        "body": {
+          "_index": "opensearch36_evidence_20261009",
+          "_id": "p-001",
+          "_version": 2,
+          "result": "updated",
+          "_shards": {
+            "total": 2,
+            "successful": 1,
+            "failed": 0
+          },
+          "_seq_no": 6,
+          "_primary_term": 1
+        }
+      },
+      "refreshed": {
+        "status": 200,
+        "elapsed_ms": 8.96,
+        "body": {
+          "_shards": {
+            "total": 2,
+            "successful": 1,
+            "failed": 0
+          }
+        }
+      },
+      "deleted": {
+        "status": 200,
+        "elapsed_ms": 951.39,
+        "body": {
+          "_index": "opensearch36_evidence_20261009",
+          "_id": "p-004",
+          "_version": 2,
+          "result": "deleted",
+          "_shards": {
+            "total": 2,
+            "successful": 1,
+            "failed": 0
+          },
+          "_seq_no": 7,
+          "_primary_term": 1
+        }
+      }
+    }
+  },
+  "gateway": {
+    "identity": {
+      "version": {
+        "build_flavor": "default",
+        "build_type": "gateway",
+        "lucene_version": "qdrant",
+        "number": "8.15.0"
+      },
+      "tagline": "You Know, for Search"
+    },
+    "calls": [
+      {
+        "path": "/",
+        "method": "GET",
+        "status": 200,
+        "elapsed_ms": 2.3,
+        "body": {
+          "version": {
+            "build_flavor": "default",
+            "build_type": "gateway",
+            "lucene_version": "qdrant",
+            "number": "8.15.0"
+          },
+          "tagline": "You Know, for Search"
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009",
+        "method": "DELETE",
+        "status": 200,
+        "elapsed_ms": 19.21,
+        "body": {
+          "acknowledged": true
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009",
+        "method": "PUT",
+        "status": 200,
+        "elapsed_ms": 63.87,
+        "body": {
+          "acknowledged": true,
+          "index": "opensearch36_evidence_20261009",
+          "shards_acknowledged": true
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_bulk?refresh=wait_for",
+        "method": "POST",
+        "status": 200,
+        "elapsed_ms": 1.98,
+        "body": {
+          "errors": false,
+          "items": [
+            {
+              "index": {
+                "_id": "p-001",
+                "_index": "opensearch36_evidence_20261009",
+                "result": "created",
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_id": "p-002",
+                "_index": "opensearch36_evidence_20261009",
+                "result": "created",
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_id": "p-003",
+                "_index": "opensearch36_evidence_20261009",
+                "result": "created",
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_id": "p-004",
+                "_index": "opensearch36_evidence_20261009",
+                "result": "created",
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_id": "p-005",
+                "_index": "opensearch36_evidence_20261009",
+                "result": "created",
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_id": "p-006",
+                "_index": "opensearch36_evidence_20261009",
+                "result": "created",
+                "status": 201
+              }
+            }
+          ],
+          "took": 0
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_search",
+        "method": "POST",
+        "status": 200,
+        "elapsed_ms": 7.75,
+        "body": {
+          "_shards": {
+            "failed": 0,
+            "skipped": 0,
+            "successful": 1,
+            "total": 1
+          },
+          "hits": {
+            "hits": [
+              {
+                "_id": "p-001",
+                "_index": "opensearch36_evidence_20261009",
+                "_score": 3.3664076,
+                "_source": {
+                  "brand": "Acme",
+                  "price": 129.0,
+                  "title": "Wireless headphones"
+                },
+                "sort": [
+                  129.0
+                ]
+              }
+            ],
+            "max_score": 3.3664076,
+            "total": {
+              "relation": "gte",
+              "value": 1
+            }
+          },
+          "timed_out": false,
+          "took": 3
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_search",
+        "method": "POST",
+        "status": 200,
+        "elapsed_ms": 4.26,
+        "body": {
+          "_shards": {
+            "failed": 0,
+            "skipped": 0,
+            "successful": 1,
+            "total": 1
+          },
+          "aggregations": {
+            "brands": {
+              "buckets": [
+                {
+                  "doc_count": 3,
+                  "key": "Acme"
+                },
+                {
+                  "doc_count": 2,
+                  "key": "Northstar"
+                },
+                {
+                  "doc_count": 1,
+                  "key": "Zenith"
+                }
+              ],
+              "doc_count_error_upper_bound": 0,
+              "sum_other_doc_count": 0
+            }
+          },
+          "hits": {
+            "hits": [],
+            "max_score": 0.0,
+            "total": {
+              "relation": "eq",
+              "value": 6
+            }
+          },
+          "timed_out": false,
+          "took": 1
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_search",
+        "method": "POST",
+        "status": 200,
+        "elapsed_ms": 2.71,
+        "body": {
+          "_shards": {
+            "failed": 0,
+            "skipped": 0,
+            "successful": 1,
+            "total": 1
+          },
+          "hits": {
+            "hits": [],
+            "max_score": 0.0,
+            "total": {
+              "relation": "eq",
+              "value": 0
+            }
+          },
+          "timed_out": false,
+          "took": 0
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_search",
+        "method": "POST",
+        "status": 200,
+        "elapsed_ms": 3.5,
+        "body": {
+          "_shards": {
+            "failed": 0,
+            "skipped": 0,
+            "successful": 1,
+            "total": 1
+          },
+          "hits": {
+            "hits": [
+              {
+                "_id": "p-003",
+                "_index": "opensearch36_evidence_20261009",
+                "_score": null,
+                "_source": {
+                  "brand": "Acme",
+                  "category": "office",
+                  "description": "Quiet low profile keyboard for office",
+                  "price": 99.0,
+                  "sku": "p-003",
+                  "stock": 17,
+                  "title": "Mechanical keyboard"
+                }
+              }
+            ],
+            "max_score": 0.0,
+            "total": {
+              "relation": "eq",
+              "value": 1
+            }
+          },
+          "timed_out": false,
+          "took": 1
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_search",
+        "method": "POST",
+        "status": 200,
+        "elapsed_ms": 2.89,
+        "body": {
+          "_shards": {
+            "failed": 0,
+            "skipped": 0,
+            "successful": 1,
+            "total": 1
+          },
+          "hits": {
+            "hits": [
+              {
+                "_id": "p-002",
+                "_index": "opensearch36_evidence_20261009",
+                "_score": null,
+                "_source": {
+                  "brand": "Northstar",
+                  "category": "accessories",
+                  "description": "Fast compact wall charger for laptops",
+                  "price": 39.0,
+                  "sku": "p-002",
+                  "stock": 85,
+                  "title": "USB-C charger"
+                }
+              },
+              {
+                "_id": "p-001",
+                "_index": "opensearch36_evidence_20261009",
+                "_score": null,
+                "_source": {
+                  "brand": "Acme",
+                  "category": "audio",
+                  "description": "Noise cancelling audio with long battery life",
+                  "price": 129.0,
+                  "sku": "p-001",
+                  "stock": 42,
+                  "title": "Wireless headphones"
+                }
+              }
+            ],
+            "max_score": 0.0,
+            "total": {
+              "relation": "eq",
+              "value": 2
+            }
+          },
+          "timed_out": false,
+          "took": 1
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_msearch",
+        "method": "POST",
+        "status": 200,
+        "elapsed_ms": 3.61,
+        "body": {
+          "responses": [
+            {
+              "_shards": {
+                "failed": 0,
+                "skipped": 0,
+                "successful": 1,
+                "total": 1
+              },
+              "hits": {
+                "hits": [
+                  {
+                    "_id": "p-002",
+                    "_index": "opensearch36_evidence_20261009",
+                    "_score": 1.6786885,
+                    "_source": {
+                      "brand": "Northstar",
+                      "category": "accessories",
+                      "description": "Fast compact wall charger for laptops",
+                      "price": 39.0,
+                      "sku": "p-002",
+                      "stock": 85,
+                      "title": "USB-C charger"
+                    }
+                  }
+                ],
+                "max_score": 1.6786885,
+                "total": {
+                  "relation": "gte",
+                  "value": 1
+                }
+              },
+              "timed_out": false,
+              "took": 0
+            },
+            {
+              "_shards": {
+                "failed": 0,
+                "skipped": 0,
+                "successful": 1,
+                "total": 1
+              },
+              "hits": {
+                "hits": [
+                  {
+                    "_id": "p-001",
+                    "_index": "opensearch36_evidence_20261009",
+                    "_score": null,
+                    "_source": {
+                      "brand": "Acme",
+                      "category": "audio",
+                      "description": "Noise cancelling audio with long battery life",
+                      "price": 129.0,
+                      "sku": "p-001",
+                      "stock": 42,
+                      "title": "Wireless headphones"
+                    }
+                  },
+                  {
+                    "_id": "p-006",
+                    "_index": "opensearch36_evidence_20261009",
+                    "_score": null,
+                    "_source": {
+                      "brand": "Acme",
+                      "category": "office",
+                      "description": "Sharp video with built-in microphone",
+                      "price": 79.0,
+                      "sku": "p-006",
+                      "stock": 31,
+                      "title": "Web camera"
+                    }
+                  }
+                ],
+                "max_score": 0.0,
+                "total": {
+                  "relation": "eq",
+                  "value": 3
+                }
+              },
+              "timed_out": false,
+              "took": 0
+            }
+          ]
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_search",
+        "method": "POST",
+        "status": 200,
+        "elapsed_ms": 2.45,
+        "body": {
+          "_shards": {
+            "failed": 0,
+            "skipped": 0,
+            "successful": 1,
+            "total": 1
+          },
+          "hits": {
+            "hits": [
+              {
+                "_id": "p-006",
+                "_index": "opensearch36_evidence_20261009",
+                "_score": null,
+                "_source": {
+                  "brand": "Acme",
+                  "category": "office",
+                  "description": "Sharp video with built-in microphone",
+                  "price": 79.0,
+                  "sku": "p-006",
+                  "stock": 31,
+                  "title": "Web camera"
+                },
+                "sort": [
+                  79.0
+                ]
+              },
+              {
+                "_id": "p-001",
+                "_index": "opensearch36_evidence_20261009",
+                "_score": null,
+                "_source": {
+                  "brand": "Acme",
+                  "category": "audio",
+                  "description": "Noise cancelling audio with long battery life",
+                  "price": 129.0,
+                  "sku": "p-001",
+                  "stock": 42,
+                  "title": "Wireless headphones"
+                },
+                "sort": [
+                  129.0
+                ]
+              }
+            ],
+            "max_score": 0.0,
+            "total": {
+              "relation": "eq",
+              "value": 6
+            }
+          },
+          "timed_out": false,
+          "took": 0
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_search",
+        "method": "POST",
+        "status": 200,
+        "elapsed_ms": 2.32,
+        "body": {
+          "_shards": {
+            "failed": 0,
+            "skipped": 0,
+            "successful": 1,
+            "total": 1
+          },
+          "hits": {
+            "hits": [],
+            "max_score": 0.0,
+            "total": {
+              "relation": "eq",
+              "value": 6
+            }
+          },
+          "timed_out": false,
+          "took": 0
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_doc/p-001",
+        "method": "GET",
+        "status": 200,
+        "elapsed_ms": 2.13,
+        "body": {
+          "_id": "p-001",
+          "_index": "opensearch36_evidence_20261009",
+          "_source": {
+            "brand": "Acme",
+            "category": "audio",
+            "description": "Noise cancelling audio with long battery life",
+            "price": 129.0,
+            "sku": "p-001",
+            "stock": 42,
+            "title": "Wireless headphones"
+          },
+          "_version": 1,
+          "found": true
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_update/p-001",
+        "method": "POST",
+        "status": 200,
+        "elapsed_ms": 2.3,
+        "body": {
+          "_id": "p-001",
+          "_index": "opensearch36_evidence_20261009",
+          "_shards": {
+            "failed": 0,
+            "successful": 1,
+            "total": 1
+          },
+          "_version": 1,
+          "result": "updated"
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_refresh",
+        "method": "POST",
+        "status": 200,
+        "elapsed_ms": 1.43,
+        "body": {
+          "acknowledged": true,
+          "action": "refresh",
+          "index": "opensearch36_evidence_20261009",
+          "shards_acknowledged": true
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_doc/p-001",
+        "method": "GET",
+        "status": 200,
+        "elapsed_ms": 1.99,
+        "body": {
+          "_id": "p-001",
+          "_index": "opensearch36_evidence_20261009",
+          "_source": {
+            "brand": "Acme",
+            "category": "audio",
+            "description": "Noise cancelling audio with long battery life",
+            "price": 119.0,
+            "sku": "p-001",
+            "stock": 40,
+            "title": "Wireless headphones"
+          },
+          "_version": 1,
+          "found": true
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_doc/p-004?refresh=wait_for",
+        "method": "DELETE",
+        "status": 200,
+        "elapsed_ms": 2.35,
+        "body": {
+          "_id": "p-004",
+          "_index": "opensearch36_evidence_20261009",
+          "_shards": {
+            "failed": 0,
+            "successful": 1,
+            "total": 1
+          },
+          "_version": 1,
+          "result": "deleted"
+        }
+      },
+      {
+        "path": "/opensearch36_evidence_20261009/_count",
+        "method": "POST",
+        "status": 200,
+        "elapsed_ms": 2.21,
+        "body": {
+          "_shards": {
+            "failed": 0,
+            "skipped": 0,
+            "successful": 1,
+            "total": 1
+          },
+          "count": 5
+        }
+      }
+    ],
+    "key_results": {
+      "filtered": {
+        "_shards": {
+          "failed": 0,
+          "skipped": 0,
+          "successful": 1,
+          "total": 1
+        },
+        "hits": {
+          "hits": [
+            {
+              "_id": "p-001",
+              "_index": "opensearch36_evidence_20261009",
+              "_score": 3.3664076,
+              "_source": {
+                "brand": "Acme",
+                "price": 129.0,
+                "title": "Wireless headphones"
+              },
+              "sort": [
+                129.0
+              ]
+            }
+          ],
+          "max_score": 3.3664076,
+          "total": {
+            "relation": "gte",
+            "value": 1
+          }
+        },
+        "timed_out": false,
+        "took": 3
+      },
+      "facet": {
+        "_shards": {
+          "failed": 0,
+          "skipped": 0,
+          "successful": 1,
+          "total": 1
+        },
+        "aggregations": {
+          "brands": {
+            "buckets": [
+              {
+                "doc_count": 3,
+                "key": "Acme"
+              },
+              {
+                "doc_count": 2,
+                "key": "Northstar"
+              },
+              {
+                "doc_count": 1,
+                "key": "Zenith"
+              }
+            ],
+            "doc_count_error_upper_bound": 0,
+            "sum_other_doc_count": 0
+          }
+        },
+        "hits": {
+          "hits": [],
+          "max_score": 0.0,
+          "total": {
+            "relation": "eq",
+            "value": 6
+          }
+        },
+        "timed_out": false,
+        "took": 1
+      },
+      "prefix": {
+        "_shards": {
+          "failed": 0,
+          "skipped": 0,
+          "successful": 1,
+          "total": 1
+        },
+        "hits": {
+          "hits": [],
+          "max_score": 0.0,
+          "total": {
+            "relation": "eq",
+            "value": 0
+          }
+        },
+        "timed_out": false,
+        "took": 0
+      },
+      "wildcard": {
+        "_shards": {
+          "failed": 0,
+          "skipped": 0,
+          "successful": 1,
+          "total": 1
+        },
+        "hits": {
+          "hits": [
+            {
+              "_id": "p-003",
+              "_index": "opensearch36_evidence_20261009",
+              "_score": null,
+              "_source": {
+                "brand": "Acme",
+                "category": "office",
+                "description": "Quiet low profile keyboard for office",
+                "price": 99.0,
+                "sku": "p-003",
+                "stock": 17,
+                "title": "Mechanical keyboard"
+              }
+            }
+          ],
+          "max_score": 0.0,
+          "total": {
+            "relation": "eq",
+            "value": 1
+          }
+        },
+        "timed_out": false,
+        "took": 1
+      },
+      "regexp": {
+        "_shards": {
+          "failed": 0,
+          "skipped": 0,
+          "successful": 1,
+          "total": 1
+        },
+        "hits": {
+          "hits": [
+            {
+              "_id": "p-002",
+              "_index": "opensearch36_evidence_20261009",
+              "_score": null,
+              "_source": {
+                "brand": "Northstar",
+                "category": "accessories",
+                "description": "Fast compact wall charger for laptops",
+                "price": 39.0,
+                "sku": "p-002",
+                "stock": 85,
+                "title": "USB-C charger"
+              }
+            },
+            {
+              "_id": "p-001",
+              "_index": "opensearch36_evidence_20261009",
+              "_score": null,
+              "_source": {
+                "brand": "Acme",
+                "category": "audio",
+                "description": "Noise cancelling audio with long battery life",
+                "price": 129.0,
+                "sku": "p-001",
+                "stock": 42,
+                "title": "Wireless headphones"
+              }
+            }
+          ],
+          "max_score": 0.0,
+          "total": {
+            "relation": "eq",
+            "value": 2
+          }
+        },
+        "timed_out": false,
+        "took": 1
+      },
+      "msearch": {
+        "responses": [
+          {
+            "_shards": {
+              "failed": 0,
+              "skipped": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "hits": {
+              "hits": [
+                {
+                  "_id": "p-002",
+                  "_index": "opensearch36_evidence_20261009",
+                  "_score": 1.6786885,
+                  "_source": {
+                    "brand": "Northstar",
+                    "category": "accessories",
+                    "description": "Fast compact wall charger for laptops",
+                    "price": 39.0,
+                    "sku": "p-002",
+                    "stock": 85,
+                    "title": "USB-C charger"
+                  }
+                }
+              ],
+              "max_score": 1.6786885,
+              "total": {
+                "relation": "gte",
+                "value": 1
+              }
+            },
+            "timed_out": false,
+            "took": 0
+          },
+          {
+            "_shards": {
+              "failed": 0,
+              "skipped": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "hits": {
+              "hits": [
+                {
+                  "_id": "p-001",
+                  "_index": "opensearch36_evidence_20261009",
+                  "_score": null,
+                  "_source": {
+                    "brand": "Acme",
+                    "category": "audio",
+                    "description": "Noise cancelling audio with long battery life",
+                    "price": 129.0,
+                    "sku": "p-001",
+                    "stock": 42,
+                    "title": "Wireless headphones"
+                  }
+                },
+                {
+                  "_id": "p-006",
+                  "_index": "opensearch36_evidence_20261009",
+                  "_score": null,
+                  "_source": {
+                    "brand": "Acme",
+                    "category": "office",
+                    "description": "Sharp video with built-in microphone",
+                    "price": 79.0,
+                    "sku": "p-006",
+                    "stock": 31,
+                    "title": "Web camera"
+                  }
+                }
+              ],
+              "max_score": 0.0,
+              "total": {
+                "relation": "eq",
+                "value": 3
+              }
+            },
+            "timed_out": false,
+            "took": 0
+          }
+        ]
+      },
+      "first_page": {
+        "_shards": {
+          "failed": 0,
+          "skipped": 0,
+          "successful": 1,
+          "total": 1
+        },
+        "hits": {
+          "hits": [
+            {
+              "_id": "p-006",
+              "_index": "opensearch36_evidence_20261009",
+              "_score": null,
+              "_source": {
+                "brand": "Acme",
+                "category": "office",
+                "description": "Sharp video with built-in microphone",
+                "price": 79.0,
+                "sku": "p-006",
+                "stock": 31,
+                "title": "Web camera"
+              },
+              "sort": [
+                79.0
+              ]
+            },
+            {
+              "_id": "p-001",
+              "_index": "opensearch36_evidence_20261009",
+              "_score": null,
+              "_source": {
+                "brand": "Acme",
+                "category": "audio",
+                "description": "Noise cancelling audio with long battery life",
+                "price": 129.0,
+                "sku": "p-001",
+                "stock": 42,
+                "title": "Wireless headphones"
+              },
+              "sort": [
+                129.0
+              ]
+            }
+          ],
+          "max_score": 0.0,
+          "total": {
+            "relation": "eq",
+            "value": 6
+          }
+        },
+        "timed_out": false,
+        "took": 0
+      },
+      "second_page": {
+        "_shards": {
+          "failed": 0,
+          "skipped": 0,
+          "successful": 1,
+          "total": 1
+        },
+        "hits": {
+          "hits": [],
+          "max_score": 0.0,
+          "total": {
+            "relation": "eq",
+            "value": 6
+          }
+        },
+        "timed_out": false,
+        "took": 0
+      },
+      "fetched": {
+        "_id": "p-001",
+        "_index": "opensearch36_evidence_20261009",
+        "_source": {
+          "brand": "Acme",
+          "category": "audio",
+          "description": "Noise cancelling audio with long battery life",
+          "price": 129.0,
+          "sku": "p-001",
+          "stock": 42,
+          "title": "Wireless headphones"
+        },
+        "_version": 1,
+        "found": true
+      },
+      "after_update": {
+        "_id": "p-001",
+        "_index": "opensearch36_evidence_20261009",
+        "_source": {
+          "brand": "Acme",
+          "category": "audio",
+          "description": "Noise cancelling audio with long battery life",
+          "price": 119.0,
+          "sku": "p-001",
+          "stock": 40,
+          "title": "Wireless headphones"
+        },
+        "_version": 1,
+        "found": true
+      },
+      "count": {
+        "_shards": {
+          "failed": 0,
+          "skipped": 0,
+          "successful": 1,
+          "total": 1
+        },
+        "count": 5
+      }
+    },
+    "mutations": {
+      "created": {
+        "status": 200,
+        "elapsed_ms": 63.87,
+        "body": {
+          "acknowledged": true,
+          "index": "opensearch36_evidence_20261009",
+          "shards_acknowledged": true
+        }
+      },
+      "bulk": {
+        "status": 200,
+        "elapsed_ms": 1.98,
+        "body": {
+          "errors": false,
+          "items": [
+            {
+              "index": {
+                "_id": "p-001",
+                "_index": "opensearch36_evidence_20261009",
+                "result": "created",
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_id": "p-002",
+                "_index": "opensearch36_evidence_20261009",
+                "result": "created",
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_id": "p-003",
+                "_index": "opensearch36_evidence_20261009",
+                "result": "created",
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_id": "p-004",
+                "_index": "opensearch36_evidence_20261009",
+                "result": "created",
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_id": "p-005",
+                "_index": "opensearch36_evidence_20261009",
+                "result": "created",
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_id": "p-006",
+                "_index": "opensearch36_evidence_20261009",
+                "result": "created",
+                "status": 201
+              }
+            }
+          ],
+          "took": 0
+        }
+      },
+      "updated": {
+        "status": 200,
+        "elapsed_ms": 2.3,
+        "body": {
+          "_id": "p-001",
+          "_index": "opensearch36_evidence_20261009",
+          "_shards": {
+            "failed": 0,
+            "successful": 1,
+            "total": 1
+          },
+          "_version": 1,
+          "result": "updated"
+        }
+      },
+      "refreshed": {
+        "status": 200,
+        "elapsed_ms": 1.43,
+        "body": {
+          "acknowledged": true,
+          "action": "refresh",
+          "index": "opensearch36_evidence_20261009",
+          "shards_acknowledged": true
+        }
+      },
+      "deleted": {
+        "status": 200,
+        "elapsed_ms": 2.35,
+        "body": {
+          "_id": "p-004",
+          "_index": "opensearch36_evidence_20261009",
+          "_shards": {
+            "failed": 0,
+            "successful": 1,
+            "total": 1
+          },
+          "_version": 1,
+          "result": "deleted"
+        }
+      }
+    }
+  },
+  "comparison": {
+    "passed": 10,
+    "total": 12,
+    "checks": [
+      {
+        "name": "native required requests",
+        "ok": true,
+        "detail": []
+      },
+      {
+        "name": "gateway required requests",
+        "ok": true,
+        "detail": []
+      },
+      {
+        "name": "filtered top-k overlap",
+        "ok": true,
+        "detail": {
+          "native": [
+            "p-001"
+          ],
+          "gateway": [
+            "p-001"
+          ]
+        }
+      },
+      {
+        "name": "filtered sources returned",
+        "ok": true,
+        "detail": {
+          "p-001": {
+            "brand": "Acme",
+            "price": 129.0,
+            "title": "Wireless headphones"
+          }
+        }
+      },
+      {
+        "name": "prefix result IDs",
+        "ok": false,
+        "detail": {
+          "native": [
+            "p-001"
+          ],
+          "gateway": []
+        }
+      },
+      {
+        "name": "wildcard result IDs",
+        "ok": true,
+        "detail": {
+          "native": [
+            "p-003"
+          ],
+          "gateway": [
+            "p-003"
+          ]
+        }
+      },
+      {
+        "name": "regexp result IDs",
+        "ok": true,
+        "detail": {
+          "native": [
+            "p-001",
+            "p-002"
+          ],
+          "gateway": [
+            "p-001",
+            "p-002"
+          ]
+        }
+      },
+      {
+        "name": "multi-search response count",
+        "ok": true,
+        "detail": {
+          "native": {
+            "took": 1,
+            "responses": [
+              {
+                "took": 1,
+                "timed_out": false,
+                "_shards": {
+                  "total": 1,
+                  "successful": 1,
+                  "skipped": 0,
+                  "failed": 0
+                },
+                "hits": {
+                  "total": {
+                    "value": 1,
+                    "relation": "eq"
+                  },
+                  "max_score": 0.60500866,
+                  "hits": [
+                    {
+                      "_index": "opensearch36_evidence_20261009",
+                      "_id": "p-002",
+                      "_score": 0.60500866,
+                      "_source": {
+                        "sku": "p-002",
+                        "title": "USB-C charger",
+                        "description": "Fast compact wall charger for laptops",
+                        "brand": "Northstar",
+                        "category": "accessories",
+                        "price": 39.0,
+                        "stock": 85
+                      }
+                    }
+                  ]
+                },
+                "status": 200
+              },
+              {
+                "took": 1,
+                "timed_out": false,
+                "_shards": {
+                  "total": 1,
+                  "successful": 1,
+                  "skipped": 0,
+                  "failed": 0
+                },
+                "hits": {
+                  "total": {
+                    "value": 3,
+                    "relation": "eq"
+                  },
+                  "max_score": 1.0,
+                  "hits": [
+                    {
+                      "_index": "opensearch36_evidence_20261009",
+                      "_id": "p-001",
+                      "_score": 1.0,
+                      "_source": {
+                        "sku": "p-001",
+                        "title": "Wireless headphones",
+                        "description": "Noise cancelling audio with long battery life",
+                        "brand": "Acme",
+                        "category": "audio",
+                        "price": 129.0,
+                        "stock": 42
+                      }
+                    },
+                    {
+                      "_index": "opensearch36_evidence_20261009",
+                      "_id": "p-003",
+                      "_score": 1.0,
+                      "_source": {
+                        "sku": "p-003",
+                        "title": "Mechanical keyboard",
+                        "description": "Quiet low profile keyboard for office",
+                        "brand": "Acme",
+                        "category": "office",
+                        "price": 99.0,
+                        "stock": 17
+                      }
+                    }
+                  ]
+                },
+                "status": 200
+              }
+            ]
+          },
+          "gateway": {
+            "responses": [
+              {
+                "_shards": {
+                  "failed": 0,
+                  "skipped": 0,
+                  "successful": 1,
+                  "total": 1
+                },
+                "hits": {
+                  "hits": [
+                    {
+                      "_id": "p-002",
+                      "_index": "opensearch36_evidence_20261009",
+                      "_score": 1.6786885,
+                      "_source": {
+                        "brand": "Northstar",
+                        "category": "accessories",
+                        "description": "Fast compact wall charger for laptops",
+                        "price": 39.0,
+                        "sku": "p-002",
+                        "stock": 85,
+                        "title": "USB-C charger"
+                      }
+                    }
+                  ],
+                  "max_score": 1.6786885,
+                  "total": {
+                    "relation": "gte",
+                    "value": 1
+                  }
+                },
+                "timed_out": false,
+                "took": 0
+              },
+              {
+                "_shards": {
+                  "failed": 0,
+                  "skipped": 0,
+                  "successful": 1,
+                  "total": 1
+                },
+                "hits": {
+                  "hits": [
+                    {
+                      "_id": "p-001",
+                      "_index": "opensearch36_evidence_20261009",
+                      "_score": null,
+                      "_source": {
+                        "brand": "Acme",
+                        "category": "audio",
+                        "description": "Noise cancelling audio with long battery life",
+                        "price": 129.0,
+                        "sku": "p-001",
+                        "stock": 42,
+                        "title": "Wireless headphones"
+                      }
+                    },
+                    {
+                      "_id": "p-006",
+                      "_index": "opensearch36_evidence_20261009",
+                      "_score": null,
+                      "_source": {
+                        "brand": "Acme",
+                        "category": "office",
+                        "description": "Sharp video with built-in microphone",
+                        "price": 79.0,
+                        "sku": "p-006",
+                        "stock": 31,
+                        "title": "Web camera"
+                      }
+                    }
+                  ],
+                  "max_score": 0.0,
+                  "total": {
+                    "relation": "eq",
+                    "value": 3
+                  }
+                },
+                "timed_out": false,
+                "took": 0
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "search_after page overlap",
+        "ok": false,
+        "detail": {
+          "native": [
+            "p-006",
+            "p-003"
+          ],
+          "gateway": []
+        }
+      },
+      {
+        "name": "brand facet keys",
+        "ok": true,
+        "detail": {
+          "native": [
+            "Acme",
+            "Northstar",
+            "Zenith"
+          ],
+          "gateway": [
+            "Acme",
+            "Northstar",
+            "Zenith"
+          ]
+        }
+      },
+      {
+        "name": "updated source",
+        "ok": true,
+        "detail": {
+          "native": {
+            "_index": "opensearch36_evidence_20261009",
+            "_id": "p-001",
+            "_version": 2,
+            "_seq_no": 6,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "sku": "p-001",
+              "title": "Wireless headphones",
+              "description": "Noise cancelling audio with long battery life",
+              "brand": "Acme",
+              "category": "audio",
+              "price": 119.0,
+              "stock": 40
+            }
+          },
+          "gateway": {
+            "_id": "p-001",
+            "_index": "opensearch36_evidence_20261009",
+            "_source": {
+              "brand": "Acme",
+              "category": "audio",
+              "description": "Noise cancelling audio with long battery life",
+              "price": 119.0,
+              "sku": "p-001",
+              "stock": 40,
+              "title": "Wireless headphones"
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "count after delete",
+        "ok": true,
+        "detail": {
+          "native": {
+            "count": 5,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            }
+          },
+          "gateway": {
+            "_shards": {
+              "failed": 0,
+              "skipped": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "count": 5
+          }
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "recorded_at": "2026-10-13T21:06:38+01:00",
+  "purpose": "Compare add-only alias behavior before tightening the gateway's single-target alias boundary",
+  "limitations": [
+    "This is a two-index request/response compatibility probe, not a performance benchmark.",
+    "The gateway intentionally supports only one concrete target per alias; native multi-index search and write-index behavior remain unsupported."
+  ],
+  "sequence": [
+    "PUT /products-v1",
+    "PUT /products-v2",
+    "POST /_aliases add current-products to products-v1",
+    "POST /_aliases add current-products to products-v2",
+    "GET /_alias/current-products"
+  ],
+  "targets": [
+    {
+      "engine": "Elasticsearch",
+      "version": "9.5.5",
+      "image": "docker.elastic.co/elasticsearch/elasticsearch:9.5.5",
+      "first_add": {"acknowledged": true, "errors": false},
+      "second_add": {"acknowledged": true, "errors": false},
+      "alias_targets": ["products-v1", "products-v2"]
+    },
+    {
+      "engine": "OpenSearch",
+      "version": "3.9.0",
+      "image": "opensearchproject/opensearch:3.9.0",
+      "first_add": {"acknowledged": true},
+      "second_add": {"acknowledged": true},
+      "alias_targets": ["products-v1", "products-v2"]
+    }
+  ]
+}
