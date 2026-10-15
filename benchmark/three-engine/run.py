@@ -81,8 +81,7 @@ def operation(base, workload, i):
         start = (i * 97) % (N - 20)
         value, elapsed, size = request(base, f'/{INDEX}/_search', body={
             'query': {'match_all': {}}, 'sort': [{'rank': 'asc'}], 'search_after': [start - 1], 'size': 20, 'track_total_hits': True})
-        check_hits(value, list(range(start, start + 20)))
-        # Search-after total semantics are intentionally not compared; complete returned page is checked.
+        check_hits(value, list(range(start, start + 20)), N)
     elif workload == 'terms_aggregation':
         value, elapsed, size = request(base, f'/{INDEX}/_search', body={
             'size': 0, 'aggs': {'groups': {'terms': {'field': 'group', 'size': 20}}}})

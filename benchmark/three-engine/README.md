@@ -48,8 +48,8 @@ excluding JSON decoding and assertions. All responses must match independently
 calculated IDs, full sources or aggregation counts. Errors abort the run and
 leave partial evidence with `status: failed`; they are never counted as wins.
 Sorted pages use unique integer sort keys and `search_after`, avoiding ambiguous
-ties. Their total-hit fields are not compared because pagination-total semantics
-are a separate compatibility question; full returned pages are checked.
+ties. Their exact total-hit values and full returned pages are checked. Both native
+JVM heaps are explicitly fixed at 512 MiB; memory caps remain 4 GiB each.
 
 `docker stats` snapshots after each workload record idle resident resource use,
 not peak memory or per-request CPU. Record active/peak observations separately
