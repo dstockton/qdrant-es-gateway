@@ -18,7 +18,7 @@ N = int(os.getenv('DOCS', '10000'))
 # Compute fixture expectations before any timed workers run. Repeating this
 # scan in a worker contends for the GIL while other HTTP timers are active.
 EXPECTED_CHEAP_COUNT = sum((j * 17) % 1000 < 250 for j in range(N))
-VALIDATION_PROFILE = 'precomputed-filter-count-v2'
+VALIDATION_PROFILE = 'precomputed-filter-count-range-v3'
 BATCH = int(os.getenv('BATCH', '500'))
 REQUESTS = int(os.getenv('REQUESTS', '100'))
 TRIALS = int(os.getenv('TRIALS', '5'))
@@ -90,7 +90,7 @@ def operation(base, workload, i):
         assert value['_source'] == source(key) and value['_id'] == str(key)
     elif workload == 'filtered_search':
         group = i % 20
-        ids = list(range(group, N, 20))
+        ids = range(group, N, 20)
         value, elapsed, size = request(base, f'/{INDEX}/_search', body={
             'query': {'term': {'group': f'g{group:02d}'}}, 'sort': [{'rank': 'asc'}], 'size': 20, 'track_total_hits': True})
         check_hits(value, ids[:20], len(ids))

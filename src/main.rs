@@ -1,4 +1,9 @@
 mod aggregations;
+mod cache_deployment;
+mod cache_request;
+mod cache_runtime;
+mod mutation_completion;
+mod read_cache;
 mod shared_catalog;
 mod sparse;
 
@@ -129,6 +134,7 @@ struct AppState {
     qdrant: Qdrant,
     db: Arc<Mutex<Connection>>,
     shared_catalog: Option<shared_catalog::SharedCatalog>,
+    cache_runtime: Option<cache_runtime::CacheRuntime>,
     analytics: Arc<Mutex<Analytics>>,
     index_admin: Arc<AsyncMutex<()>>,
 }
@@ -147,10 +153,26 @@ struct Qdrant {
     key: Option<String>,
     async_write_queue: Arc<Semaphore>,
     admin_mutation_started: Option<Arc<std::sync::atomic::AtomicBool>>,
+    mutation_completion: Option<mutation_completion::MutationCompletion>,
 }
 
 impl Qdrant {
     async fn raw_request(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<Value>,
+    ) -> Result<(StatusCode, Value), GatewayError> {
+        if self.mutation_completion.is_some() && !mutation_completion::is_read(&method, path) {
+            return Err(GatewayError::upstream(
+                "unclassified Qdrant mutation: use explicit mutation helper",
+            ));
+        }
+        self.send_request(method, path, body).await
+    }
+
+    // Private wire transport. Only the guarded read and mutation helpers may call it.
+    async fn send_request(
         &self,
         method: Method,
         path: &str,
@@ -205,6 +227,44 @@ impl Qdrant {
         Ok(value)
     }
 
+    async fn mutation(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<Value>,
+    ) -> Result<Value, GatewayError> {
+        let Some(tracker) = &self.mutation_completion else {
+            // Default-off behavior, including asynchronous acknowledgements, is unchanged.
+            return self.request(method, path, body).await;
+        };
+        let proof = mutation_completion::classify(&method, path)
+            .ok_or_else(|| GatewayError::upstream("unsupported coordinated Qdrant mutation"))?;
+        if proof == mutation_completion::Proof::Completed
+            && body
+                .as_ref()
+                .and_then(|v| v.get("wait"))
+                .and_then(Value::as_bool)
+                != Some(true)
+        {
+            return Err(GatewayError::upstream(
+                "coordinated Qdrant mutations require wait=true",
+            ));
+        }
+        // The attempt intentionally survives cancellation, errors and cleanup writes.
+        let attempt = tracker.begin();
+        let (status, value) = self.send_request(method, path, body).await?;
+        if !status.is_success()
+            || value.get("status") != Some(&json!("ok"))
+            || !proof.accepts(&value)
+        {
+            return Err(GatewayError::upstream(
+                "Qdrant mutation completion is uncertain",
+            ));
+        }
+        attempt.complete();
+        Ok(value)
+    }
+
     async fn request_optional_point(&self, path: &str) -> Result<Option<Value>, GatewayError> {
         let (status, value) = self.raw_request(Method::GET, path, None).await?;
         let missing_point = status == StatusCode::NOT_FOUND
@@ -228,6 +288,11 @@ impl Qdrant {
     }
 
     fn spawn_request(&self, method: Method, path: String, body: Value) -> Result<(), GatewayError> {
+        if self.mutation_completion.is_some() {
+            return Err(GatewayError::upstream(
+                "coordinated Qdrant mutations cannot run asynchronously",
+            ));
+        }
         let permit = self
             .async_write_queue
             .clone()
@@ -235,7 +300,7 @@ impl Qdrant {
             .map_err(|_| GatewayError::upstream("asynchronous write queue is full"))?;
         let qdrant = self.clone();
         tokio::spawn(async move {
-            let result = qdrant.request(method, &path, Some(body)).await;
+            let result = qdrant.mutation(method, &path, Some(body)).await;
             drop(permit);
             if let Err(error) = result {
                 warn!(%error, "asynchronous Qdrant write failed");
@@ -653,7 +718,7 @@ async fn create_index(
     }
     state
         .qdrant
-        .request(
+        .mutation(
             Method::PUT,
             &format!("/collections/{}", collection(&index)),
             Some(collection_config),
@@ -667,7 +732,7 @@ async fn create_index(
         }
         if let Err(error) = state
             .qdrant
-            .request(
+            .mutation(
                 Method::PUT,
                 &format!("/collections/{}", document_collection(&index)),
                 // Qdrant 1.15 requires a vector field on each point. A
@@ -687,7 +752,7 @@ async fn create_index(
             if let Some(schema) = schema {
                 if let Err(error) = state
                     .qdrant
-                    .request(
+                    .mutation(
                         Method::PUT,
                         &format!("/collections/{}/index", collection(&index)),
                         Some(json!({"field_name":field,"field_schema":schema,"wait":true})),
@@ -703,7 +768,7 @@ async fn create_index(
     }
     if let Err(error) = state
         .qdrant
-        .request(
+        .mutation(
             Method::PUT,
             &format!("/collections/{}/index", collection(&index)),
             Some(json!({"field_name":"_qeg_fast_fields","field_schema":"keyword","wait":true})),
@@ -747,7 +812,7 @@ async fn cleanup_failed_index_creation(state: &AppState, index: &str, document_c
     for collection in collections {
         if let Err(error) = state
             .qdrant
-            .request(Method::DELETE, &format!("/collections/{collection}"), None)
+            .mutation(Method::DELETE, &format!("/collections/{collection}"), None)
             .await
         {
             warn!(%collection, %error, "failed to clean up collection after index creation error");
@@ -769,7 +834,7 @@ async fn delete_index(
     }
     state
         .qdrant
-        .request(
+        .mutation(
             Method::DELETE,
             &format!("/collections/{}", collection(&index)),
             None,
@@ -778,7 +843,7 @@ async fn delete_index(
     if state.cfg.document_projection {
         state
             .qdrant
-            .request(
+            .mutation(
                 Method::DELETE,
                 &format!("/collections/{}", document_collection(&index)),
                 None,
@@ -1129,7 +1194,7 @@ async fn write_docs(
             .collect::<Vec<_>>();
         state
             .qdrant
-            .request(
+            .mutation(
                 Method::PUT,
                 &format!("/collections/{}/points", document_collection(&index)),
                 Some(json!({"points":source_points,"wait":true})),
@@ -1138,7 +1203,7 @@ async fn write_docs(
     }
     state
         .qdrant
-        .request(
+        .mutation(
             Method::PUT,
             &format!("/collections/{coll}/points"),
             Some(json!({"points":points,"wait":!state.cfg.async_search_projection})),
@@ -1241,7 +1306,7 @@ async fn delete_doc(
     if state.cfg.document_projection {
         state
             .qdrant
-            .request(
+            .mutation(
                 Method::POST,
                 &format!("/collections/{}/points/delete", document_collection(&index)),
                 Some(json!({"points":[point],"wait":true})),
@@ -1252,7 +1317,7 @@ async fn delete_doc(
     let body = json!({"points":[point],"wait":!state.cfg.async_search_projection && !state.cfg.async_payload_writes});
     state
         .qdrant
-        .request(Method::POST, &path, Some(body))
+        .mutation(Method::POST, &path, Some(body))
         .await?;
     Ok(es_ok(
         json!({"_index":index,"_id":id,"_version":1,"result":"deleted","_shards":{"total":1,"successful":1,"failed":0}}),
@@ -1348,7 +1413,7 @@ async fn update_doc(
         });
         state
             .qdrant
-            .request(
+            .mutation(
                 Method::PUT,
                 &format!("/collections/{}/points", document_collection(&index)),
                 Some(json!({"points":[source_point(&merged,&id,&index)],"wait":true})),
@@ -1358,7 +1423,7 @@ async fn update_doc(
             let payload = projected_search_payload(&merged, &id, &index, &mapping);
             state
                 .qdrant
-                .request(
+                .mutation(
                     Method::POST,
                     &format!("/collections/{coll}/points/payload"),
                     Some(json!({"payload":payload,"points":[point],"wait":!state.cfg.async_search_projection})),
@@ -1386,7 +1451,7 @@ async fn update_doc(
         } else {
             state
                 .qdrant
-                .request(Method::POST, &path, Some(body))
+                .mutation(Method::POST, &path, Some(body))
                 .await?;
         }
         return Ok(es_ok(
@@ -4155,7 +4220,7 @@ async fn mapping(
         for (field, schema) in payload_indexes {
             state
                 .qdrant
-                .request(
+                .mutation(
                     Method::PUT,
                     &format!("/collections/{coll}/index"),
                     Some(json!({"field_name":field,"field_schema":schema,"wait":true})),
@@ -4165,7 +4230,7 @@ async fn mapping(
         if validate_fast_field_namespace(&m).is_ok() {
             state
             .qdrant
-            .request(
+            .mutation(
                 Method::PUT,
                 &format!("/collections/{coll}/index"),
                 Some(json!({"field_name":"_qeg_fast_fields","field_schema":"keyword","wait":true})),
@@ -4224,28 +4289,69 @@ fn decode_path_segments(path: &str) -> Result<Vec<String>, GatewayError> {
         .collect()
 }
 
+struct CatalogOutcome {
+    response: Response,
+    // True only after this request's catalog commit/release was acknowledged,
+    // or when it owned no administrative claim. Backend proof is independent.
+    publication_complete: bool,
+}
+
 async fn dispatch(
-    mut state: AppState,
+    state: AppState,
     method: Method,
     path: String,
     query: Option<String>,
     headers: HeaderMap,
     body: String,
 ) -> Response {
+    if let Some(cache) = state.cache_runtime.clone() {
+        return cache
+            .dispatch(state, method, path, query, headers, body)
+            .await;
+    }
+    dispatch_catalog(state, method, path, query, headers, body)
+        .await
+        .response
+}
+
+async fn dispatch_catalog(
+    mut state: AppState,
+    method: Method,
+    path: String,
+    query: Option<String>,
+    headers: HeaderMap,
+    body: String,
+) -> CatalogOutcome {
     let Some(catalog) = state.shared_catalog.clone() else {
-        return dispatch_inner(state, method, path, query, headers, body).await;
+        return CatalogOutcome {
+            response: dispatch_inner(state, method, path, query, headers, body).await,
+            publication_complete: true,
+        };
     };
     // Liveness must not depend on an external catalog. Readiness does.
     if path == "/healthz" && method == Method::GET {
-        return dispatch_inner(state, method, path, query, headers, body).await;
+        return CatalogOutcome {
+            response: dispatch_inner(state, method, path, query, headers, body).await,
+            publication_complete: true,
+        };
     }
     let admin = match shared_catalog::is_admin(&method, &path) {
         Ok(admin) => admin,
-        Err(error) => return error.into_response(),
+        Err(error) => {
+            return CatalogOutcome {
+                response: error.into_response(),
+                publication_complete: true,
+            }
+        }
     };
-    let (db, claim) = match catalog.begin(admin).await {
+    let (db, claim) = match catalog.begin_tracked(admin).await {
         Ok(view) => view,
-        Err(error) => return error.into_response(),
+        Err((error, no_claim)) => {
+            return CatalogOutcome {
+                response: error.into_response(),
+                publication_complete: no_claim,
+            }
+        }
     };
     state.db = Arc::new(Mutex::new(db));
     let mutation_started = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -4253,22 +4359,33 @@ async fn dispatch(
         state.qdrant.admin_mutation_started = Some(mutation_started.clone());
     }
     let response = dispatch_inner(state.clone(), method, path, query, headers, body).await;
+    let mut publication_complete = true;
     if let Some(claim) = claim {
         if response.status().is_success() {
             if let Err(error) = catalog.commit(&state, &claim).await {
-                return error.into_response();
+                return CatalogOutcome {
+                    response: error.into_response(),
+                    publication_complete: false,
+                };
             }
         } else if !mutation_started.load(std::sync::atomic::Ordering::SeqCst) {
             if let Err(error) = catalog.release(&claim).await {
-                return error.into_response();
+                return CatalogOutcome {
+                    response: error.into_response(),
+                    publication_complete: false,
+                };
             }
         } else {
+            publication_complete = false;
             // Never expire or silently discard ownership after an uncertain
             // cross-system operation. Recovery requires operator reconciliation.
             warn!("shared catalog administration failed; reconcile Qdrant and clear the administrative claim before retrying");
         }
     }
-    response
+    CatalogOutcome {
+        response,
+        publication_complete,
+    }
 }
 
 async fn dispatch_inner(
@@ -4586,20 +4703,27 @@ async fn main() -> anyhow::Result<()> {
     let connect_timeout_ms = cfg.qdrant_connect_timeout.as_millis();
     let request_timeout_ms = cfg.qdrant_request_timeout.as_millis();
     let async_write_queue = cfg.async_write_queue;
+    let qdrant = Qdrant {
+        client: Client::builder()
+            .connect_timeout(cfg.qdrant_connect_timeout)
+            .timeout(cfg.qdrant_request_timeout)
+            .tcp_nodelay(true)
+            .pool_max_idle_per_host(128)
+            .build()?,
+        base: cfg.qdrant_url.clone(),
+        key: cfg.qdrant_api_key.clone(),
+        admin_mutation_started: None,
+        mutation_completion: None,
+        async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+    };
+    if cache_deployment::command(&cfg, &qdrant).await? {
+        return Ok(());
+    }
+    cache_deployment::preflight().await?;
     let shared_catalog = shared_catalog::SharedCatalog::from_env().await?;
+    let cache_runtime = cache_deployment::activate(&cfg, &qdrant, shared_catalog.as_ref()).await?;
     let state = AppState {
-        qdrant: Qdrant {
-            client: Client::builder()
-                .connect_timeout(cfg.qdrant_connect_timeout)
-                .timeout(cfg.qdrant_request_timeout)
-                .tcp_nodelay(true)
-                .pool_max_idle_per_host(128)
-                .build()?,
-            base: cfg.qdrant_url.clone(),
-            key: cfg.qdrant_api_key.clone(),
-            admin_mutation_started: None,
-            async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
-        },
+        qdrant,
         db: Arc::new(Mutex::new(if shared_catalog.is_some() {
             Connection::open_in_memory()?
         } else {
@@ -4607,6 +4731,7 @@ async fn main() -> anyhow::Result<()> {
         })),
         analytics: Arc::new(Mutex::new(Analytics::default())),
         shared_catalog,
+        cache_runtime,
         index_admin: Arc::new(AsyncMutex::new(())),
         cfg,
     };
@@ -4664,9 +4789,11 @@ mod tests {
                 key: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                 admin_mutation_started: None,
+                mutation_completion: None,
             },
             db: Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
             shared_catalog: None,
+            cache_runtime: None,
             analytics: Arc::new(Mutex::new(Analytics::default())),
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
@@ -4709,6 +4836,7 @@ mod tests {
             key: None,
             async_write_queue: Arc::new(Semaphore::new(1)),
             admin_mutation_started: None,
+            mutation_completion: None,
         };
         for (method, path, body) in [
             (
@@ -4908,11 +5036,13 @@ mod tests {
                 base: "http://127.0.0.1:1".into(),
                 key: None,
                 admin_mutation_started: None,
+                mutation_completion: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -4949,11 +5079,13 @@ mod tests {
                 base: "http://127.0.0.1:1".into(),
                 key: None,
                 admin_mutation_started: None,
+                mutation_completion: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -5004,11 +5136,13 @@ mod tests {
                 base: "http://127.0.0.1:1".into(),
                 key: None,
                 admin_mutation_started: None,
+                mutation_completion: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -5107,8 +5241,10 @@ mod tests {
         .unwrap();
         let state = AppState {
             shared_catalog: None,
+            cache_runtime: None,
             qdrant: Qdrant {
                 admin_mutation_started: None,
+                mutation_completion: None,
                 client: Client::new(),
                 base: "http://127.0.0.1:1".into(),
                 key: None,
@@ -5179,8 +5315,10 @@ mod tests {
         .unwrap();
         let state = AppState {
             shared_catalog: None,
+            cache_runtime: None,
             qdrant: Qdrant {
                 admin_mutation_started: None,
+                mutation_completion: None,
                 client: Client::new(),
                 base: "http://127.0.0.1:1".into(),
                 key: None,
@@ -5266,11 +5404,13 @@ mod tests {
                 base: cfg.qdrant_url.clone(),
                 key: None,
                 admin_mutation_started: None,
+                mutation_completion: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -5326,8 +5466,10 @@ mod tests {
         .unwrap();
         let state = AppState {
             shared_catalog: None,
+            cache_runtime: None,
             qdrant: Qdrant {
                 admin_mutation_started: None,
+                mutation_completion: None,
                 client: Client::new(),
                 base: cfg.qdrant_url.clone(),
                 key: None,
@@ -5391,8 +5533,10 @@ mod tests {
             .unwrap();
         let state = AppState {
             shared_catalog: None,
+            cache_runtime: None,
             qdrant: Qdrant {
                 admin_mutation_started: None,
+                mutation_completion: None,
                 client: Client::new(),
                 base: cfg.qdrant_url.clone(),
                 key: None,
@@ -5466,11 +5610,13 @@ mod tests {
                     base: cfg.qdrant_url.clone(),
                     key: None,
                     admin_mutation_started: None,
+                    mutation_completion: None,
                     async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
                 shared_catalog: None,
+                cache_runtime: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };
@@ -5533,11 +5679,13 @@ mod tests {
                 base: format!("http://{address}"),
                 key: None,
                 admin_mutation_started: None,
+                mutation_completion: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -5627,11 +5775,13 @@ mod tests {
                 base: cfg.qdrant_url.clone(),
                 key: None,
                 admin_mutation_started: None,
+                mutation_completion: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -5711,11 +5861,13 @@ mod tests {
                 base: "http://127.0.0.1:1".into(),
                 key: None,
                 admin_mutation_started: None,
+                mutation_completion: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -5772,11 +5924,13 @@ mod tests {
                 base: "http://127.0.0.1:1".into(),
                 key: None,
                 admin_mutation_started: None,
+                mutation_completion: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -5849,11 +6003,13 @@ mod tests {
                     base: cfg.qdrant_url.clone(),
                     key: None,
                     admin_mutation_started: None,
+                    mutation_completion: None,
                     async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
                 shared_catalog: None,
+                cache_runtime: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };
@@ -5892,6 +6048,7 @@ mod tests {
         let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
         let qdrant = Qdrant {
             admin_mutation_started: None,
+            mutation_completion: None,
             client: Client::new(),
             base: format!("http://{address}"),
             key: None,
@@ -5929,8 +6086,10 @@ mod tests {
                 .unwrap();
             let state = AppState {
                 shared_catalog: None,
+                cache_runtime: None,
                 qdrant: Qdrant {
                     admin_mutation_started: None,
+                    mutation_completion: None,
                     client: Client::new(),
                     base: cfg.qdrant_url.clone(),
                     key: None,
@@ -5983,11 +6142,13 @@ mod tests {
                     base: cfg.qdrant_url.clone(),
                     key: None,
                     admin_mutation_started: None,
+                    mutation_completion: None,
                     async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
                 shared_catalog: None,
+                cache_runtime: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };
@@ -6125,11 +6286,13 @@ mod tests {
                     base: cfg.qdrant_url.clone(),
                     key: None,
                     admin_mutation_started: None,
+                    mutation_completion: None,
                     async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
                 shared_catalog: None,
+                cache_runtime: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };
@@ -6202,11 +6365,13 @@ mod tests {
                     base: cfg.qdrant_url.clone(),
                     key: None,
                     admin_mutation_started: None,
+                    mutation_completion: None,
                     async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
                 shared_catalog: None,
+                cache_runtime: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };
@@ -6293,11 +6458,13 @@ mod tests {
                 base: cfg.qdrant_url.clone(),
                 key: None,
                 admin_mutation_started: None,
+                mutation_completion: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -6384,11 +6551,13 @@ mod tests {
                     base: cfg.qdrant_url.clone(),
                     key: None,
                     admin_mutation_started: None,
+                    mutation_completion: None,
                     async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
                 shared_catalog: None,
+                cache_runtime: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };
@@ -6475,11 +6644,13 @@ mod tests {
                     base: cfg.qdrant_url.clone(),
                     key: None,
                     admin_mutation_started: None,
+                    mutation_completion: None,
                     async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
                 shared_catalog: None,
+                cache_runtime: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };
@@ -6561,11 +6732,13 @@ mod tests {
                     base: cfg.qdrant_url.clone(),
                     key: None,
                     admin_mutation_started: None,
+                    mutation_completion: None,
                     async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
                 shared_catalog: None,
+                cache_runtime: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };
@@ -6624,8 +6797,10 @@ mod tests {
         .unwrap();
         let mut state = AppState {
             shared_catalog: None,
+            cache_runtime: None,
             qdrant: Qdrant {
                 admin_mutation_started: None,
+                mutation_completion: None,
                 client: Client::new(),
                 base: format!("http://{address}"),
                 key: None,
@@ -6738,8 +6913,10 @@ mod tests {
         .unwrap();
         let mut state = AppState {
             shared_catalog: None,
+            cache_runtime: None,
             qdrant: Qdrant {
                 admin_mutation_started: None,
+                mutation_completion: None,
                 client: Client::new(),
                 base: format!("http://{address}"),
                 key: None,
@@ -6826,11 +7003,13 @@ mod tests {
                 base: cfg.qdrant_url.clone(),
                 key: None,
                 admin_mutation_started: None,
+                mutation_completion: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -7001,11 +7180,13 @@ mod tests {
                 base: cfg.qdrant_url.clone(),
                 key: None,
                 admin_mutation_started: None,
+                mutation_completion: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -7086,11 +7267,13 @@ mod tests {
                 base: cfg.qdrant_url.clone(),
                 key: None,
                 admin_mutation_started: None,
+                mutation_completion: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -7174,11 +7357,13 @@ mod tests {
                 base: cfg.qdrant_url.clone(),
                 key: None,
                 admin_mutation_started: None,
+                mutation_completion: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -7249,11 +7434,13 @@ mod tests {
                 base: cfg.qdrant_url.clone(),
                 key: None,
                 admin_mutation_started: None,
+                mutation_completion: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -7367,11 +7554,13 @@ mod tests {
                 base: cfg.qdrant_url.clone(),
                 key: None,
                 admin_mutation_started: None,
+                mutation_completion: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -7437,11 +7626,13 @@ mod tests {
                 base: cfg.qdrant_url.clone(),
                 key: None,
                 admin_mutation_started: None,
+                mutation_completion: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -7556,11 +7747,13 @@ mod tests {
                 base: cfg.qdrant_url.clone(),
                 key: None,
                 admin_mutation_started: None,
+                mutation_completion: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -7635,11 +7828,13 @@ mod tests {
                     base: cfg.qdrant_url.clone(),
                     key: None,
                     admin_mutation_started: None,
+                    mutation_completion: None,
                     async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
                 shared_catalog: None,
+                cache_runtime: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };
@@ -7698,11 +7893,13 @@ mod tests {
                 base: cfg.qdrant_url.clone(),
                 key: None,
                 admin_mutation_started: None,
+                mutation_completion: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -7761,11 +7958,13 @@ mod tests {
                         base: cfg.qdrant_url.clone(),
                         key: None,
                         admin_mutation_started: None,
+                        mutation_completion: None,
                         async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                     },
                     db: Arc::new(Mutex::new(db)),
                     analytics: Arc::new(Mutex::new(Analytics::default())),
                     shared_catalog: None,
+                    cache_runtime: None,
                     index_admin: Arc::new(AsyncMutex::new(())),
                     cfg,
                 };
@@ -7841,11 +8040,13 @@ mod tests {
                         base: cfg.qdrant_url.clone(),
                         key: None,
                         admin_mutation_started: None,
+                        mutation_completion: None,
                         async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                     },
                     db: Arc::new(Mutex::new(db)),
                     analytics: Arc::new(Mutex::new(Analytics::default())),
                     shared_catalog: None,
+                    cache_runtime: None,
                     index_admin: Arc::new(AsyncMutex::new(())),
                     cfg,
                 };
@@ -7926,11 +8127,13 @@ mod tests {
                     base: cfg.qdrant_url.clone(),
                     key: None,
                     admin_mutation_started: None,
+                    mutation_completion: None,
                     async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
                 shared_catalog: None,
+                cache_runtime: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };
@@ -8193,11 +8396,13 @@ mod tests {
                 base: "http://127.0.0.1:1".into(),
                 key: None,
                 admin_mutation_started: None,
+                mutation_completion: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -8238,11 +8443,13 @@ mod tests {
                 base: cfg.qdrant_url.clone(),
                 key: None,
                 admin_mutation_started: None,
+                mutation_completion: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -8567,11 +8774,13 @@ mod tests {
                     base: format!("http://{address}"),
                     key: None,
                     admin_mutation_started: None,
+                    mutation_completion: None,
                     async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
                 shared_catalog: None,
+                cache_runtime: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };
@@ -8680,11 +8889,13 @@ mod tests {
                     base: format!("http://{address}"),
                     key: None,
                     admin_mutation_started: None,
+                    mutation_completion: None,
                     async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                 },
                 db: Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
                 shared_catalog: None,
+                cache_runtime: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };

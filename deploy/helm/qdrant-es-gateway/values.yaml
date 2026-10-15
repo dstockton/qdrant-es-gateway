@@ -50,6 +50,13 @@ catalog:
   existingSecretKey: redis-url
   key: "qeg:{catalog}:v1"
 
+readCache:
+  # Bootstrap manually while all writers are stopped; see docs/shared-read-cache.md.
+  deployment: ""
+  serve: true
+  ttlSeconds: 60
+  maxBytes: 1048576
+
 persistence:
   enabled: true
   storageClass: ""

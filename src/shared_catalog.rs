@@ -25,6 +25,10 @@ fn unavailable() -> GatewayError {
 }
 
 impl SharedCatalog {
+    #[cfg(test)]
+    pub(crate) fn test_handle(client: redis::Client, key: String) -> Self {
+        Self { client, key }
+    }
     pub(crate) async fn from_env() -> anyhow::Result<Option<Self>> {
         let Ok(url) = env::var("CATALOG_REDIS_URL") else {
             return Ok(None);
@@ -60,22 +64,47 @@ impl SharedCatalog {
         &self,
         admin: bool,
     ) -> Result<(Connection, Option<String>), GatewayError> {
+        self.begin_tracked(admin).await.map_err(|(error, _)| error)
+    }
+
+    // Error boolean proves this call did not acquire a claim. Transport failure
+    // after an administrative SET is ambiguous and must retain the writer fence.
+    pub(crate) async fn begin_tracked(
+        &self,
+        admin: bool,
+    ) -> Result<(Connection, Option<String>), (GatewayError, bool)> {
         let claim = admin.then(|| uuid::Uuid::new_v4().to_string());
-        let payload: String = tokio::time::timeout(TIMEOUT, async {
+        let result: Vec<String> = tokio::time::timeout(TIMEOUT, async {
             let mut connection = self.client.get_multiplexed_async_connection().await?;
-            redis::Script::new(r#"
-                if redis.call('EXISTS', KEYS[2]) == 1 then return redis.error_reply('catalog busy') end
-                if redis.call('EXISTS', KEYS[1]) == 0 then return redis.error_reply('catalog missing') end
-                if redis.call('STRLEN', KEYS[1]) > tonumber(ARGV[2]) then return redis.error_reply('catalog too large') end
+            redis::Script::new(
+                r#"
+                if redis.call('EXISTS', KEYS[2]) == 1 then return {'rejected',''} end
+                if redis.call('EXISTS', KEYS[1]) == 0 then return {'rejected',''} end
+                if redis.call('STRLEN', KEYS[1]) > tonumber(ARGV[2]) then return {'rejected',''} end
                 local snapshot = redis.call('GET', KEYS[1])
                 if ARGV[1] ~= '' then redis.call('SET', KEYS[2], ARGV[1]) end
-                return snapshot
-            "#).key(&self.key).key(format!("{}:admin", self.key))
-                .arg(claim.as_deref().unwrap_or("")).arg(MAX_BYTES)
-                .invoke_async(&mut connection).await
-        }).await.map_err(|_| unavailable())?.map_err(|_| unavailable())?;
-        let snapshot: Snapshot = serde_json::from_str(&payload).map_err(|_| unavailable())?;
-        let db = snapshot.into_db()?;
+                return {'ok',snapshot}
+            "#,
+            )
+            .key(&self.key)
+            .key(format!("{}:admin", self.key))
+            .arg(claim.as_deref().unwrap_or(""))
+            .arg(MAX_BYTES)
+            .invoke_async(&mut connection)
+            .await
+        })
+        .await
+        .map_err(|_| (unavailable(), !admin))?
+        .map_err(|_| (unavailable(), !admin))?;
+        if result.first().map(String::as_str) == Some("rejected") {
+            return Err((unavailable(), true));
+        }
+        if result.len() != 2 || result[0] != "ok" {
+            return Err((unavailable(), !admin));
+        }
+        let snapshot: Snapshot =
+            serde_json::from_str(&result[1]).map_err(|_| (unavailable(), !admin))?;
+        let db = snapshot.into_db().map_err(|error| (error, !admin))?;
         Ok((db, claim))
     }
 
@@ -354,9 +383,11 @@ mod tests {
                 key: None,
                 async_write_queue: Arc::new(Semaphore::new(1)),
                 admin_mutation_started: None,
+                mutation_completion: None,
             },
             db: Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
             shared_catalog: Some(catalog.clone()),
+            cache_runtime: None,
             analytics: Arc::new(Mutex::new(Analytics::default())),
             index_admin: Arc::new(AsyncMutex::new(())),
         };
@@ -437,9 +468,11 @@ mod tests {
                 key: None,
                 async_write_queue: Arc::new(Semaphore::new(1)),
                 admin_mutation_started: None,
+                mutation_completion: None,
             },
             db: Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
             shared_catalog: Some(catalog.clone()),
+            cache_runtime: None,
             analytics: Arc::new(Mutex::new(Analytics::default())),
             index_admin: Arc::new(AsyncMutex::new(())),
         };

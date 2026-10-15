@@ -533,7 +533,6 @@ fn facet_counts(response: &Value) -> Result<BTreeMap<String, (Value, u64)>, Gate
         let count = hit
             .get("count")
             .and_then(Value::as_u64)
-            .filter(|count| *count > 0)
             .ok_or_else(|| bad("invalid Qdrant facet count"))?;
         total = total
             .checked_add(count)
@@ -545,6 +544,10 @@ fn facet_counts(response: &Value) -> Result<BTreeMap<String, (Value, u64)>, Gate
             return Err(bad("duplicate Qdrant facet value"));
         }
     }
+    // Qdrant retains zero-count facet values after deleting their last point.
+    // Elasticsearch terms defaults to min_doc_count=1. Validate all entries
+    // (including duplicates) before omitting these empty buckets.
+    counts.retain(|_, (_, count)| *count > 0);
     Ok(counts)
 }
 
@@ -1009,9 +1012,26 @@ mod tests {
     }
 
     #[test]
+    fn facet_response_omits_values_deleted_to_zero_count() {
+        let counts = facet_counts(
+            &json!({"result":{"hits":[{"value":"gone","count":0},{"value":"present","count":2}]}}),
+        )
+        .unwrap();
+        assert_eq!(counts.len(), 1);
+        assert_eq!(counts.get("\"present\""), Some(&(json!("present"), 2)));
+        assert!(
+            facet_counts(&json!({"result":{"hits":[{"value":"gone","count":0}]}}))
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn facet_response_rejects_truncation_duplicate_keys_and_malformed_counts() {
         for hits in [
-            json!([{"value":"a","count":0}]),
+            json!([{"value":"a","count":-1}]),
+            json!([{"value":"a","count":1.5}]),
+            json!([{"value":"a","count":0},{"value":"a","count":1}]),
             json!([{"value":1,"count":1}]),
             json!([{"value":"a","count":1},{"value":"a","count":2}]),
             json!([{"value":"a","count":u64::MAX},{"value":"b","count":1}]),
@@ -1192,8 +1212,10 @@ mod tests {
         db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY,mapping TEXT NOT NULL,vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY,index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products','{}','[]');").unwrap();
         AppState {
             shared_catalog: None,
+            cache_runtime: None,
             qdrant: Qdrant {
                 admin_mutation_started: None,
+                mutation_completion: None,
                 client: Client::new(),
                 base,
                 key: None,
@@ -1313,8 +1335,10 @@ mod tests {
         cfg.document_projection = true;
         let state = AppState {
             shared_catalog: None,
+            cache_runtime: None,
             qdrant: Qdrant {
                 admin_mutation_started: None,
+                mutation_completion: None,
                 client: Client::new(),
                 base: format!("http://{address}"),
                 key: None,

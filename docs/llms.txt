@@ -17,6 +17,7 @@
 - [read-write-crossover](https://dstockton.github.io/qdrant-es-gateway/markdown/read-write-crossover.md)
 - [relevance](https://dstockton.github.io/qdrant-es-gateway/markdown/relevance.md)
 - [Shared metadata across gateway replicas](https://dstockton.github.io/qdrant-es-gateway/markdown/shared-catalog.md)
+- [Shared read cache](https://dstockton.github.io/qdrant-es-gateway/markdown/shared-read-cache.md)
 - [storage-findings](https://dstockton.github.io/qdrant-es-gateway/markdown/storage-findings.md)
 
 ## Articles (Markdown)
