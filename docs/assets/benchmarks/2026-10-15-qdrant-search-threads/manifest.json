@@ -1,0 +1,99 @@
+{
+  "experiment": "qdrant-search-threads-v1",
+  "measured_http_responses": 86400,
+  "all_measured_responses_correct": true,
+  "warm_responses": 72000,
+  "cold_responses": 14400,
+  "raw_measurement_files": 8,
+  "resource_files": 4,
+  "comparison_rows": 36,
+  "order": "auto1,one1,one2,auto2; cold then warm each round",
+  "gateway_source": "2deda5e43b72de9b2c2ad6f9043df2a01217fd55",
+  "gateway_image_id": "sha256:1faf2724e09951316f7bd7699b9fb3199b302675627ce8683505156f3eb8139c",
+  "sanitization": "Removed ephemeral container_id fields only; original hashes retained; timings and observations unchanged.",
+  "limitations": [
+    "Fixed source and aggregate limits; explicit one sets each search pool budget to one, not all Qdrant process threads.",
+    "Resources span profile setup/priming/native phases; counters cannot attribute individual request latency.",
+    "AOF rewrite occurred in one2 cold profile; delayed fsync remained zero.",
+    "Pool mode sampled at boundaries, not continuous trace.",
+    "Separate experiment; do not pool previous results."
+  ],
+  "files": [
+    {
+      "file": "threads-auto-1-cold.json",
+      "sha256": "5a174185516fc9acd54364ee61207cd7a8ccf4bdb71f0c3a0b34459c694a71bb",
+      "original_sha256": "5a174185516fc9acd54364ee61207cd7a8ccf4bdb71f0c3a0b34459c694a71bb"
+    },
+    {
+      "file": "threads-auto-1-resources.json",
+      "sha256": "5ec07e5925cd6c379f7b06aec945bd24569f667dcc3dc769b1491450c65132cc",
+      "original_sha256": "cf919b7d1835e4b7fac58f8bc08015321eac15b3ec7518f66d025d4d5cdd3868"
+    },
+    {
+      "file": "threads-auto-1-warm.json",
+      "sha256": "1005067221df00db060cd6cfece88cb20a80ffb6bdfe56edb74523509669c48a",
+      "original_sha256": "1005067221df00db060cd6cfece88cb20a80ffb6bdfe56edb74523509669c48a"
+    },
+    {
+      "file": "threads-auto-2-cold.json",
+      "sha256": "f8cea7240d291289afacf142a8ff06f73554b58f0d0d631f10311512bb0579ab",
+      "original_sha256": "f8cea7240d291289afacf142a8ff06f73554b58f0d0d631f10311512bb0579ab"
+    },
+    {
+      "file": "threads-auto-2-resources.json",
+      "sha256": "a5527f79f740029606f6c8344abcc0fb9ab03255d73d8a7e903a0fe3048da4cb",
+      "original_sha256": "54441530a7dad85bb50527840ba41f1e81f84658ca2fc75f3c329d7190082548"
+    },
+    {
+      "file": "threads-auto-2-warm.json",
+      "sha256": "dea41fcb5aab445754f7758b2c3106761f770e92c79d69ad208938d02cceaee7",
+      "original_sha256": "dea41fcb5aab445754f7758b2c3106761f770e92c79d69ad208938d02cceaee7"
+    },
+    {
+      "file": "threads-one-1-cold.json",
+      "sha256": "2716f7b0011b6254537c531d1e735662010bf6634f4380af87275d73fd640428",
+      "original_sha256": "2716f7b0011b6254537c531d1e735662010bf6634f4380af87275d73fd640428"
+    },
+    {
+      "file": "threads-one-1-resources.json",
+      "sha256": "057a499ae49bbde9ecaa6307e21dd69cce8674fc30b874e7b78333308196dd81",
+      "original_sha256": "f60a73db7a4bffe19b91a779c51fd5d882eac44f16704e8abcb56fd9140e207d"
+    },
+    {
+      "file": "threads-one-1-warm.json",
+      "sha256": "6e7c07d165fce1998178561d1e8ce3a894ecf3f8e4b158291ab230ad12768a82",
+      "original_sha256": "6e7c07d165fce1998178561d1e8ce3a894ecf3f8e4b158291ab230ad12768a82"
+    },
+    {
+      "file": "threads-one-2-cold.json",
+      "sha256": "ab765f33334993c45a5fa56ed4a55417407029a78b2716bcd70daadbcfbce031",
+      "original_sha256": "ab765f33334993c45a5fa56ed4a55417407029a78b2716bcd70daadbcfbce031"
+    },
+    {
+      "file": "threads-one-2-resources.json",
+      "sha256": "168366029556ca2fc80b44c19ba0553d0b61e95ae07da02b87faff2e0f83e0fa",
+      "original_sha256": "43e1ad254514e446270c674c18fbbf2ed7c402c40ca22c26ee8519acc4d1c38d"
+    },
+    {
+      "file": "threads-one-2-warm.json",
+      "sha256": "fb3e471835fc74fe6931b1ed1f8c232d30013ae1f07b764f95839470467a936c",
+      "original_sha256": "fb3e471835fc74fe6931b1ed1f8c232d30013ae1f07b764f95839470467a936c"
+    },
+    {
+      "file": "summary.json",
+      "sha256": "2fecd40746b3628dd4c12c832d1b4f5154982a333f497e142011a6d8c433957e"
+    },
+    {
+      "file": "thread_round.py",
+      "sha256": "e98e2205464c19197db04be1993f7c8832c6a5bdfd8bd08255ef823fbd66d550"
+    },
+    {
+      "file": "thread-image.yml",
+      "sha256": "1113d2f38cf1278be052406fe9b1c07339a887d3d443a41e5306c8579c35ab35"
+    },
+    {
+      "file": "snapshot_round.py",
+      "sha256": "3104ee2f51fadcb8c76c8ebb931fd6c5f83ce1045fd800b013713dc164306d52"
+    }
+  ]
+}
