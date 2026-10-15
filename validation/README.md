@@ -111,3 +111,34 @@ recorded source revision, and Qdrant **1.15.3**, using the default embedded-sour
 mode and synchronous writes. `reported_version` is the endpoint's Elasticsearch
 API version advertisement, not the gateway binary version. No latency or ranking
 comparison is claimed. No gateway implementation change was needed.
+
+## Public-library large-print availability
+
+The [library field note](../docs/_posts/2026-10-15-library-large-print-availability.md)
+uses six synthetic holdings in [`fixtures/library.json`](fixtures/library.json).
+It excludes other editions, branches and unavailable holdings, counts genres by
+holding rather than copy, and verifies that lending the last copy removes the
+holding from search while preserving its catalogue metadata.
+
+```sh
+python3 validation/library.py \
+  --native http://localhost:19200 \
+  --gateway http://localhost:9200 \
+  --gateway-version 0.2.0 --qdrant-version 1.15.5 \
+  --output validation/results/library.json
+```
+
+Use disposable endpoints without `field_note_library`. The standard-library
+replay creates and removes that index; a failed create leaves existing data
+untouched. It pauses five seconds after ingestion and update on both servers
+(`--settle-seconds` controls both). This does not establish refresh timing or
+atomic loan reservations. Supply version arguments only for verified binaries.
+
+The [2026-10-15 evidence](evidence/library-2026-10-15.json) records **70/70**
+checks passing on Elasticsearch **8.15.0**, gateway **0.2.0** at the recorded
+revision, and Qdrant **1.15.5**, with embedded sources and synchronous writes.
+The replay checks exact HTTP statuses, bulk IDs/results, every stored source,
+search IDs and totals, genre counts, and last-copy exclusion; both request
+sequences must match. The [article curl evidence](evidence/library-curl-2026-10-15.json)
+records a separate execution of the article's commands and repeated searches.
+No gateway code change or performance claim is involved.
