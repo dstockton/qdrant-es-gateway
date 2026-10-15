@@ -1,0 +1,254 @@
+{
+  "experiment": "typed-read-view-paired-v1",
+  "arguments": {
+    "kind": "off-control",
+    "version": "old",
+    "round": "2",
+    "prefix": "typed-readview",
+    "old_image": "qdrant-es-gateway:atomic-snapshot",
+    "old_image_id": "sha256:1faf2724e09951316f7bd7699b9fb3199b302675627ce8683505156f3eb8139c",
+    "old_source": "2deda5e43b72de9b2c2ad6f9043df2a01217fd55",
+    "new_image": "qdrant-es-gateway:typed-readview",
+    "new_image_id": "sha256:1c79aae1383e1190f83172b46fb1a9b7b352a3b131ea7fd3d20767af5bba2e20",
+    "new_source": "04b6d7eecce6230634109ec1905509666f00b8bc"
+  },
+  "profiles": {
+    "cold": {
+      "before": {
+        "captured_at": "2026-10-15T17:58:47.239075+00:00",
+        "cpu": {
+          "gateway": {
+            "image_id": "sha256:1faf2724e09951316f7bd7699b9fb3199b302675627ce8683505156f3eb8139c",
+            "counters": {
+              "usage_usec": 295952,
+              "user_usec": 231212,
+              "system_usec": 64739,
+              "nice_usec": 0,
+              "nr_periods": 15,
+              "nr_throttled": 0,
+              "throttled_usec": 0,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "qdrant": {
+            "image_id": "sha256:b7b0444c4c351c970b98e90a6f89c2ee4287c65b44e52b4cb503fa5b2aa927ad",
+            "counters": {
+              "usage_usec": 20652887,
+              "user_usec": 18572400,
+              "system_usec": 2080486,
+              "nice_usec": 0,
+              "nr_periods": 997,
+              "nr_throttled": 60,
+              "throttled_usec": 9808171,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "cache-valkey": {
+            "image_id": "sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507",
+            "counters": {
+              "usage_usec": 379463934,
+              "user_usec": 215417133,
+              "system_usec": 164046801,
+              "nice_usec": 0,
+              "nr_periods": 135744,
+              "nr_throttled": 325,
+              "throttled_usec": 22651631,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "elasticsearch": {
+            "image_id": "sha256:84a73ced8390c059e7bc2858595c68dc36e6f8bdb98895dcab0074eda35ac96e",
+            "counters": {
+              "usage_usec": 282474169,
+              "user_usec": 216214931,
+              "system_usec": 66259237,
+              "nice_usec": 0,
+              "nr_periods": 145098,
+              "nr_throttled": 97,
+              "throttled_usec": 3226547,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "opensearch": {
+            "image_id": "sha256:adfa61f85025d06b4aeb562e7e74fde7e31c437039c93c3862c17e9acebd6c7c",
+            "counters": {
+              "usage_usec": 384272270,
+              "user_usec": 321088747,
+              "system_usec": 63183523,
+              "nice_usec": 0,
+              "nr_periods": 139978,
+              "nr_throttled": 86,
+              "throttled_usec": 4071120,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          }
+        },
+        "scope": "outside timers; includes profile setup and priming",
+        "valkey": {
+          "used_memory": "26019848",
+          "used_memory_peak": "26126784",
+          "keyspace_hits": "2313288",
+          "keyspace_misses": "295981",
+          "evicted_keys": "0",
+          "expired_keys": "9832",
+          "aof_current_size": "4290665",
+          "aof_rewrites": "3",
+          "aof_rewrite_in_progress": "0",
+          "aof_rewrite_scheduled": "0",
+          "aof_delayed_fsync": "0",
+          "aof_last_write_status": "ok",
+          "aof_last_bgrewrite_status": "ok"
+        }
+      },
+      "pool_before": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "after": {
+        "captured_at": "2026-10-15T17:58:49.119829+00:00",
+        "cpu": {
+          "gateway": {
+            "image_id": "sha256:1faf2724e09951316f7bd7699b9fb3199b302675627ce8683505156f3eb8139c",
+            "counters": {
+              "usage_usec": 491232,
+              "user_usec": 389633,
+              "system_usec": 101598,
+              "nice_usec": 0,
+              "nr_periods": 31,
+              "nr_throttled": 0,
+              "throttled_usec": 0,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "qdrant": {
+            "image_id": "sha256:b7b0444c4c351c970b98e90a6f89c2ee4287c65b44e52b4cb503fa5b2aa927ad",
+            "counters": {
+              "usage_usec": 21584032,
+              "user_usec": 19456173,
+              "system_usec": 2127858,
+              "nice_usec": 0,
+              "nr_periods": 1015,
+              "nr_throttled": 63,
+              "throttled_usec": 10101964,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "cache-valkey": {
+            "image_id": "sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507",
+            "counters": {
+              "usage_usec": 379545905,
+              "user_usec": 215466769,
+              "system_usec": 164079135,
+              "nice_usec": 0,
+              "nr_periods": 135762,
+              "nr_throttled": 325,
+              "throttled_usec": 22651631,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "elasticsearch": {
+            "image_id": "sha256:84a73ced8390c059e7bc2858595c68dc36e6f8bdb98895dcab0074eda35ac96e",
+            "counters": {
+              "usage_usec": 282722390,
+              "user_usec": 216409449,
+              "system_usec": 66312940,
+              "nice_usec": 0,
+              "nr_periods": 145111,
+              "nr_throttled": 97,
+              "throttled_usec": 3226547,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "opensearch": {
+            "image_id": "sha256:adfa61f85025d06b4aeb562e7e74fde7e31c437039c93c3862c17e9acebd6c7c",
+            "counters": {
+              "usage_usec": 384463303,
+              "user_usec": 321244173,
+              "system_usec": 63219129,
+              "nice_usec": 0,
+              "nr_periods": 139995,
+              "nr_throttled": 86,
+              "throttled_usec": 4071120,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          }
+        },
+        "scope": "outside timers; includes profile setup and priming",
+        "valkey": {
+          "used_memory": "26019712",
+          "used_memory_peak": "26126784",
+          "keyspace_hits": "2315214",
+          "keyspace_misses": "296595",
+          "evicted_keys": "0",
+          "expired_keys": "9832",
+          "aof_current_size": "4292681",
+          "aof_rewrites": "3",
+          "aof_rewrite_in_progress": "0",
+          "aof_rewrite_scheduled": "0",
+          "aof_delayed_fsync": "0",
+          "aof_last_write_status": "ok",
+          "aof_last_bgrewrite_status": "ok"
+        }
+      },
+      "pool_after": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      }
+    }
+  },
+  "status": "passed",
+  "initial_pool": {
+    "mode": "high_io",
+    "high_cpu_threads": 2,
+    "high_io_threads": 8
+  },
+  "primer": "All engines: five workloads i0..199 and uncached sorted rank7000..7199, before each profile outside timers",
+  "provenance": {
+    "elasticsearch": {
+      "image": "docker.elastic.co/elasticsearch/elasticsearch:8.15.0",
+      "image_id": "sha256:84a73ced8390c059e7bc2858595c68dc36e6f8bdb98895dcab0074eda35ac96e",
+      "cpu_limit": 2.0,
+      "memory_limit_bytes": 4294967296
+    },
+    "opensearch": {
+      "image": "opensearchproject/opensearch:3.9.0",
+      "image_id": "sha256:adfa61f85025d06b4aeb562e7e74fde7e31c437039c93c3862c17e9acebd6c7c",
+      "cpu_limit": 2.0,
+      "memory_limit_bytes": 4294967296
+    },
+    "gateway": {
+      "image": "qdrant-es-gateway:atomic-snapshot",
+      "image_id": "sha256:1faf2724e09951316f7bd7699b9fb3199b302675627ce8683505156f3eb8139c",
+      "cpu_limit": 0.5,
+      "memory_limit_bytes": 536870912,
+      "cache_coordination": true,
+      "cache_serving": "false",
+      "cache_ttl_seconds": "300",
+      "cache_max_bytes": "1048576"
+    },
+    "qdrant": {
+      "image": "qdrant/qdrant:v1.19.2",
+      "image_id": "sha256:b7b0444c4c351c970b98e90a6f89c2ee4287c65b44e52b4cb503fa5b2aa927ad",
+      "cpu_limit": 1.25,
+      "memory_limit_bytes": 3489660928
+    },
+    "cache-valkey": {
+      "image": "valkey/valkey:8-alpine",
+      "image_id": "sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507",
+      "cpu_limit": 0.25,
+      "memory_limit_bytes": 268435456
+    }
+  }
+}
