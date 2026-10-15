@@ -28,6 +28,9 @@ ENDPOINTS = {'elasticsearch': os.getenv('ES_URL', 'http://localhost:19200'),
 MAPPING = {'settings': {'number_of_shards': 1, 'number_of_replicas': 0},
            'mappings': {'properties': {'rank': {'type': 'integer'}, 'group': {'type': 'keyword'},
                                       'price': {'type': 'integer'}, 'description': {'type': 'keyword'}}}}
+TRACK_TOTAL_HITS = os.getenv('TRACK_TOTAL_HITS', 'true')
+if TRACK_TOTAL_HITS not in ('true', 'false'):
+    raise ValueError('TRACK_TOTAL_HITS must be true or false')
 LOCAL = threading.local()
 
 
@@ -44,6 +47,8 @@ def request(base, path, method='POST', body=None, ndjson=False, allow404=False):
         cls = http.client.HTTPSConnection if url.scheme == 'https' else http.client.HTTPConnection
         LOCAL.connections[base] = cls(url.hostname, url.port, timeout=120)
     conn = LOCAL.connections[base]
+    if TRACK_TOTAL_HITS == 'false' and path.split('?', 1)[0].endswith('/_search'):
+        body = {**body, 'track_total_hits': False}
     data = body if ndjson else (json.dumps(body, separators=(',', ':')) if body is not None else None)
     started = time.perf_counter()
     conn.request(method, path, body=data, headers={'Content-Type': 'application/x-ndjson' if ndjson else 'application/json'})
@@ -59,12 +64,19 @@ def hits_expected(ids):
     return [(str(i), source(i)) for i in ids]
 
 
+def check_total(value, expected):
+    if TRACK_TOTAL_HITS == 'false':
+        assert 'total' not in value['hits'], value['hits']
+    else:
+        assert value['hits']['total'] == {'value': expected, 'relation': 'eq'}, value['hits']['total']
+
+
 def check_hits(value, ids, total=None):
     actual = [(hit['_id'], hit['_source']) for hit in value['hits']['hits']]
     assert actual == hits_expected(ids), f'incorrect hits: {actual[:2]}, expected {ids[:2]}'
     assert [hit.get('sort') for hit in value['hits']['hits']] == [[i] for i in ids]
     if total is not None:
-        assert value['hits']['total'] == {'value': total, 'relation': 'eq'}, value['hits']['total']
+        check_total(value, total)
 
 
 def operation(base, workload, i):
@@ -94,7 +106,7 @@ def operation(base, workload, i):
         assert value['aggregations']['groups']['sum_other_doc_count'] == 0
         assert value['aggregations']['groups']['doc_count_error_upper_bound'] == 0
         assert value['hits']['hits'] == []
-        assert value['hits']['total'] == {'value': N, 'relation': 'eq'}
+        check_total(value, N)
     elif workload == 'filter_aggregation':
         value, elapsed, size = request(base, f'/{INDEX}/_search', body={'size': 0, 'aggs': {
             'cheap': {'filter': {'range': {'price': {'lt': 250}}}},
@@ -102,7 +114,7 @@ def operation(base, workload, i):
         assert value['aggregations']['cheap']['doc_count'] == sum((j * 17) % 1000 < 250 for j in range(N))
         assert value['aggregations']['group']['doc_count'] == len(range(3, N, 20))
         assert value['hits']['hits'] == []
-        assert value['hits']['total'] == {'value': N, 'relation': 'eq'}
+        check_total(value, N)
     else:
         raise ValueError(workload)
     return elapsed, size
@@ -158,7 +170,8 @@ def main():
     result = {'created_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
               'config': {'documents': N, 'batch': BATCH, 'requests_per_trial': REQUESTS,
                          'trials': TRIALS, 'concurrency': CONCURRENCY, 'settle_seconds': SETTLE,
-                         'seed': 20261015, 'mapping': MAPPING, 'persistent_http': True},
+                         'seed': 20261015, 'mapping': MAPPING, 'persistent_http': True,
+                         'track_total_hits': TRACK_TOTAL_HITS},
               'versions': {}, 'ingest': [], 'measurements': [], 'resources': []}
     try:
         for name, base in ENDPOINTS.items():

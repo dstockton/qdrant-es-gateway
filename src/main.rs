@@ -3120,10 +3120,8 @@ async fn search_with_total_format(
     }
     // These are independent reads of the same query scope. Neither operation
     // supplies a snapshot, and serial execution cannot add that guarantee.
-    let compute_total = track_total_hits != TrackTotalHits::Disabled
-        && !has_text
-        && patterns.is_empty()
-        && body.get("post_filter").is_none();
+    let filter_only_scope = !has_text && patterns.is_empty() && body.get("post_filter").is_none();
+    let compute_total = track_total_hits != TrackTotalHits::Disabled && filter_only_scope;
     let (complete_aggregations, exact_total, ordered_hits) = tokio::try_join!(
         async {
             match aggregation_plan {
@@ -3144,7 +3142,7 @@ async fn search_with_total_format(
             }
         },
         async {
-            if compute_total && size > 0 {
+            if filter_only_scope && size > 0 {
                 ordered_numeric_hits(
                     &state,
                     (&index, &coll, &mapping),
@@ -3165,7 +3163,7 @@ async fn search_with_total_format(
         && patterns.is_empty()
         && body.get("post_filter").is_none()
         && collapse_spec.is_none()
-        && exact_total.is_some();
+        && (exact_total.is_some() || track_total_hits == TrackTotalHits::Disabled);
     // Global field ordering and post-filter membership require every page unless
     // a scalar numeric ordering has been proven safe for backend pushdown.
     let complete_hit_scan = !count_only
@@ -3176,7 +3174,7 @@ async fn search_with_total_format(
     let mut scanned_total = 0_u64;
     let mut hits: Vec<Value> = Vec::new();
     if count_only {
-        // Aggregations and exact total are already complete; no hits are requested.
+        // Requested aggregations and totals are complete; no hits are requested.
     } else if let Some(ordered_hits) = ordered_hits {
         hits = ordered_hits;
     } else if let Some((using, vector)) = sparse_query {
@@ -6822,9 +6820,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(body["hits"]["total"], -1);
-        let requests = observed_requests.lock().unwrap();
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].1["limit"], 1);
+        assert_eq!(body["hits"]["hits"], json!([]));
+        assert!(observed_requests.lock().unwrap().is_empty());
         server.abort();
     }
 
@@ -8399,6 +8396,140 @@ mod tests {
         assert!(keyword_facet_safe(None));
         assert!(keyword_facet_safe(Some(&json!([]))));
         assert!(!keyword_facet_safe(Some(&json!([["nested"]]))));
+    }
+
+    #[tokio::test]
+    async fn disabled_totals_preserve_ordered_pages_and_safe_fallbacks() {
+        for (scenario, mut body, expected_ids, fallback) in [
+            (
+                "offset",
+                json!({"from":1,"size":2,"sort":[{"price":"asc"}]}),
+                vec!["b", "c"],
+                false,
+            ),
+            (
+                "cursor",
+                json!({"size":2,"sort":[{"price":"asc"}],"search_after":[20]}),
+                vec!["c", "d"],
+                false,
+            ),
+            (
+                "descending",
+                json!({"size":2,"sort":[{"price":"desc"}],"search_after":[30]}),
+                vec!["b", "a"],
+                false,
+            ),
+            (
+                "uncovered",
+                json!({"size":2,"sort":[{"price":"asc"}]}),
+                vec!["a", "b"],
+                true,
+            ),
+            (
+                "ties",
+                json!({"size":2,"sort":[{"price":"asc"}]}),
+                vec!["a", "b"],
+                true,
+            ),
+        ] {
+            body["track_total_hits"] = json!(false);
+            let observed = Arc::new(Mutex::new(Vec::new()));
+            let requests = observed.clone();
+            let mock = Router::new().fallback(any(move |uri: axum::http::Uri, body: Body| {
+                let requests = requests.clone();
+                async move {
+                    let request: Value = serde_json::from_slice(
+                        &axum::body::to_bytes(body, usize::MAX).await.unwrap(),
+                    ).unwrap();
+                    requests.lock().unwrap().push((uri.path().to_string(), request.clone()));
+                    assert!(uri.path().ends_with("/points/scroll"), "disabled totals must not count");
+                    if request.pointer("/filter/must_not").is_some() {
+                        return Json(json!({"result":{"points":if scenario == "uncovered" {vec![json!({"id":"legacy"})]} else {vec![]},"next_page_offset":null}}));
+                    }
+                    let mut points = vec![
+                        json!({"payload":{"_es_id":"a","_source":{"price":10}}}),
+                        json!({"payload":{"_es_id":"b","_source":{"price":20}}}),
+                        json!({"payload":{"_es_id":"c","_source":{"price":if scenario == "ties" {20} else {30}}}}),
+                        json!({"payload":{"_es_id":"d","_source":{"price":40}}}),
+                    ];
+                    if request.get("order_by").is_some() {
+                        if scenario == "cursor" {
+                            assert_eq!(request.pointer("/filter/must/0/range/gt"), Some(&json!(20)));
+                            points.drain(..2);
+                        } else if scenario == "descending" {
+                            assert_eq!(request.pointer("/filter/must/0/range/lt"), Some(&json!(30)));
+                            points.truncate(2);
+                            points.reverse();
+                        }
+                        points.truncate(request["limit"].as_u64().unwrap() as usize);
+                        return Json(json!({"result":{"points":points,"next_page_offset":null}}));
+                    }
+                    // Deliberately unsorted backend pages make a full fallback scan necessary.
+                    let (page, next) = if request.get("offset").is_some() {
+                        (vec![points[1].clone(), points[0].clone()], Value::Null)
+                    } else {
+                        (vec![points[3].clone(), points[2].clone()], json!("next"))
+                    };
+                    Json(json!({"result":{"points":page,"next_page_offset":next}}))
+                }
+            }));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+            let mut cfg = Config::from_env();
+            cfg.document_projection = false;
+            cfg.max_page_size = 4;
+            let db = Connection::open_in_memory().unwrap();
+            db.execute_batch(r#"CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('items', '{"properties":{"price":{"type":"integer"}}}', '[]');"#).unwrap();
+            let state = AppState {
+                qdrant: Qdrant {
+                    client: Client::new(),
+                    base: format!("http://{address}"),
+                    key: None,
+                    admin_mutation_started: None,
+                    async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+                },
+                db: Arc::new(Mutex::new(db)),
+                analytics: Arc::new(Mutex::new(Analytics::default())),
+                shared_catalog: None,
+                index_admin: Arc::new(AsyncMutex::new(())),
+                cfg,
+            };
+            let response = search(State(state), Path("items".into()), Json(body))
+                .await
+                .unwrap();
+            let response: Value = serde_json::from_slice(
+                &axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap(),
+            )
+            .unwrap();
+            assert!(response["hits"].get("total").is_none(), "{scenario}");
+            let hits = response["hits"]["hits"].as_array().unwrap();
+            assert_eq!(
+                hits.iter()
+                    .map(|hit| hit["_id"].as_str().unwrap())
+                    .collect::<Vec<_>>(),
+                expected_ids,
+                "{scenario}"
+            );
+            for hit in hits {
+                assert_eq!(hit["sort"], json!([hit["_source"]["price"]]));
+            }
+            let requests = observed.lock().unwrap();
+            assert_eq!(requests.len(), if fallback { 4 } else { 2 }, "{scenario}");
+            assert_eq!(
+                requests
+                    .iter()
+                    .filter(|(_, body)| body.get("order_by").is_some())
+                    .count(),
+                1
+            );
+            assert!(requests
+                .iter()
+                .all(|(path, _)| path.ends_with("/points/scroll")));
+            server.abort();
+        }
     }
 
     #[tokio::test]

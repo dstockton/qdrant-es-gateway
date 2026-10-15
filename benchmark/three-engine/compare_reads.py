@@ -66,7 +66,8 @@ def main():
                    "requests_per_trial": REQUESTS, "trials": TRIALS,
                    "warmup_per_trial": WARMUP, "concurrency": benchmark.CONCURRENCY,
                    "seed": 20261015, "persistent_http_per_worker": True,
-                   "request_cache": REQUEST_CACHE},
+                   "request_cache": REQUEST_CACHE,
+                   "track_total_hits": benchmark.TRACK_TOTAL_HITS},
         "provenance": provenance(), "measurements": [],
     }
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
