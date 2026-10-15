@@ -1,0 +1,29 @@
+{
+  "baseline_revision": "4dba3b34f7af800c681f37ac83c22f0e83274f29",
+  "candidate_revision": "a8b3ca4",
+  "candidate_rounds": [
+    "readpath-b1",
+    "readpath-b2"
+  ],
+  "baseline_rounds": [
+    "readpath-a1",
+    "readpath-a2"
+  ],
+  "measured_responses_read_path": 72000,
+  "rejected_experiment": {
+    "rounds": [
+      "final-a1",
+      "final-b1",
+      "final-b2",
+      "final-a2"
+    ],
+    "measured_responses": 72000,
+    "candidate_source": "candidate_revision plus rejected-combined-coverage.patch; never merged into implementation",
+    "reason": "No broad improvement; filter latency regressed slightly after bounding facet memory."
+  },
+  "uncached_diagnostic": "uncached-old uses original baseline image; request_cache=false identically on all search endpoints. Counters before/after verify native request-cache bypass. Other engine caches remain enabled.",
+  "payload_observation": "One representative benchmark point, compact payload JSON bytes; identical nested _source. Not response latency.",
+  "ram_experiment": "One exploratory baseline-image round after on_disk_payload=false; optimizer green; configuration restored to true afterward. No production default change or speedup claim.",
+  "summary_method": "median of all six trial medians across two rounds per variant, no fastest-trial selection",
+  "host": "Shared Docker VM; no gateway builds during retained read-path or rejected-experiment timing. Not a dedicated performance host."
+}

@@ -38,8 +38,8 @@ The optimized gateway reduced observed sorted-page latency to 1.228 ms,
 about 45 times lower than the first run. Native engines also became faster
 across runs, so that ratio is an observed before/after result, not an isolated
 production speedup guarantee. The gateway narrowly led filtered search at one
-client; that small margin is not a broad performance win. Native engines still
-won most final latency comparisons and searchable ingest throughput: roughly
+client; that small margin is not a broad performance win. In this measured run, native engines had lower median latency in nine of the ten
+workload/concurrency combinations. They also led searchable ingest throughput: roughly
 31,900 documents/s for Elasticsearch, 41,600 for OpenSearch and 22,600 for the
 gateway.
 
@@ -93,3 +93,6 @@ The practical improvement is that compatible catalogue queries move a page or
 counts across the network instead of the entire matching catalogue. SQLite was
 not the measured bottleneck, so replacing its small metadata catalog would not
 have addressed the expensive work this benchmark revealed.
+
+A [later paired comparison]({% post_url 2026-10-15-measuring-small-read-path-changes %})
+examines warmup, native caches and smaller read-path changes.

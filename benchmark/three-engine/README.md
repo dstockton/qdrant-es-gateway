@@ -113,3 +113,11 @@ and [OpenSearch request-cache documentation](https://docs.opensearch.org/latest/
 Record `/{index}/_stats/request_cache` before and after a diagnostic to verify
 which cache path was exercised; disabling this cache does not disable every
 internal engine cache.
+
+Combine both baseline rounds, then both candidate rounds, using all six trial
+medians per engine/workload/concurrency:
+
+```sh
+python3 summarize_reads.py results/baseline-a.json results/baseline-d.json
+python3 summarize_reads.py results/candidate-b.json results/candidate-c.json
+```

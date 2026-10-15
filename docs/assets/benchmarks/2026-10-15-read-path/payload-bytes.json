@@ -1,0 +1,14 @@
+[
+  {
+    "selector": true,
+    "payload_json_bytes": 684,
+    "response_bytes": 855
+  },
+  {
+    "selector": [
+      "_source"
+    ],
+    "payload_json_bytes": 274,
+    "response_bytes": 441
+  }
+]
