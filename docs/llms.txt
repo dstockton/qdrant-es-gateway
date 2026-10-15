@@ -26,6 +26,7 @@
 - [Find the next page across the whole catalogue](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-sorted-pages-look-past-first-candidates.md)
 - [Two gateways need one view of their mappings](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-sharing-mappings-between-gateway-replicas.md)
 - [Repeated searches get faster; fresh queries still cost more](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-shared-cache-warm-search-results.md)
+- [Rustls security fixes landed](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-rustls-security-fixes-landed.md)
 - [Reading Reddit with an honest coverage report](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-reading-reddit-with-an-honest-coverage-report.md)
 - [Fewer requests did not make this query faster](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-measuring-small-read-path-changes.md)
 - [Sorting twenty records should not fetch ten thousand](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-indexed-query-performance.md)
