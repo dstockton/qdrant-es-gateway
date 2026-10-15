@@ -3095,7 +3095,11 @@ async fn search_with_total_format(
     }
     // These are independent reads of the same query scope. Neither operation
     // supplies a snapshot, and serial execution cannot add that guarantee.
-    let (complete_aggregations, exact_total) = tokio::try_join!(
+    let compute_total = track_total_hits != TrackTotalHits::Disabled
+        && !has_text
+        && patterns.is_empty()
+        && body.get("post_filter").is_none();
+    let (complete_aggregations, exact_total, ordered_hits) = tokio::try_join!(
         async {
             match aggregation_plan {
                 Some(plan) => plan
@@ -3106,36 +3110,30 @@ async fn search_with_total_format(
             }
         },
         async {
-            if track_total_hits != TrackTotalHits::Disabled
-                && !has_text
-                && patterns.is_empty()
-                && body.get("post_filter").is_none()
-            {
+            if compute_total {
                 qdrant_exact_count(&state, &coll, filter.as_ref())
                     .await
                     .map(Some)
             } else {
                 Ok(None)
             }
+        },
+        async {
+            if compute_total && size > 0 {
+                ordered_numeric_hits(
+                    &state,
+                    (&index, &coll, &mapping),
+                    &body,
+                    &sort_specs,
+                    filter.as_ref(),
+                    (from + size) as usize,
+                )
+                .await
+            } else {
+                Ok(None)
+            }
         }
     )?;
-    let ordered_hits = if !has_text && patterns.is_empty() && size > 0 {
-        if exact_total.is_some() {
-            ordered_numeric_hits(
-                &state,
-                (&index, &coll, &mapping),
-                &body,
-                &sort_specs,
-                filter.as_ref(),
-                (from + size) as usize,
-            )
-            .await?
-        } else {
-            None
-        }
-    } else {
-        None
-    };
     let count_only = size == 0
         && !(state.cfg.document_projection && !sort_specs.is_empty())
         && !has_text
