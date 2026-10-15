@@ -1,3 +1,7 @@
+mod aggregations;
+mod shared_catalog;
+mod sparse;
+
 use axum::{
     body::Body,
     extract::{Path, State},
@@ -124,6 +128,7 @@ struct AppState {
     cfg: Config,
     qdrant: Qdrant,
     db: Arc<Mutex<Connection>>,
+    shared_catalog: Option<shared_catalog::SharedCatalog>,
     analytics: Arc<Mutex<Analytics>>,
     index_admin: Arc<AsyncMutex<()>>,
 }
@@ -141,6 +146,7 @@ struct Qdrant {
     base: String,
     key: Option<String>,
     async_write_queue: Arc<Semaphore>,
+    admin_mutation_started: Option<Arc<std::sync::atomic::AtomicBool>>,
 }
 
 impl Qdrant {
@@ -151,12 +157,17 @@ impl Qdrant {
         body: Option<Value>,
     ) -> Result<(StatusCode, Value), GatewayError> {
         let url = format!("{}{}", self.base, path);
-        let mut req = self.client.request(method, url);
+        let mut req = self.client.request(method.clone(), url);
         if let Some(key) = &self.key {
             req = req.header("api-key", key);
         }
         if let Some(body) = body {
             req = req.json(&body);
+        }
+        if method != Method::GET && method != Method::HEAD {
+            if let Some(started) = &self.admin_mutation_started {
+                started.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
         }
         let response = req
             .send()
@@ -511,6 +522,8 @@ fn mapping_vectors(body: &Value) -> (Value, Vec<String>) {
         for (field, spec) in props {
             if spec.get("type").and_then(Value::as_str) == Some("text") {
                 vectors.push(format!("text_{}", field.replace('.', "_")));
+            } else if spec.get("type").and_then(Value::as_str) == Some("sparse_vector") {
+                vectors.push(sparse::name(field));
             }
         }
     }
@@ -538,7 +551,7 @@ fn payload_field_schema(spec: &Value) -> Option<&'static str> {
 fn flatten_text(source: &Value, fields: &[String]) -> HashMap<String, String> {
     let obj = source.as_object().cloned().unwrap_or_default();
     let mut out = HashMap::new();
-    for vector in fields {
+    for vector in fields.iter().filter(|v| v.starts_with("text_")) {
         let field = vector
             .strip_prefix("text_")
             .unwrap_or(vector)
@@ -596,6 +609,8 @@ async fn create_index(
     // upstream state, including collisions with the optional document store.
     ensure_collection_namespace_available(&state, &index)?;
     let (mapping, vectors) = mapping_vectors(&body);
+    sparse::validate_mapping(&mapping)?;
+    shared_catalog::validate_index_capacity(&state, &index, &mapping, &vectors)?;
     let mut sparse = Map::new();
     for v in &vectors {
         sparse.insert(v.clone(), json!({}));
@@ -796,7 +811,7 @@ fn projected_search_payload(source: &Value, id: &str, index: &str, mapping: &Val
             let is_searchable_payload_field = spec
                 .get("type")
                 .and_then(Value::as_str)
-                .is_some_and(|kind| kind != "text");
+                .is_some_and(|kind| kind != "text" && kind != "sparse_vector");
             if is_searchable_payload_field {
                 if let Some(value) = source.get(field) {
                     p.insert(field.clone(), value.clone());
@@ -881,18 +896,22 @@ async fn retrieve_source(
             .await?
             .remove(id));
     }
-    let point = state
+    // Batch retrieval returns an empty array for a missing point, while a
+    // missing collection still fails. Do not turn an ordinary first write
+    // into a gateway error by using Qdrant's single-point 404 endpoint.
+    let response = state
         .qdrant
-        .request_optional_point(&format!(
-            "/collections/{collection}/points/{}?with_payload=true",
-            point_id(index, id)
-        ))
+        .request(
+            Method::POST,
+            &format!("/collections/{collection}/points"),
+            Some(json!({"ids":[point_id(index,id)],"with_payload":true,"with_vector":false})),
+        )
         .await?;
-    Ok(point
-        .as_ref()
-        .and_then(|point| point.get("result"))
-        .filter(|result| !result.is_null())
-        .and_then(|result| result.get("payload"))
+    Ok(response
+        .get("result")
+        .and_then(Value::as_array)
+        .and_then(|points| points.first())
+        .and_then(|point| point.get("payload"))
         .and_then(|payload| payload.get("_source"))
         .cloned())
 }
@@ -971,7 +990,7 @@ async fn write_docs(
         .iter()
         .map(|(id, source)| {
             let texts = flatten_text(source, &vectors);
-            let mut vector = Map::new();
+            let mut vector = sparse::document(source, &mapping)?;
             for (name, text) in texts {
                 vector.insert(name, json!({"text":text,"model":"qdrant/bm25"}));
             }
@@ -980,9 +999,11 @@ async fn write_docs(
             } else {
                 qdrant_payload(source, id, &index, &mapping)
             };
-            json!({"id":point_id(&index,id),"vector":vector,"payload":payload})
+            Ok::<_, GatewayError>(
+                json!({"id":point_id(&index,id),"vector":vector,"payload":payload}),
+            )
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, _>>()?;
     if state.cfg.document_projection {
         let source_points = docs
             .iter()
@@ -1187,7 +1208,9 @@ async fn update_doc(
     if state.cfg.document_projection {
         let point = point_id(&index, &id);
         let changed_text = doc.as_object().unwrap().keys().any(|field| {
-            field == "_all" || vectors.contains(&format!("text_{}", field.replace('.', "_")))
+            field == "_all"
+                || vectors.contains(&format!("text_{}", field.replace('.', "_")))
+                || vectors.contains(&sparse::name(field))
         });
         if changed_text {
             return write_doc(State(state), Path((index, id)), Json(merged)).await;
@@ -1229,7 +1252,9 @@ async fn update_doc(
         ));
     }
     let changes_text = doc.as_object().unwrap().keys().any(|field| {
-        field == "_all" || vectors.contains(&format!("text_{}", field.replace('.', "_")))
+        field == "_all"
+            || vectors.contains(&format!("text_{}", field.replace('.', "_")))
+            || vectors.contains(&sparse::name(field))
     });
     if !changes_text {
         let path = format!("/collections/{coll}/points/payload");
@@ -2406,6 +2431,29 @@ fn contains_approx_text_query(query: &Value) -> bool {
 }
 
 fn value_cmp(left: &Value, right: &Value) -> std::cmp::Ordering {
+    // Avoid rounding integers through f64, including comparisons with a JSON
+    // float. Its truncated integer part fits i128 or saturates safely beyond
+    // every JSON integer; only the fractional part remains when parts tie.
+    let integer = |v: &Value| {
+        v.as_i64()
+            .map(i128::from)
+            .or_else(|| v.as_u64().map(i128::from))
+    };
+    let integer_float = |integer: i128, float: f64| {
+        integer.cmp(&(float as i128)).then_with(|| {
+            0.0_f64
+                .partial_cmp(&float.fract())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+    };
+    match (integer(left), integer(right)) {
+        (Some(a), Some(b)) => return a.cmp(&b),
+        (Some(a), None) if right.is_number() => return integer_float(a, right.as_f64().unwrap()),
+        (None, Some(b)) if left.is_number() => {
+            return integer_float(b, left.as_f64().unwrap()).reverse()
+        }
+        _ => {}
+    }
     match (left.as_f64(), right.as_f64()) {
         (Some(a), Some(b)) => a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal),
         _ => left
@@ -2734,6 +2782,34 @@ fn hit_sort_value(hit: &Value, field: &str) -> Value {
     }
 }
 
+fn compare_sorted_hits(a: &Value, b: &Value, sorts: &[(String, String)]) -> std::cmp::Ordering {
+    for (field, direction) in sorts {
+        let order = value_cmp(&hit_sort_value(a, field), &hit_sort_value(b, field));
+        if order != std::cmp::Ordering::Equal {
+            return if direction == "desc" {
+                order.reverse()
+            } else {
+                order
+            };
+        }
+    }
+    value_cmp(&hit_sort_value(a, "_id"), &hit_sort_value(b, "_id"))
+}
+
+fn hit_is_after(hit: &Value, cursor: &[Value], sorts: &[(String, String)]) -> bool {
+    for ((field, direction), value) in sorts.iter().zip(cursor) {
+        let order = value_cmp(&hit_sort_value(hit, field), value);
+        if order != std::cmp::Ordering::Equal {
+            return if direction == "desc" {
+                order.is_lt()
+            } else {
+                order.is_gt()
+            };
+        }
+    }
+    false
+}
+
 async fn search(
     State(state): State<AppState>,
     Path(index): Path<String>,
@@ -2749,6 +2825,12 @@ async fn search_with_total_format(
     rest_total_hits_as_int: bool,
 ) -> Result<Response, GatewayError> {
     let started = Instant::now();
+    if body.get("pit").is_some() {
+        return Err(GatewayError::bad(
+            "pit",
+            "point-in-time snapshots are unsupported; a cursor does not freeze the dataset",
+        ));
+    }
     if let Some(post_filter) = body.get("post_filter") {
         validate_post_filter(post_filter)?;
     }
@@ -2773,18 +2855,50 @@ async fn search_with_total_format(
         (from + size).max(state.cfg.max_page_size).max(1)
     };
     let collapse_spec = parse_collapse_spec(body.get("collapse"), state.cfg.max_page_size)?;
-    let (index, coll, _, vectors) = get_index(&state, &index)?;
+    let (index, coll, mapping, vectors) = get_index(&state, &index)?;
     let mut query = body
         .get("query")
         .cloned()
         .unwrap_or_else(|| json!({"match_all":{}}));
+    sparse::validate_request(&body, &mapping)?;
     query = expand_more_like_this(&state, &index, query).await?;
     let mut patterns = Vec::new();
     collect_patterns(&query, &mut patterns)?;
-    let (filter, _) = query_filter(&query)?;
+    let sparse_query = sparse::query(&query, &mapping)?;
+    if sparse_query.is_some()
+        && [
+            "aggs",
+            "aggregations",
+            "post_filter",
+            "collapse",
+            "sort",
+            "search_after",
+            "min_score",
+        ]
+        .iter()
+        .any(|key| body.get(key).is_some())
+    {
+        return Err(GatewayError::bad("neural_sparse", "aggregations, post_filter, collapse, sort, search_after and min_score are unsupported for explicit sparse queries"));
+    }
+    let aggregation_plan =
+        aggregations::Plan::parse(body.get("aggs").or_else(|| body.get("aggregations")))?;
+    if aggregation_plan.is_some() && validate_post_filter(&query).is_err() {
+        return Err(GatewayError::bad("aggs", "aggregations require a filter-only query; ranked and pattern query membership cannot be aggregated exactly"));
+    }
+    let (filter, _) = if sparse_query.is_some() {
+        (None, Vec::new())
+    } else {
+        query_filter(&query)?
+    };
     let text = pick_text(&query);
-    let has_text = text.is_some();
+    let has_text = text.is_some() || sparse_query.is_some();
     let approximate_text = contains_approx_text_query(&query);
+    let complete_aggregations = if let Some(plan) = aggregation_plan {
+        plan.validate_mapping(&mapping, state.cfg.document_projection)?;
+        Some(plan.execute(&state, &coll, filter.as_ref()).await?)
+    } else {
+        None
+    };
     let exact_total = if track_total_hits != TrackTotalHits::Disabled
         && !has_text
         && patterns.is_empty()
@@ -2794,8 +2908,21 @@ async fn search_with_total_format(
     } else {
         None
     };
+    // Global field ordering and post-filter membership require every page.
+    let complete_hit_scan = !has_text
+        && patterns.is_empty()
+        && (!sort_specs.is_empty() || body.get("post_filter").is_some());
+    let mut scanned_total = 0_u64;
     let mut hits: Vec<Value> = Vec::new();
-    if approximate_text {
+    if let Some((using, vector)) = sparse_query {
+        let response = state.qdrant.request(Method::POST, &format!("/collections/{coll}/points/query"), Some(json!({"query":vector,"using":using,"limit":(from+size).max(1),"with_payload":{"include":["_es_id","_source"]}}))).await?;
+        if let Some(points) = response.pointer("/result/points").and_then(Value::as_array) {
+            for point in points {
+                let payload = &point["payload"];
+                hits.push(json!({"_index":index,"_id":payload["_es_id"],"_score":point["score"],"_source":payload.get("_source").cloned().unwrap_or_else(|| json!({}))}));
+            }
+        }
+    } else if approximate_text {
         let scan_collection = if state.cfg.document_projection {
             document_collection(&index)
         } else {
@@ -2876,17 +3003,18 @@ async fn search_with_total_format(
             }
         }
     } else {
-        let payload_fields = if state.cfg.document_projection && patterns.is_empty() {
-            json!(["_es_id"])
-        } else {
-            json!(["_es_id", "_source"])
-        };
+        let payload_fields =
+            if state.cfg.document_projection && patterns.is_empty() && !complete_hit_scan {
+                json!(["_es_id"])
+            } else {
+                json!(["_es_id", "_source"])
+            };
         let mut offset = Value::Null;
         loop {
             // Qdrant requires a positive scroll limit, while Elasticsearch
             // commonly uses size: 0 for aggregation-only searches. Fetch one
             // candidate for bookkeeping and keep the requested page empty.
-            let mut req = json!({"limit":if patterns.is_empty() { candidate_limit } else { state.cfg.max_page_size },"with_payload":{"include":payload_fields}});
+            let mut req = json!({"limit":if patterns.is_empty() && !complete_hit_scan { candidate_limit } else { state.cfg.max_page_size.max(1) },"with_payload":{"include":payload_fields}});
             if let Some(f) = &filter {
                 req["filter"] = f.clone();
             }
@@ -2906,27 +3034,76 @@ async fn search_with_total_format(
                 .and_then(|x| x.get("points"))
                 .and_then(Value::as_array)
             {
+                let sources = if complete_hit_scan && state.cfg.document_projection {
+                    let ids = arr
+                        .iter()
+                        .filter_map(|point| {
+                            point.pointer("/payload/_es_id").and_then(Value::as_str)
+                        })
+                        .map(|id| point_id(&index, id))
+                        .collect::<Vec<_>>();
+                    retrieve_sources(&state, &index, &ids).await?
+                } else {
+                    HashMap::new()
+                };
                 for p in arr {
                     let pay = p.get("payload").cloned().unwrap_or(json!({}));
-                    let source = pay.get("_source").cloned().unwrap_or(json!({}));
+                    let document_id = pay.get("_es_id").and_then(Value::as_str).unwrap_or("");
+                    if complete_hit_scan
+                        && state.cfg.document_projection
+                        && !sources.contains_key(document_id)
+                    {
+                        continue;
+                    }
+                    let source = sources
+                        .get(pay.get("_es_id").and_then(Value::as_str).unwrap_or(""))
+                        .cloned()
+                        .or_else(|| pay.get("_source").cloned())
+                        .unwrap_or(json!({}));
+                    if complete_hit_scan {
+                        if body
+                            .get("post_filter")
+                            .is_some_and(|filter| !source_matches_query(&source, filter))
+                        {
+                            continue;
+                        }
+                        scanned_total += 1;
+                    }
                     if patterns
                         .iter()
                         .all(|pattern| pattern_matches(&source, pattern))
                     {
-                        hits.push(json!({"_index":index,"_id":pay.get("_es_id").cloned().unwrap_or(json!("")),"_score":Value::Null,"_source":source}));
+                        let hit = json!({"_index":index,"_id":pay.get("_es_id").cloned().unwrap_or(json!("")),"_score":Value::Null,"_source":source});
+                        if complete_hit_scan
+                            && collapse_spec.is_none()
+                            && body
+                                .get("search_after")
+                                .and_then(Value::as_array)
+                                .is_some_and(|cursor| !hit_is_after(&hit, cursor, &sort_specs))
+                        {
+                            continue;
+                        }
+                        hits.push(hit);
                     }
+                }
+                if complete_hit_scan && collapse_spec.is_none() {
+                    hits.sort_by(|a, b| compare_sorted_hits(a, b, &sort_specs));
+                    hits.truncate((from + size) as usize);
                 }
                 let next = r
                     .get("result")
                     .and_then(|x| x.get("next_page_offset"))
                     .cloned()
                     .unwrap_or(Value::Null);
-                if next.is_null() || patterns.is_empty() {
+                if next.is_null() || (patterns.is_empty() && !complete_hit_scan) {
                     break;
+                }
+                if next == offset || arr.is_empty() {
+                    return Err(GatewayError::bad("search", "Qdrant scroll did not advance"));
                 }
                 offset = next;
             } else {
-                break;
+                return Err(GatewayError::bad("search", "invalid Qdrant scroll points"));
             }
         }
     }
@@ -2955,7 +3132,7 @@ async fn search_with_total_format(
         }
     }
     let mut hits: Vec<_> = unique.into_values().collect();
-    if state.cfg.document_projection {
+    if state.cfg.document_projection && !complete_hit_scan {
         let ids = hits
             .iter()
             .filter_map(|hit| {
@@ -2983,27 +3160,19 @@ async fn search_with_total_format(
                 .all(|pattern| pattern_matches(&source, pattern))
         });
     }
-    // Elasticsearch applies post_filter, collapse, and search_after only to
-    // hits. Preserve the query-matched candidate window for gateway-computed
-    // aggregations before those hit-only transformations run.
-    let aggregation_hits = body
-        .get("aggs")
-        .or_else(|| body.get("aggregations"))
-        .and_then(Value::as_object)
-        .filter(|aggregations| {
-            aggregations
-                .values()
-                .any(|aggregation| aggregation.get("terms").is_none())
-        })
-        .map(|_| hits.clone());
     if let Some(post_filter) = body.get("post_filter") {
         hits.retain(|hit| {
             hit.get("_source")
                 .is_some_and(|source| source_matches_query(source, post_filter))
         });
     }
-    let total = exact_total.unwrap_or(hits.len() as u64);
-    let total_is_exact = exact_total.is_some() || approximate_text || !patterns.is_empty();
+    let total = if complete_hit_scan {
+        scanned_total
+    } else {
+        exact_total.unwrap_or(hits.len() as u64)
+    };
+    let total_is_exact =
+        complete_hit_scan || exact_total.is_some() || approximate_text || !patterns.is_empty();
     if !sort_specs.is_empty() {
         for (field, dir) in sort_specs.iter().rev() {
             hits.sort_by(|a, b| {
@@ -3111,105 +3280,8 @@ async fn search_with_total_format(
     ) {
         response["hits"]["total"] = total;
     }
-    if let Some(aggs) = body.get("aggs").or_else(|| body.get("aggregations")) {
-        let output = response.as_object_mut().unwrap();
-        let mut agg_result = Map::new();
-        for (name, spec) in aggs
-            .as_object()
-            .ok_or_else(|| GatewayError::bad("aggs", "aggregations must be an object"))?
-        {
-            if let Some(terms) = spec.get("terms") {
-                let requested = terms.get("field").and_then(Value::as_str).ok_or_else(|| {
-                    GatewayError::bad(
-                        format!("aggs.{name}.terms.field"),
-                        "terms aggregation requires field",
-                    )
-                })?;
-                let field = requested.strip_suffix(".keyword").unwrap_or(requested);
-                let limit = terms
-                    .get("size")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(10)
-                    .min(1000);
-                let mut req = json!({"key":field,"limit":limit});
-                if let Some(f) = query_filter(&query)?.0 {
-                    req["filter"] = f;
-                }
-                let facet = state
-                    .qdrant
-                    .request(
-                        Method::POST,
-                        &format!("/collections/{coll}/facet"),
-                        Some(req),
-                    )
-                    .await?;
-                let buckets = facet.get("result").and_then(|r| r.get("hits")).and_then(Value::as_array).cloned().unwrap_or_default().into_iter().map(|h| json!({"key":h.get("value").cloned().unwrap_or(Value::Null),"doc_count":h.get("count").cloned().unwrap_or(json!(0))})).collect::<Vec<_>>();
-                agg_result.insert(name.clone(), json!({"doc_count_error_upper_bound":0,"sum_other_doc_count":0,"buckets":buckets}));
-            } else if let Some(metric) = spec.get("min").or_else(|| spec.get("max")) {
-                let aggregation_hits = aggregation_hits
-                    .as_ref()
-                    .expect("gateway-computed aggregations retain candidates");
-                let field = metric.get("field").and_then(Value::as_str).ok_or_else(|| {
-                    GatewayError::bad(
-                        format!("aggs.{name}.metric.field"),
-                        "metric aggregation requires field",
-                    )
-                })?;
-                let mut values = aggregation_hits
-                    .iter()
-                    .filter_map(|hit| {
-                        hit.get("_source")
-                            .and_then(|source| source_field(source, field))
-                            .and_then(Value::as_f64)
-                    })
-                    .collect::<Vec<_>>();
-                values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                let value = if spec.get("min").is_some() {
-                    values.first().copied()
-                } else {
-                    values.last().copied()
-                };
-                agg_result.insert(name.clone(), json!({"value":value}));
-            } else if let Some(filters) = spec
-                .get("filters")
-                .and_then(|v| v.get("filters"))
-                .and_then(Value::as_object)
-            {
-                let aggregation_hits = aggregation_hits
-                    .as_ref()
-                    .expect("gateway-computed aggregations retain candidates");
-                let mut buckets = Map::new();
-                for (key, filter_query) in filters {
-                    let count = aggregation_hits
-                        .iter()
-                        .filter(|hit| {
-                            hit.get("_source")
-                                .is_some_and(|source| source_matches_query(source, filter_query))
-                        })
-                        .count();
-                    buckets.insert(key.clone(), json!({"doc_count":count}));
-                }
-                agg_result.insert(name.clone(), json!({"buckets":buckets}));
-            } else if let Some(filter_query) = spec.get("filter") {
-                let aggregation_hits = aggregation_hits
-                    .as_ref()
-                    .expect("gateway-computed aggregations retain candidates");
-                let count = aggregation_hits
-                    .iter()
-                    .filter(|hit| {
-                        hit.get("_source")
-                            .is_some_and(|source| source_matches_query(source, filter_query))
-                    })
-                    .count();
-                agg_result.insert(name.clone(), json!({"doc_count":count}));
-            } else {
-                return Err(GatewayError::bad(
-                    format!("aggs.{name}"),
-                    "supported aggregations are terms, min, max, filters, and filter",
-                ));
-            }
-        }
-        output.insert("aggregations".into(), Value::Object(agg_result));
+    if let Some(aggregations) = complete_aggregations {
+        response["aggregations"] = aggregations;
     }
     if state.cfg.analytics {
         if let Ok(mut a) = state.analytics.lock() {
@@ -3278,7 +3350,8 @@ async fn count(
     Path(index): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Response, GatewayError> {
-    let (_, coll, _, _) = get_index(&state, &index)?;
+    let (_, coll, mapping, _) = get_index(&state, &index)?;
+    sparse::validate_request(&body, &mapping)?;
     let query = body
         .get("query")
         .cloned()
@@ -3442,10 +3515,28 @@ async fn bulk(
         let (kind, idx, id, source) = &actions[cursor];
         if kind == "index" {
             let batch_index = idx.clone();
+            let sparse_mapping = get_index(&state, &batch_index)
+                .ok()
+                .map(|(_, _, mapping, _)| mapping);
+            if let Some(mapping) = &sparse_mapping {
+                if let Err(error) =
+                    sparse::document(source.as_ref().unwrap_or(&Value::Null), mapping)
+                {
+                    items.push(json!({"index":{"_index":idx,"_id":id,"status":400,"error":error.body()["error"]}}));
+                    cursor += 1;
+                    continue;
+                }
+            }
             let mut batch = Vec::new();
             let mut end = cursor;
             while end < actions.len() && actions[end].0 == "index" && actions[end].1 == batch_index
             {
+                if sparse_mapping.as_ref().is_some_and(|mapping| {
+                    sparse::document(actions[end].3.as_ref().unwrap_or(&Value::Null), mapping)
+                        .is_err()
+                }) {
+                    break;
+                }
                 batch.push((
                     actions[end].2.clone(),
                     actions[end].3.clone().unwrap_or_else(|| json!({})),
@@ -3671,22 +3762,23 @@ async fn aliases(
     let transaction = db
         .transaction()
         .map_err(|e| GatewayError::Internal(e.to_string()))?;
-    for action in actions {
-        match action {
-            AliasAction::Add { alias, index } => transaction
+    // Apply the validated final topology, not a lossy single-target replay.
+    // A batch may temporarily add a second target and then remove it again.
+    for (alias, targets) in final_targets {
+        if let Some(index) = targets.into_iter().next() {
+            transaction
                 .execute(
                     "INSERT OR REPLACE INTO aliases(alias,index_name) VALUES (?1,?2)",
                     params![alias, index],
                 )
-                .map_err(|e| GatewayError::Internal(e.to_string()))?,
-            AliasAction::Remove { alias, index } => transaction
-                .execute(
-                    "DELETE FROM aliases WHERE alias=?1 AND index_name=?2",
-                    params![alias, index],
-                )
-                .map_err(|e| GatewayError::Internal(e.to_string()))?,
-        };
+                .map_err(|e| GatewayError::Internal(e.to_string()))?;
+        } else {
+            transaction
+                .execute("DELETE FROM aliases WHERE alias=?1", params![alias])
+                .map_err(|e| GatewayError::Internal(e.to_string()))?;
+        }
     }
+    shared_catalog::validate_catalog_capacity(&state, &transaction)?;
     transaction
         .commit()
         .map_err(|e| GatewayError::Internal(e.to_string()))?;
@@ -3778,10 +3870,10 @@ async fn mapping(
                 }
                 continue;
             }
-            if field_type == "text" {
+            if field_type == "text" || field_type == "sparse_vector" {
                 return Err(GatewayError::bad(
                     format!("_mapping.properties.{field}"),
-                    "adding text fields requires a new index because Qdrant 1.15 cannot add the required named sparse vector",
+                    "adding text or sparse_vector fields requires a new index to provision the required named sparse vector",
                 ));
             }
             if let Some(schema) = payload_field_schema(spec) {
@@ -3789,6 +3881,7 @@ async fn mapping(
             }
             existing_properties.insert(field.clone(), spec.clone());
         }
+        shared_catalog::validate_index_capacity(&state, &index, &m, &vectors)?;
         for (field, schema) in payload_indexes {
             state
                 .qdrant
@@ -3852,6 +3945,53 @@ fn decode_path_segments(path: &str) -> Result<Vec<String>, GatewayError> {
 }
 
 async fn dispatch(
+    mut state: AppState,
+    method: Method,
+    path: String,
+    query: Option<String>,
+    headers: HeaderMap,
+    body: String,
+) -> Response {
+    let Some(catalog) = state.shared_catalog.clone() else {
+        return dispatch_inner(state, method, path, query, headers, body).await;
+    };
+    // Liveness must not depend on an external catalog. Readiness does.
+    if path == "/healthz" && method == Method::GET {
+        return dispatch_inner(state, method, path, query, headers, body).await;
+    }
+    let admin = match shared_catalog::is_admin(&method, &path) {
+        Ok(admin) => admin,
+        Err(error) => return error.into_response(),
+    };
+    let (db, claim) = match catalog.begin(admin).await {
+        Ok(view) => view,
+        Err(error) => return error.into_response(),
+    };
+    state.db = Arc::new(Mutex::new(db));
+    let mutation_started = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    if claim.is_some() {
+        state.qdrant.admin_mutation_started = Some(mutation_started.clone());
+    }
+    let response = dispatch_inner(state.clone(), method, path, query, headers, body).await;
+    if let Some(claim) = claim {
+        if response.status().is_success() {
+            if let Err(error) = catalog.commit(&state, &claim).await {
+                return error.into_response();
+            }
+        } else if !mutation_started.load(std::sync::atomic::Ordering::SeqCst) {
+            if let Err(error) = catalog.release(&claim).await {
+                return error.into_response();
+            }
+        } else {
+            // Never expire or silently discard ownership after an uncertain
+            // cross-system operation. Recovery requires operator reconciliation.
+            warn!("shared catalog administration failed; reconcile Qdrant and clear the administrative claim before retrying");
+        }
+    }
+    response
+}
+
+async fn dispatch_inner(
     state: AppState,
     method: Method,
     path: String,
@@ -4077,6 +4217,32 @@ async fn dispatch(
     GatewayError::bad("endpoint", format!("unsupported endpoint {method} {path}")).into_response()
 }
 
+fn validate_request_parameters(query: Option<&str>) -> Result<(), GatewayError> {
+    for pair in query.unwrap_or_default().split('&') {
+        let name = pair.split('=').next().unwrap_or_default();
+        let name = percent_decode_str(name).decode_utf8().map_err(|_| {
+            GatewayError::bad("request.query", "query parameter is not valid UTF-8")
+        })?;
+        if matches!(
+            name.as_ref(),
+            "if_seq_no"
+                | "if_primary_term"
+                | "version"
+                | "version_type"
+                | "retry_on_conflict"
+                | "op_type"
+                | "routing"
+                | "scroll"
+        ) {
+            return Err(GatewayError::bad(
+                "request.query",
+                format!("unsupported query parameter {name}; the requested consistency or routing guarantee cannot be honored"),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn gateway_router(state: AppState) -> Router {
     Router::new()
         .fallback(any(
@@ -4085,6 +4251,9 @@ fn gateway_router(state: AppState) -> Router {
              uri: axum::http::Uri,
              headers: HeaderMap,
              body: Body| async move {
+                if let Err(error) = validate_request_parameters(uri.query()) {
+                    return error.into_response();
+                }
                 let body_limit = request_body_limit(&state.cfg, &method, uri.path());
                 let bytes = match axum::body::to_bytes(body, body_limit).await {
                     Ok(b) => b,
@@ -4137,6 +4306,7 @@ async fn main() -> anyhow::Result<()> {
     let connect_timeout_ms = cfg.qdrant_connect_timeout.as_millis();
     let request_timeout_ms = cfg.qdrant_request_timeout.as_millis();
     let async_write_queue = cfg.async_write_queue;
+    let shared_catalog = shared_catalog::SharedCatalog::from_env().await?;
     let state = AppState {
         qdrant: Qdrant {
             client: Client::builder()
@@ -4147,10 +4317,16 @@ async fn main() -> anyhow::Result<()> {
                 .build()?,
             base: cfg.qdrant_url.clone(),
             key: cfg.qdrant_api_key.clone(),
+            admin_mutation_started: None,
             async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
         },
-        db: Arc::new(Mutex::new(init_db()?)),
+        db: Arc::new(Mutex::new(if shared_catalog.is_some() {
+            Connection::open_in_memory()?
+        } else {
+            init_db()?
+        })),
         analytics: Arc::new(Mutex::new(Analytics::default())),
+        shared_catalog,
         index_admin: Arc::new(AsyncMutex::new(())),
         cfg,
     };
@@ -4175,6 +4351,55 @@ async fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unsupported_consistency_parameters_are_not_silently_ignored() {
+        for query in [
+            "if_seq_no=0&if_primary_term=1",
+            "%69f_seq_no=0",
+            "refresh=wait_for&version_type=external",
+            "routing=tenant-a",
+            "op_type=create",
+            "scroll=1m",
+            "retry_on_conflict=3",
+        ] {
+            assert_eq!(
+                validate_request_parameters(Some(query))
+                    .unwrap_err()
+                    .status(),
+                StatusCode::BAD_REQUEST
+            );
+        }
+        assert!(validate_request_parameters(Some("refresh=wait_for&pretty=true")).is_ok());
+        assert!(validate_request_parameters(None).is_ok());
+    }
+
+    #[tokio::test]
+    async fn pit_is_rejected_before_catalog_or_upstream_access() {
+        let cfg = Config::from_env();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: "http://127.0.0.1:1".into(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+                admin_mutation_started: None,
+            },
+            db: Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
+            shared_catalog: None,
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+        let error = search(
+            State(state),
+            Path("absent".into()),
+            Json(json!({"pit":{"id":"opaque"}})),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.body()["error"]["feature"], "pit");
+    }
     use tower::ServiceExt;
 
     #[test]
@@ -4329,10 +4554,12 @@ mod tests {
                 client: Client::new(),
                 base: "http://127.0.0.1:1".into(),
                 key: None,
+                admin_mutation_started: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
+            shared_catalog: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -4368,10 +4595,12 @@ mod tests {
                 client: Client::new(),
                 base: "http://127.0.0.1:1".into(),
                 key: None,
+                admin_mutation_started: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
+            shared_catalog: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -4421,10 +4650,12 @@ mod tests {
                 client: Client::new(),
                 base: "http://127.0.0.1:1".into(),
                 key: None,
+                admin_mutation_started: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
+            shared_catalog: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -4472,6 +4703,41 @@ mod tests {
             )
             .unwrap();
         assert_eq!(target, "products-v2");
+
+        // Temporarily adding and then removing v1 must preserve the original
+        // v2 target. Replaying INSERT OR REPLACE followed by DELETE loses v2.
+        for (actions, expected) in [
+            (
+                json!([
+                    {"add":{"index":"products-v1","alias":"current-products"}},
+                    {"remove":{"index":"products-v1","alias":"current-products"}}
+                ]),
+                "products-v2",
+            ),
+            (
+                json!([
+                    {"add":{"index":"products-v1","alias":"current-products"}},
+                    {"add":{"index":"products-v2","alias":"current-products"}},
+                    {"remove":{"index":"products-v2","alias":"current-products"}}
+                ]),
+                "products-v1",
+            ),
+        ] {
+            aliases(State(state.clone()), Json(json!({"actions":actions})))
+                .await
+                .unwrap();
+            let target: String = state
+                .db
+                .lock()
+                .unwrap()
+                .query_row(
+                    "SELECT index_name FROM aliases WHERE alias='current-products'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(target, expected);
+        }
     }
 
     #[tokio::test]
@@ -4487,7 +4753,9 @@ mod tests {
         )
         .unwrap();
         let state = AppState {
+            shared_catalog: None,
             qdrant: Qdrant {
+                admin_mutation_started: None,
                 client: Client::new(),
                 base: "http://127.0.0.1:1".into(),
                 key: None,
@@ -4557,7 +4825,9 @@ mod tests {
         )
         .unwrap();
         let state = AppState {
+            shared_catalog: None,
             qdrant: Qdrant {
+                admin_mutation_started: None,
                 client: Client::new(),
                 base: "http://127.0.0.1:1".into(),
                 key: None,
@@ -4642,10 +4912,12 @@ mod tests {
                 client: Client::new(),
                 base: cfg.qdrant_url.clone(),
                 key: None,
+                admin_mutation_started: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
+            shared_catalog: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -4700,7 +4972,9 @@ mod tests {
         )
         .unwrap();
         let state = AppState {
+            shared_catalog: None,
             qdrant: Qdrant {
+                admin_mutation_started: None,
                 client: Client::new(),
                 base: cfg.qdrant_url.clone(),
                 key: None,
@@ -4763,7 +5037,9 @@ mod tests {
         db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL);")
             .unwrap();
         let state = AppState {
+            shared_catalog: None,
             qdrant: Qdrant {
+                admin_mutation_started: None,
                 client: Client::new(),
                 base: cfg.qdrant_url.clone(),
                 key: None,
@@ -4836,10 +5112,12 @@ mod tests {
                     client: Client::new(),
                     base: cfg.qdrant_url.clone(),
                     key: None,
+                    admin_mutation_started: None,
                     async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
+                shared_catalog: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };
@@ -4899,10 +5177,12 @@ mod tests {
                 client: Client::new(),
                 base: cfg.qdrant_url.clone(),
                 key: None,
+                admin_mutation_started: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
+            shared_catalog: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -4960,10 +5240,7 @@ mod tests {
         assert_eq!(
             *requests.lock().unwrap(),
             [
-                format!(
-                    "GET /collections/es_products/points/{}",
-                    point_id("products", "1")
-                ),
+                "POST /collections/es_products/points".to_string(),
                 "POST /collections/es_products/points/count".into(),
                 "POST /collections/es_products/points/scroll".into()
             ]
@@ -4984,10 +5261,12 @@ mod tests {
                 client: Client::new(),
                 base: "http://127.0.0.1:1".into(),
                 key: None,
+                admin_mutation_started: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
+            shared_catalog: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -5043,10 +5322,12 @@ mod tests {
                 client: Client::new(),
                 base: "http://127.0.0.1:1".into(),
                 key: None,
+                admin_mutation_started: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
+            shared_catalog: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -5118,10 +5399,12 @@ mod tests {
                     client: Client::new(),
                     base: cfg.qdrant_url.clone(),
                     key: None,
+                    admin_mutation_started: None,
                     async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
+                shared_catalog: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };
@@ -5159,6 +5442,7 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
         let qdrant = Qdrant {
+            admin_mutation_started: None,
             client: Client::new(),
             base: format!("http://{address}"),
             key: None,
@@ -5195,7 +5479,9 @@ mod tests {
             db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[]');")
                 .unwrap();
             let state = AppState {
+                shared_catalog: None,
                 qdrant: Qdrant {
+                    admin_mutation_started: None,
                     client: Client::new(),
                     base: cfg.qdrant_url.clone(),
                     key: None,
@@ -5247,10 +5533,12 @@ mod tests {
                     client: Client::new(),
                     base: cfg.qdrant_url.clone(),
                     key: None,
+                    admin_mutation_started: None,
                     async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
+                shared_catalog: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };
@@ -5387,10 +5675,12 @@ mod tests {
                     client: Client::new(),
                     base: cfg.qdrant_url.clone(),
                     key: None,
+                    admin_mutation_started: None,
                     async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
+                shared_catalog: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };
@@ -5462,10 +5752,12 @@ mod tests {
                     client: Client::new(),
                     base: cfg.qdrant_url.clone(),
                     key: None,
+                    admin_mutation_started: None,
                     async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
+                shared_catalog: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };
@@ -5515,8 +5807,8 @@ mod tests {
                 let observed_writes = observed_writes.clone();
                 async move {
                     match method {
-                        Method::GET => Json(json!({
-                            "result":{"payload":{"_es_id":"p-1","_es_index":"products","brand":"Acme","price":99,"_source":{"title":"Headphones","brand":"Acme","price":99,"description":"Original"}}}
+                        Method::POST if uri.path().ends_with("/points") => Json(json!({
+                            "result":[{"payload":{"_es_id":"p-1","_es_index":"products","brand":"Acme","price":99,"_source":{"title":"Headphones","brand":"Acme","price":99,"description":"Original"}}}]
                         }))
                         .into_response(),
                         Method::POST if uri.path().ends_with("/points/payload") => {
@@ -5551,10 +5843,12 @@ mod tests {
                 client: Client::new(),
                 base: cfg.qdrant_url.clone(),
                 key: None,
+                admin_mutation_started: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
+            shared_catalog: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -5640,10 +5934,12 @@ mod tests {
                     client: Client::new(),
                     base: cfg.qdrant_url.clone(),
                     key: None,
+                    admin_mutation_started: None,
                     async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
+                shared_catalog: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };
@@ -5729,10 +6025,12 @@ mod tests {
                     client: Client::new(),
                     base: cfg.qdrant_url.clone(),
                     key: None,
+                    admin_mutation_started: None,
                     async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
+                shared_catalog: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };
@@ -5813,10 +6111,12 @@ mod tests {
                     client: Client::new(),
                     base: cfg.qdrant_url.clone(),
                     key: None,
+                    admin_mutation_started: None,
                     async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
+                shared_catalog: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };
@@ -5843,6 +6143,202 @@ mod tests {
             assert_eq!(body["items"][2]["index"]["result"], "updated");
         }
         assert_eq!(*requests.lock().unwrap(), (2, 3));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn explicit_sparse_validates_before_writes_and_preserves_query_ids() {
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let capture = observed.clone();
+        let mock = Router::new().fallback(any(move |uri: axum::http::Uri, Json(body): Json<Value>| {
+            let capture = capture.clone();
+            async move {
+                capture.lock().unwrap().push((uri.path().to_string(), body));
+                Json(json!({"result":{"points":[{"score":2.0,"payload":{"_es_id":"high","_source":{"v":{"65536":2}}}}]}}))
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+        let mut cfg = Config::from_env();
+        cfg.document_projection = true;
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL);").unwrap();
+        db.execute(
+            "INSERT INTO indices VALUES (?1,?2,?3)",
+            params![
+                "sparse",
+                json!({"properties":{"v":{"type":"sparse_vector"}}}).to_string(),
+                "[\"text_all\",\"sparse_76\"]"
+            ],
+        )
+        .unwrap();
+        let mut state = AppState {
+            shared_catalog: None,
+            qdrant: Qdrant {
+                admin_mutation_started: None,
+                client: Client::new(),
+                base: format!("http://{address}"),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+        assert!(write_docs(
+            State(state.clone()),
+            "sparse".into(),
+            vec![("bad".into(), json!({"v":{"4294967296":1}}))]
+        )
+        .await
+        .is_err());
+        assert!(
+            observed.lock().unwrap().is_empty(),
+            "invalid vector must not write even the authoritative source"
+        );
+        for request in [
+            json!({"query":{"exists":{"field":"v"}}}),
+            json!({"min_score":0.5,"query":{"neural_sparse":{"v":{"query_tokens":{"65536":1}}}}}),
+        ] {
+            assert!(
+                search(State(state.clone()), Path("sparse".into()), Json(request))
+                    .await
+                    .is_err()
+            );
+        }
+        assert!(count(
+            State(state.clone()),
+            Path("sparse".into()),
+            Json(json!({"query":{"term":{"v":1}}}))
+        )
+        .await
+        .is_err());
+        assert!(
+            observed.lock().unwrap().is_empty(),
+            "unsupported sparse semantics must not call Qdrant"
+        );
+        state.cfg.document_projection = false;
+        write_docs(
+            State(state.clone()),
+            "sparse".into(),
+            vec![("high".into(), json!({"v":{"65536":2}}))],
+        )
+        .await
+        .unwrap();
+        let response = search(
+            State(state),
+            Path("sparse".into()),
+            Json(json!({"query":{"neural_sparse":{"v":{"query_tokens":{"65536":1}}}}})),
+        )
+        .await
+        .unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["hits"]["hits"][0]["_id"], "high");
+        assert_eq!(body["hits"]["total"]["relation"], "gte");
+        let requests = observed.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(
+            requests[0].1["points"][0]["vector"]["sparse_76"],
+            json!({"indices":[65536],"values":[2.0]})
+        );
+        assert_eq!(requests[1].0, "/collections/es_sparse/points/query");
+        assert_eq!(
+            requests[1].1["query"],
+            json!({"indices":[65536],"values":[1.0]})
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn sparse_updates_reindex_and_bulk_rejects_only_invalid_item() {
+        let writes = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let capture = writes.clone();
+        let mock = Router::new().fallback(any(move |method: Method, uri: axum::http::Uri, Json(body): Json<Value>| {
+            let capture = capture.clone();
+            async move {
+                if body.get("ids").is_some() {
+                    if uri.path().contains("missing_collection") {
+                        return (StatusCode::NOT_FOUND, Json(json!({"status":{"error":"missing collection"}}))).into_response();
+                    }
+                    if body["ids"][0] == point_id("sparse", "absent") { return Json(json!({"result":[]})).into_response(); }
+                    return Json(json!({"result":[{"payload":{"_es_id":"old","_source":{"v":{"32768":1}}}}]})).into_response();
+                }
+                if method == Method::PUT { capture.lock().unwrap().push(body); }
+                Json(json!({"status":"ok"})).into_response()
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+        let cfg = Config::from_env();
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL);").unwrap();
+        db.execute(
+            "INSERT INTO indices VALUES (?1,?2,?3)",
+            params![
+                "sparse",
+                json!({"properties":{"v":{"type":"sparse_vector"}}}).to_string(),
+                "[\"text_all\",\"sparse_76\"]"
+            ],
+        )
+        .unwrap();
+        let mut state = AppState {
+            shared_catalog: None,
+            qdrant: Qdrant {
+                admin_mutation_started: None,
+                client: Client::new(),
+                base: format!("http://{address}"),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+        state.cfg.document_projection = false;
+        assert!(retrieve_source(&state, "sparse", "es_sparse", "absent")
+            .await
+            .unwrap()
+            .is_none());
+        assert!(
+            retrieve_source(&state, "sparse", "missing_collection", "old")
+                .await
+                .is_err()
+        );
+        assert!(retrieve_source(&state, "sparse", "es_sparse", "old")
+            .await
+            .unwrap()
+            .is_some());
+        for projection in [false, true] {
+            state.cfg.document_projection = projection;
+            writes.lock().unwrap().clear();
+            update_doc(
+                State(state.clone()),
+                Path(("sparse".into(), "old".into())),
+                Json(json!({"doc":{"v":{"65536":2}}})),
+            )
+            .await
+            .unwrap();
+            let saved = writes.lock().unwrap();
+            let vector = &saved.last().unwrap()["points"][0]["vector"]["sparse_76"];
+            assert_eq!(vector, &json!({"indices":[32768,65536],"values":[1.0,2.0]}));
+        }
+        state.cfg.document_projection = false;
+        let response = bulk(State(state), Some(Path("sparse".into())), "{\"index\":{\"_id\":\"valid\"}}\n{\"v\":{\"65536\":1}}\n{\"index\":{\"_id\":\"bad\"}}\n{\"v\":{\"4294967296\":1}}\n{\"index\":{\"_id\":\"valid2\"}}\n{\"v\":{\"32768\":1}}\n".into()).await.unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["errors"], true);
+        assert_eq!(body["items"][0]["index"]["status"], 201);
+        assert_eq!(body["items"][1]["index"]["status"], 400);
+        assert_eq!(body["items"][2]["index"]["status"], 201);
         server.abort();
     }
 
@@ -5880,10 +6376,12 @@ mod tests {
                 client: Client::new(),
                 base: cfg.qdrant_url.clone(),
                 key: None,
+                admin_mutation_started: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
+            shared_catalog: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -6055,10 +6553,12 @@ mod tests {
                 client: Client::new(),
                 base: cfg.qdrant_url.clone(),
                 key: None,
+                admin_mutation_started: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
+            shared_catalog: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -6138,10 +6638,12 @@ mod tests {
                 client: Client::new(),
                 base: cfg.qdrant_url.clone(),
                 key: None,
+                admin_mutation_started: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
+            shared_catalog: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -6224,10 +6726,12 @@ mod tests {
                 client: Client::new(),
                 base: cfg.qdrant_url.clone(),
                 key: None,
+                admin_mutation_started: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
+            shared_catalog: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -6297,10 +6801,12 @@ mod tests {
                 client: Client::new(),
                 base: cfg.qdrant_url.clone(),
                 key: None,
+                admin_mutation_started: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
+            shared_catalog: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -6413,10 +6919,12 @@ mod tests {
                 client: Client::new(),
                 base: cfg.qdrant_url.clone(),
                 key: None,
+                admin_mutation_started: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
+            shared_catalog: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -6481,10 +6989,12 @@ mod tests {
                 client: Client::new(),
                 base: cfg.qdrant_url.clone(),
                 key: None,
+                admin_mutation_started: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
+            shared_catalog: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -6555,15 +7065,16 @@ mod tests {
     async fn bulk_alias_items_preserve_concrete_operation_results() {
         let new_point = point_id("products", "new");
         let mock = Router::new().fallback(any(
-            move |method: Method, uri: axum::http::Uri| {
+            move |method: Method, uri: axum::http::Uri, body: axum::body::Bytes| {
                 let new_point = new_point.clone();
                 async move {
-                    if method == Method::GET && uri.path().ends_with(&new_point) {
-                        return Json(json!({"result":null})).into_response();
+                    let request: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+                    if method == Method::POST && uri.path().ends_with("/points") && request["ids"][0] == new_point {
+                        return Json(json!({"result":[]})).into_response();
                     }
-                    if method == Method::GET {
+                    if method == Method::POST && uri.path().ends_with("/points") {
                         return Json(json!({
-                            "result":{"payload":{"_es_id":"existing","_source":{"title":"Original","price":10}}}
+                            "result":[{"payload":{"_es_id":"existing","_source":{"title":"Original","price":10}}}]
                         }))
                         .into_response();
                     }
@@ -6585,10 +7096,12 @@ mod tests {
                 client: Client::new(),
                 base: cfg.qdrant_url.clone(),
                 key: None,
+                admin_mutation_started: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
+            shared_catalog: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -6662,10 +7175,12 @@ mod tests {
                     client: Client::new(),
                     base: cfg.qdrant_url.clone(),
                     key: None,
+                    admin_mutation_started: None,
                     async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
+                shared_catalog: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };
@@ -6723,10 +7238,12 @@ mod tests {
                 client: Client::new(),
                 base: cfg.qdrant_url.clone(),
                 key: None,
+                admin_mutation_started: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
+            shared_catalog: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -6784,10 +7301,12 @@ mod tests {
                         client: Client::new(),
                         base: cfg.qdrant_url.clone(),
                         key: None,
+                        admin_mutation_started: None,
                         async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                     },
                     db: Arc::new(Mutex::new(db)),
                     analytics: Arc::new(Mutex::new(Analytics::default())),
+                    shared_catalog: None,
                     index_admin: Arc::new(AsyncMutex::new(())),
                     cfg,
                 };
@@ -6862,10 +7381,12 @@ mod tests {
                         client: Client::new(),
                         base: cfg.qdrant_url.clone(),
                         key: None,
+                        admin_mutation_started: None,
                         async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                     },
                     db: Arc::new(Mutex::new(db)),
                     analytics: Arc::new(Mutex::new(Analytics::default())),
+                    shared_catalog: None,
                     index_admin: Arc::new(AsyncMutex::new(())),
                     cfg,
                 };
@@ -6945,10 +7466,12 @@ mod tests {
                     client: Client::new(),
                     base: cfg.qdrant_url.clone(),
                     key: None,
+                    admin_mutation_started: None,
                     async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
                 },
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
+                shared_catalog: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
             };
@@ -7210,10 +7733,12 @@ mod tests {
                 client: Client::new(),
                 base: "http://127.0.0.1:1".into(),
                 key: None,
+                admin_mutation_started: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
+            shared_catalog: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
@@ -7253,10 +7778,12 @@ mod tests {
                 client: Client::new(),
                 base: cfg.qdrant_url.clone(),
                 key: None,
+                admin_mutation_started: None,
                 async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
             },
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
+            shared_catalog: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
         };
