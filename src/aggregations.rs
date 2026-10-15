@@ -282,8 +282,12 @@ impl Plan {
         if self.0.is_empty() {
             return Ok(json!({}));
         }
+        let fast_paths_allowed = validate_fast_field_namespace(mapping).is_ok();
         let mut completed = Map::new();
         let filter_results = try_join_all(self.0.iter().filter_map(|(name, reducer)| {
+            if !fast_paths_allowed {
+                return None;
+            }
             let Reduction::Filter { query, .. } = reducer else {
                 return None;
             };
@@ -318,6 +322,9 @@ impl Plan {
         }
         let names = self.0.keys().cloned().collect::<Vec<_>>();
         for name in names {
+            if !fast_paths_allowed {
+                break;
+            }
             let Reduction::Terms { field, .. } = &self.0[&name] else {
                 continue;
             };
@@ -835,6 +842,72 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn legacy_reserved_fields_are_preserved_and_never_trusted() {
+        let mapping = json!({"properties":{"brand":{"type":"keyword"},"price":{"type":"integer"},"_qeg_fast_fields":{"type":"keyword"}}});
+        let source = json!({"brand":17,"price":null,"_qeg_fast_fields":["v1:keyword:brand","v1:number:price"]});
+        assert_eq!(
+            projected_search_payload(&source, "a", "items", &mapping)["_qeg_fast_fields"],
+            source["_qeg_fast_fields"]
+        );
+        let mock = Router::new().fallback(any(move |uri: axum::http::Uri, Json(request): Json<Value>| {
+            let source = source.clone();
+            async move {
+                if uri.path().ends_with("/index") {
+                    assert_eq!(request["field_name"],"newfield");
+                    return Json(json!({"status":"ok"}));
+                }
+                assert!(uri.path().ends_with("/scroll"));
+                assert_eq!(request["with_payload"],true);
+                Json(json!({"result":{"points":[{"payload":{"_source":source}}],"next_page_offset":null}}))
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+        let state = search_test_state(format!("http://{address}"), false);
+        let plan = Plan::parse(Some(&json!({"brands":{"terms":{"field":"brand"}},"cheap":{"filter":{"range":{"price":{"lt":20}}}}}))).unwrap().unwrap();
+        let result = plan
+            .execute(&state, "es_products", None, &mapping)
+            .await
+            .unwrap();
+        assert_eq!(
+            result["brands"]["buckets"],
+            json!([{"key":17,"doc_count":1}])
+        );
+        assert_eq!(result["cheap"]["doc_count"], 0);
+        assert!(ordered_numeric_hits(
+            &state,
+            ("products", "es_products", &mapping),
+            &json!({}),
+            &[("price".into(), "asc".into())],
+            None,
+            1,
+            1
+        )
+        .await
+        .unwrap()
+        .is_none());
+        state
+            .db
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE indices SET mapping=?1 WHERE name='products'",
+                params![mapping.to_string()],
+            )
+            .unwrap();
+        super::mapping(
+            State(state),
+            Path("products".into()),
+            Method::PUT,
+            Some(Json(json!({"properties":{"newfield":{"type":"keyword"}}}))),
+        )
+        .await
+        .unwrap();
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn malformed_unmarked_payload_still_errors() {
         let mock = Router::new().fallback(any(|Json(request): Json<Value>| async move {
             let point = if request["with_payload"] == false {
@@ -1089,7 +1162,7 @@ mod tests {
         let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
         let state = search_test_state(format!("http://{address}"), true);
         let response = search(
-            State(state),
+            State(state.clone()),
             Path("products".into()),
             Json(json!({"size":1,"sort":[{"price":"asc"}]})),
         )
@@ -1104,6 +1177,23 @@ mod tests {
         assert_eq!(result["hits"]["hits"][0]["_id"], "b");
         assert_eq!(result["hits"]["total"], json!({"value":2,"relation":"eq"}));
         assert_eq!(*observed_reads.lock().unwrap(), 3);
+        let response = search(
+            State(state),
+            Path("products".into()),
+            Json(json!({"size":0,"sort":[{"price":"asc"}]})),
+        )
+        .await
+        .unwrap();
+        let result: Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(result["hits"]["total"], json!({"value":2,"relation":"eq"}));
+        assert_eq!(result["hits"]["hits"], json!([]));
+        assert_eq!(*observed_reads.lock().unwrap(), 6);
+
         server.abort();
     }
 

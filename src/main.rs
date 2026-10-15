@@ -832,6 +832,11 @@ fn projected_search_payload(source: &Value, id: &str, index: &str, mapping: &Val
             }
         }
     }
+    // Earlier versions permitted this user field. Preserve it and keep that
+    // index on the scan path; its values cannot be trusted as execution proofs.
+    if validate_fast_field_namespace(mapping).is_err() {
+        return Value::Object(p);
+    }
     // An eligibility marker permits ordered-scroll only when every matching
     // document has the same scalar numeric ordering as the gateway. Old points,
     // missing values and arrays deliberately remain on the complete-scan path.
@@ -2904,6 +2909,7 @@ async fn ordered_numeric_hits(
     window: usize,
 ) -> Result<Option<Vec<Value>>, GatewayError> {
     if state.cfg.document_projection
+        || validate_fast_field_namespace(mapping).is_err()
         || sorts.len() != 1
         || window == 0
         || body.get("post_filter").is_some()
@@ -3113,6 +3119,7 @@ async fn search_with_total_format(
         None
     };
     let count_only = size == 0
+        && !(state.cfg.document_projection && !sort_specs.is_empty())
         && !has_text
         && patterns.is_empty()
         && body.get("post_filter").is_none()
@@ -4110,7 +4117,8 @@ async fn mapping(
                 )
                 .await?;
         }
-        state
+        if validate_fast_field_namespace(&m).is_ok() {
+            state
             .qdrant
             .request(
                 Method::PUT,
@@ -4118,6 +4126,7 @@ async fn mapping(
                 Some(json!({"field_name":"_qeg_fast_fields","field_schema":"keyword","wait":true})),
             )
             .await?;
+        }
         let db = state
             .db
             .lock()
@@ -8219,7 +8228,8 @@ mod tests {
     }
     #[test]
     fn fast_field_markers_exclude_incompatible_values_and_cannot_be_spoofed() {
-        let mapping = json!({"properties":{"price":{"type":"integer"},"category":{"type":"keyword"},"_qeg_fast_fields":{"type":"keyword"}}});
+        let mapping =
+            json!({"properties":{"price":{"type":"integer"},"category":{"type":"keyword"}}});
         for value in [
             json!(null),
             json!([1]),
@@ -8242,7 +8252,10 @@ mod tests {
             &mapping,
         );
         assert_eq!(payload["_qeg_fast_fields"], json!(["v1:number:price"]));
-        assert!(validate_fast_field_namespace(&mapping).is_err());
+        assert!(validate_fast_field_namespace(
+            &json!({"properties":{"_qeg_fast_fields":{"type":"keyword"}}})
+        )
+        .is_err());
         assert!(
             validate_fast_field_namespace(&json!({"properties":{"rank":{"type":"integer"}}}))
                 .is_ok()
