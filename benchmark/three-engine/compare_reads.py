@@ -43,6 +43,7 @@ def provenance():
         }
         if service == "gateway":
             services[service]["tokio_worker_threads"] = env.get("TOKIO_WORKER_THREADS", "default")
+            services[service]["read_transport"] = "grpc_opt_in" if env.get("QDRANT_GRPC_URL") else "rest"
     return services
 
 
