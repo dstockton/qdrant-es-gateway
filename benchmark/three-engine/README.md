@@ -14,7 +14,6 @@ DOCS=10000 TRIALS=5 REQUESTS=100 CONCURRENCY=1,8 python3 run.py
 # Preserve evidence before removing this benchmark's disposable volumes.
 docker compose -p qeg-balanced -f compose.yml images > results/images.txt
 docker compose -p qeg-balanced -f compose.yml config > results/config.yml
-docker info > results/docker-info.txt
 # Only after retaining results:
 docker compose -p qeg-balanced -f compose.yml down -v
 ```
@@ -51,9 +50,10 @@ Sorted pages use unique integer sort keys and `search_after`, avoiding ambiguous
 ties. Their exact total-hit values and full returned pages are checked. Both native
 JVM heaps are explicitly fixed at 512 MiB; memory caps remain 4 GiB each.
 
-`docker stats` snapshots after each workload record idle resident resource use,
+`docker stats` snapshots include only this profile's services, labeled by service
+without container IDs or host details. They record idle resident resource use,
 not peak memory or per-request CPU. Record active/peak observations separately
-when making resource claims. Engine root responses record reported versions;
+when making resource claims. Sanitized engine root responses record reported versions;
 retain image digests and the gateway Git revision alongside the JSON. No dataset
 or generated results need to be committed.
 

@@ -102,7 +102,10 @@ def resources():
     try:
         result = subprocess.run(['docker', 'stats', '--no-stream', '--format', '{{json .}}'],
                                 capture_output=True, text=True, timeout=20, check=True)
-        return [json.loads(line) for line in result.stdout.splitlines() if line]
+        rows = [json.loads(line) for line in result.stdout.splitlines() if line]
+        return [{'service': row['Name'].removeprefix('qeg-balanced-').removesuffix('-1'),
+                 **{key: row[key] for key in ('CPUPerc', 'MemUsage', 'MemPerc', 'NetIO', 'BlockIO', 'PIDs') if key in row}}
+                for row in rows if row.get('Name', '').startswith('qeg-balanced-')]
     except (OSError, subprocess.SubprocessError) as exc:
         return {'unavailable': str(exc)}
 
@@ -149,7 +152,9 @@ def main():
               'versions': {}, 'ingest': [], 'measurements': [], 'resources': []}
     try:
         for name, base in ENDPOINTS.items():
-            result['versions'][name] = request(base, '/', 'GET')[0]
+            version = request(base, '/', 'GET')[0].get('version', {})
+            result['versions'][name] = {key: version[key] for key in
+                ('number', 'build_flavor', 'build_type', 'build_hash', 'build_date', 'lucene_version', 'distribution') if key in version}
         for trial in range(TRIALS):
             names = list(ENDPOINTS)
             rng.shuffle(names)
