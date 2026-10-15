@@ -1,4 +1,5 @@
 mod shared_catalog;
+mod sparse;
 
 use axum::{
     body::Body,
@@ -520,6 +521,8 @@ fn mapping_vectors(body: &Value) -> (Value, Vec<String>) {
         for (field, spec) in props {
             if spec.get("type").and_then(Value::as_str) == Some("text") {
                 vectors.push(format!("text_{}", field.replace('.', "_")));
+            } else if spec.get("type").and_then(Value::as_str) == Some("sparse_vector") {
+                vectors.push(sparse::name(field));
             }
         }
     }
@@ -547,7 +550,7 @@ fn payload_field_schema(spec: &Value) -> Option<&'static str> {
 fn flatten_text(source: &Value, fields: &[String]) -> HashMap<String, String> {
     let obj = source.as_object().cloned().unwrap_or_default();
     let mut out = HashMap::new();
-    for vector in fields {
+    for vector in fields.iter().filter(|v| v.starts_with("text_")) {
         let field = vector
             .strip_prefix("text_")
             .unwrap_or(vector)
@@ -605,6 +608,7 @@ async fn create_index(
     // upstream state, including collisions with the optional document store.
     ensure_collection_namespace_available(&state, &index)?;
     let (mapping, vectors) = mapping_vectors(&body);
+    sparse::validate_mapping(&mapping)?;
     let mut sparse = Map::new();
     for v in &vectors {
         sparse.insert(v.clone(), json!({}));
@@ -805,7 +809,7 @@ fn projected_search_payload(source: &Value, id: &str, index: &str, mapping: &Val
             let is_searchable_payload_field = spec
                 .get("type")
                 .and_then(Value::as_str)
-                .is_some_and(|kind| kind != "text");
+                .is_some_and(|kind| kind != "text" && kind != "sparse_vector");
             if is_searchable_payload_field {
                 if let Some(value) = source.get(field) {
                     p.insert(field.clone(), value.clone());
@@ -890,18 +894,22 @@ async fn retrieve_source(
             .await?
             .remove(id));
     }
-    let point = state
+    // Batch retrieval returns an empty array for a missing point, while a
+    // missing collection still fails. Do not turn an ordinary first write
+    // into a gateway error by using Qdrant's single-point 404 endpoint.
+    let response = state
         .qdrant
-        .request_optional_point(&format!(
-            "/collections/{collection}/points/{}?with_payload=true",
-            point_id(index, id)
-        ))
+        .request(
+            Method::POST,
+            &format!("/collections/{collection}/points"),
+            Some(json!({"ids":[point_id(index,id)],"with_payload":true,"with_vector":false})),
+        )
         .await?;
-    Ok(point
-        .as_ref()
-        .and_then(|point| point.get("result"))
-        .filter(|result| !result.is_null())
-        .and_then(|result| result.get("payload"))
+    Ok(response
+        .get("result")
+        .and_then(Value::as_array)
+        .and_then(|points| points.first())
+        .and_then(|point| point.get("payload"))
         .and_then(|payload| payload.get("_source"))
         .cloned())
 }
@@ -980,7 +988,7 @@ async fn write_docs(
         .iter()
         .map(|(id, source)| {
             let texts = flatten_text(source, &vectors);
-            let mut vector = Map::new();
+            let mut vector = sparse::document(source, &mapping)?;
             for (name, text) in texts {
                 vector.insert(name, json!({"text":text,"model":"qdrant/bm25"}));
             }
@@ -989,9 +997,11 @@ async fn write_docs(
             } else {
                 qdrant_payload(source, id, &index, &mapping)
             };
-            json!({"id":point_id(&index,id),"vector":vector,"payload":payload})
+            Ok::<_, GatewayError>(
+                json!({"id":point_id(&index,id),"vector":vector,"payload":payload}),
+            )
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, _>>()?;
     if state.cfg.document_projection {
         let source_points = docs
             .iter()
@@ -1196,7 +1206,9 @@ async fn update_doc(
     if state.cfg.document_projection {
         let point = point_id(&index, &id);
         let changed_text = doc.as_object().unwrap().keys().any(|field| {
-            field == "_all" || vectors.contains(&format!("text_{}", field.replace('.', "_")))
+            field == "_all"
+                || vectors.contains(&format!("text_{}", field.replace('.', "_")))
+                || vectors.contains(&sparse::name(field))
         });
         if changed_text {
             return write_doc(State(state), Path((index, id)), Json(merged)).await;
@@ -1238,7 +1250,9 @@ async fn update_doc(
         ));
     }
     let changes_text = doc.as_object().unwrap().keys().any(|field| {
-        field == "_all" || vectors.contains(&format!("text_{}", field.replace('.', "_")))
+        field == "_all"
+            || vectors.contains(&format!("text_{}", field.replace('.', "_")))
+            || vectors.contains(&sparse::name(field))
     });
     if !changes_text {
         let path = format!("/collections/{coll}/points/payload");
@@ -2788,7 +2802,7 @@ async fn search_with_total_format(
         (from + size).max(state.cfg.max_page_size).max(1)
     };
     let collapse_spec = parse_collapse_spec(body.get("collapse"), state.cfg.max_page_size)?;
-    let (index, coll, _, vectors) = get_index(&state, &index)?;
+    let (index, coll, mapping, vectors) = get_index(&state, &index)?;
     let mut query = body
         .get("query")
         .cloned()
@@ -2796,9 +2810,28 @@ async fn search_with_total_format(
     query = expand_more_like_this(&state, &index, query).await?;
     let mut patterns = Vec::new();
     collect_patterns(&query, &mut patterns)?;
-    let (filter, _) = query_filter(&query)?;
+    let sparse_query = sparse::query(&query, &mapping)?;
+    if sparse_query.is_some()
+        && [
+            "aggs",
+            "aggregations",
+            "post_filter",
+            "collapse",
+            "sort",
+            "search_after",
+        ]
+        .iter()
+        .any(|key| body.get(key).is_some())
+    {
+        return Err(GatewayError::bad("neural_sparse", "aggregations, post_filter, collapse, sort and search_after are unsupported for explicit sparse queries"));
+    }
+    let (filter, _) = if sparse_query.is_some() {
+        (None, Vec::new())
+    } else {
+        query_filter(&query)?
+    };
     let text = pick_text(&query);
-    let has_text = text.is_some();
+    let has_text = text.is_some() || sparse_query.is_some();
     let approximate_text = contains_approx_text_query(&query);
     let exact_total = if track_total_hits != TrackTotalHits::Disabled
         && !has_text
@@ -2810,7 +2843,15 @@ async fn search_with_total_format(
         None
     };
     let mut hits: Vec<Value> = Vec::new();
-    if approximate_text {
+    if let Some((using, vector)) = sparse_query {
+        let response = state.qdrant.request(Method::POST, &format!("/collections/{coll}/points/query"), Some(json!({"query":vector,"using":using,"limit":(from+size).max(1),"with_payload":{"include":["_es_id","_source"]}}))).await?;
+        if let Some(points) = response.pointer("/result/points").and_then(Value::as_array) {
+            for point in points {
+                let payload = &point["payload"];
+                hits.push(json!({"_index":index,"_id":payload["_es_id"],"_score":point["score"],"_source":payload.get("_source").cloned().unwrap_or_else(|| json!({}))}));
+            }
+        }
+    } else if approximate_text {
         let scan_collection = if state.cfg.document_projection {
             document_collection(&index)
         } else {
@@ -3457,10 +3498,28 @@ async fn bulk(
         let (kind, idx, id, source) = &actions[cursor];
         if kind == "index" {
             let batch_index = idx.clone();
+            let sparse_mapping = get_index(&state, &batch_index)
+                .ok()
+                .map(|(_, _, mapping, _)| mapping);
+            if let Some(mapping) = &sparse_mapping {
+                if let Err(error) =
+                    sparse::document(source.as_ref().unwrap_or(&Value::Null), mapping)
+                {
+                    items.push(json!({"index":{"_index":idx,"_id":id,"status":400,"error":error.body()["error"]}}));
+                    cursor += 1;
+                    continue;
+                }
+            }
             let mut batch = Vec::new();
             let mut end = cursor;
             while end < actions.len() && actions[end].0 == "index" && actions[end].1 == batch_index
             {
+                if sparse_mapping.as_ref().is_some_and(|mapping| {
+                    sparse::document(actions[end].3.as_ref().unwrap_or(&Value::Null), mapping)
+                        .is_err()
+                }) {
+                    break;
+                }
                 batch.push((
                     actions[end].2.clone(),
                     actions[end].3.clone().unwrap_or_else(|| json!({})),
@@ -3793,10 +3852,10 @@ async fn mapping(
                 }
                 continue;
             }
-            if field_type == "text" {
+            if field_type == "text" || field_type == "sparse_vector" {
                 return Err(GatewayError::bad(
                     format!("_mapping.properties.{field}"),
-                    "adding text fields requires a new index because Qdrant 1.15 cannot add the required named sparse vector",
+                    "adding text or sparse_vector fields requires a new index to provision the required named sparse vector",
                 ));
             }
             if let Some(schema) = payload_field_schema(spec) {
@@ -5685,8 +5744,8 @@ mod tests {
                 let observed_writes = observed_writes.clone();
                 async move {
                     match method {
-                        Method::GET => Json(json!({
-                            "result":{"payload":{"_es_id":"p-1","_es_index":"products","brand":"Acme","price":99,"_source":{"title":"Headphones","brand":"Acme","price":99,"description":"Original"}}}
+                        Method::POST if uri.path().ends_with("/points") => Json(json!({
+                            "result":[{"payload":{"_es_id":"p-1","_es_index":"products","brand":"Acme","price":99,"_source":{"title":"Headphones","brand":"Acme","price":99,"description":"Original"}}}]
                         }))
                         .into_response(),
                         Method::POST if uri.path().ends_with("/points/payload") => {
@@ -6021,6 +6080,177 @@ mod tests {
             assert_eq!(body["items"][2]["index"]["result"], "updated");
         }
         assert_eq!(*requests.lock().unwrap(), (2, 3));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn explicit_sparse_validates_before_writes_and_preserves_query_ids() {
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let capture = observed.clone();
+        let mock = Router::new().fallback(any(move |uri: axum::http::Uri, Json(body): Json<Value>| {
+            let capture = capture.clone();
+            async move {
+                capture.lock().unwrap().push((uri.path().to_string(), body));
+                Json(json!({"result":{"points":[{"score":2.0,"payload":{"_es_id":"high","_source":{"v":{"65536":2}}}}]}}))
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+        let mut cfg = Config::from_env();
+        cfg.document_projection = true;
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL);").unwrap();
+        db.execute(
+            "INSERT INTO indices VALUES (?1,?2,?3)",
+            params![
+                "sparse",
+                json!({"properties":{"v":{"type":"sparse_vector"}}}).to_string(),
+                "[\"text_all\",\"sparse_76\"]"
+            ],
+        )
+        .unwrap();
+        let mut state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: format!("http://{address}"),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+        assert!(write_docs(
+            State(state.clone()),
+            "sparse".into(),
+            vec![("bad".into(), json!({"v":{"4294967296":1}}))]
+        )
+        .await
+        .is_err());
+        assert!(
+            observed.lock().unwrap().is_empty(),
+            "invalid vector must not write even the authoritative source"
+        );
+        state.cfg.document_projection = false;
+        write_docs(
+            State(state.clone()),
+            "sparse".into(),
+            vec![("high".into(), json!({"v":{"65536":2}}))],
+        )
+        .await
+        .unwrap();
+        let response = search(
+            State(state),
+            Path("sparse".into()),
+            Json(json!({"query":{"neural_sparse":{"v":{"query_tokens":{"65536":1}}}}})),
+        )
+        .await
+        .unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["hits"]["hits"][0]["_id"], "high");
+        assert_eq!(body["hits"]["total"]["relation"], "gte");
+        let requests = observed.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(
+            requests[0].1["points"][0]["vector"]["sparse_76"],
+            json!({"indices":[65536],"values":[2.0]})
+        );
+        assert_eq!(requests[1].0, "/collections/es_sparse/points/query");
+        assert_eq!(
+            requests[1].1["query"],
+            json!({"indices":[65536],"values":[1.0]})
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn sparse_updates_reindex_and_bulk_rejects_only_invalid_item() {
+        let writes = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let capture = writes.clone();
+        let mock = Router::new().fallback(any(move |method: Method, uri: axum::http::Uri, Json(body): Json<Value>| {
+            let capture = capture.clone();
+            async move {
+                if body.get("ids").is_some() {
+                    if uri.path().contains("missing_collection") {
+                        return (StatusCode::NOT_FOUND, Json(json!({"status":{"error":"missing collection"}}))).into_response();
+                    }
+                    if body["ids"][0] == point_id("sparse", "absent") { return Json(json!({"result":[]})).into_response(); }
+                    return Json(json!({"result":[{"payload":{"_es_id":"old","_source":{"v":{"32768":1}}}}]})).into_response();
+                }
+                if method == Method::PUT { capture.lock().unwrap().push(body); }
+                Json(json!({"status":"ok"})).into_response()
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+        let cfg = Config::from_env();
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL);").unwrap();
+        db.execute(
+            "INSERT INTO indices VALUES (?1,?2,?3)",
+            params![
+                "sparse",
+                json!({"properties":{"v":{"type":"sparse_vector"}}}).to_string(),
+                "[\"text_all\",\"sparse_76\"]"
+            ],
+        )
+        .unwrap();
+        let mut state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: format!("http://{address}"),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+        state.cfg.document_projection = false;
+        assert!(retrieve_source(&state, "sparse", "es_sparse", "absent")
+            .await
+            .unwrap()
+            .is_none());
+        assert!(
+            retrieve_source(&state, "sparse", "missing_collection", "old")
+                .await
+                .is_err()
+        );
+        assert!(retrieve_source(&state, "sparse", "es_sparse", "old")
+            .await
+            .unwrap()
+            .is_some());
+        for projection in [false, true] {
+            state.cfg.document_projection = projection;
+            writes.lock().unwrap().clear();
+            update_doc(
+                State(state.clone()),
+                Path(("sparse".into(), "old".into())),
+                Json(json!({"doc":{"v":{"65536":2}}})),
+            )
+            .await
+            .unwrap();
+            let saved = writes.lock().unwrap();
+            let vector = &saved.last().unwrap()["points"][0]["vector"]["sparse_76"];
+            assert_eq!(vector, &json!({"indices":[32768,65536],"values":[1.0,2.0]}));
+        }
+        state.cfg.document_projection = false;
+        let response = bulk(State(state), Some(Path("sparse".into())), "{\"index\":{\"_id\":\"valid\"}}\n{\"v\":{\"65536\":1}}\n{\"index\":{\"_id\":\"bad\"}}\n{\"v\":{\"4294967296\":1}}\n{\"index\":{\"_id\":\"valid2\"}}\n{\"v\":{\"32768\":1}}\n".into()).await.unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["errors"], true);
+        assert_eq!(body["items"][0]["index"]["status"], 201);
+        assert_eq!(body["items"][1]["index"]["status"], 400);
+        assert_eq!(body["items"][2]["index"]["status"], 201);
         server.abort();
     }
 
@@ -6747,15 +6977,16 @@ mod tests {
     async fn bulk_alias_items_preserve_concrete_operation_results() {
         let new_point = point_id("products", "new");
         let mock = Router::new().fallback(any(
-            move |method: Method, uri: axum::http::Uri| {
+            move |method: Method, uri: axum::http::Uri, body: axum::body::Bytes| {
                 let new_point = new_point.clone();
                 async move {
-                    if method == Method::GET && uri.path().ends_with(&new_point) {
-                        return Json(json!({"result":null})).into_response();
+                    let request: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+                    if method == Method::POST && uri.path().ends_with("/points") && request["ids"][0] == new_point {
+                        return Json(json!({"result":[]})).into_response();
                     }
-                    if method == Method::GET {
+                    if method == Method::POST && uri.path().ends_with("/points") {
                         return Json(json!({
-                            "result":{"payload":{"_es_id":"existing","_source":{"title":"Original","price":10}}}
+                            "result":[{"payload":{"_es_id":"existing","_source":{"title":"Original","price":10}}}]
                         }))
                         .into_response();
                     }

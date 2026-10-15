@@ -24,3 +24,29 @@ For application mappings that expose a conventional `.keyword` multi-field name,
 `regexp`, `prefix`, and `wildcard` clauses are evaluated by the gateway using Rust's regular-expression engine after candidate documents are read from Qdrant. Positive pattern clauses can be combined with ordinary Qdrant-translated filters in `bool.must` or `bool.filter`; pattern clauses in `should` and `must_not` are rejected rather than approximated. Pattern-only search and count requests scan the collection in bounded scroll pages, so their totals are exact for the stable collection snapshot seen by the scan, but they are useful only for modest catalog and identifier searches and should not be used as a substitute for a dedicated indexed pattern field at very large scale. Wildcards preserve the position of Elasticsearch/OpenSearch-style `*` and `?` operators, including leading, trailing, and consecutive stars. Gateway-side matching uses stored source strings, so prefix and wildcard case behavior on analyzed `text` fields can differ from a native engine's normalized term dictionary; use a normalized keyword field when case behavior is part of the contract. Regular expressions use Rust/RE2-style syntax and reject invalid expressions with a structured 400 response.
 
 Search responses also accept `post_filter` for simple term, terms, numeric range, exists, match-all, and bool clauses. The complete `post_filter` tree is validated before index lookup or Qdrant work; unsupported query types, unknown bool options, ambiguous multi-field clauses, and malformed range options return a structured 400 instead of silently producing an empty result set. The filter is applied to hydrated hits after the main query. Gateway-computed min, max, filter, and keyed-filter aggregations retain the query-matched candidate window before `post_filter`, collapse, or `search_after` transforms the hits, preserving Elasticsearch's hit-versus-aggregation boundary within that window. Scalar and array-valued source fields use the same any-element matching rule for term, terms, range, prefix, wildcard, and regexp predicates, keeping gateway-side evaluation aligned with native Qdrant filters. Arrays of objects still require Elasticsearch `nested` semantics and are unsupported. Supported aggregation shapes now include terms, min, max, keyed filters, and simple filter wrappers; metric and filter counts are computed over the retrieved candidate set and should be treated as bounded until exact matching-document scans are enabled. Requests containing gateway-computed aggregations temporarily retain a second copy of that bounded candidate set.
+
+### Explicit sparse embeddings
+
+New indices can map a top-level field as `sparse_vector`. Optional
+`method: {name: seismic, engine: lucene}` is accepted for OpenSearch request
+compatibility; Qdrant performs exact sparse dot-product search, not SEISMIC.
+The optional engine may be omitted. Other method keys, the native engine and
+pruning options are rejected. Named vectors are provisioned at index creation;
+adding sparse fields through `_mapping` requires a new index.
+
+Documents supply a token-weight object, for example `{"v":{"65536":1.0}}`.
+Keys must be canonical decimal unsigned 32-bit IDs; weights must remain positive
+and finite after float32 conversion. IDs are never hashed, folded or narrowed.
+Missing/null fields omit the vector; an empty document vector is allowed.
+Malformed vectors fail before any source or search write in that write batch.
+Bulk index operations isolate invalid sparse documents as per-item 400 errors,
+allowing adjacent valid items to proceed. Partial updates rebuild sparse vectors
+when the sparse field changes, including with document projection enabled.
+
+`{"query":{"neural_sparse":{"v":{"query_tokens":{"65536":1.0}}}}}`
+supports one mapped field as the sole top-level query. Inference (`query_text`,
+`model_id`), `method_parameters`, bool composition, sort, search_after, collapse,
+post_filter and aggregations are rejected. `from`/`size` retain gateway limits;
+reported total hits are a lower bound. Query token objects must not be empty.
+The OpenSearch Lucene default-path comparison in `examples/explicit-sparse`
+verifies full-width token IDs; it does not reproduce SEISMIC approximation bugs.
