@@ -519,7 +519,9 @@ mod tests {
         cfg.max_page_size = 1;
         cfg.document_projection = true;
         let state = AppState {
+            shared_catalog: None,
             qdrant: Qdrant {
+                admin_mutation_started: None,
                 client: Client::new(),
                 base: format!("http://{address}"),
                 key: None,

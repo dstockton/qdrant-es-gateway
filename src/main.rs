@@ -3137,7 +3137,8 @@ async fn search_with_total_format(
     } else {
         exact_total.unwrap_or(hits.len() as u64)
     };
-    let total_is_exact = complete_hit_scan || exact_total.is_some() || approximate_text || !patterns.is_empty();
+    let total_is_exact =
+        complete_hit_scan || exact_total.is_some() || approximate_text || !patterns.is_empty();
     if !sort_specs.is_empty() {
         for (field, dir) in sort_specs.iter().rev() {
             hits.sort_by(|a, b| {
@@ -3236,7 +3237,15 @@ async fn search_with_total_format(
             h
         })
         .collect::<Vec<_>>();
-    let mut response = json!({"took":started.elapsed().as_millis(),"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},"hits":{"total":{"value":total,"relation":total_relation},"max_score":page.iter().filter_map(|h|h.get("_score").and_then(Value::as_f64)).fold(0.0,f64::max),"hits":page}});
+    let mut response = json!({"took":started.elapsed().as_millis(),"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},"hits":{"max_score":page.iter().filter_map(|h|h.get("_score").and_then(Value::as_f64)).fold(0.0,f64::max),"hits":page}});
+    if let Some(total) = total_hits_value(
+        track_total_hits,
+        total,
+        total_is_exact,
+        rest_total_hits_as_int,
+    ) {
+        response["hits"]["total"] = total;
+    }
     if let Some(aggregations) = complete_aggregations {
         response["aggregations"] = aggregations;
     }
@@ -3902,15 +3911,16 @@ async fn dispatch(
     mut state: AppState,
     method: Method,
     path: String,
+    query: Option<String>,
     headers: HeaderMap,
     body: String,
 ) -> Response {
     let Some(catalog) = state.shared_catalog.clone() else {
-        return dispatch_inner(state, method, path, headers, body).await;
+        return dispatch_inner(state, method, path, query, headers, body).await;
     };
     // Liveness must not depend on an external catalog. Readiness does.
     if path == "/healthz" && method == Method::GET {
-        return dispatch_inner(state, method, path, headers, body).await;
+        return dispatch_inner(state, method, path, query, headers, body).await;
     }
     let admin = match shared_catalog::is_admin(&method, &path) {
         Ok(admin) => admin,
@@ -3925,7 +3935,7 @@ async fn dispatch(
     if claim.is_some() {
         state.qdrant.admin_mutation_started = Some(mutation_started.clone());
     }
-    let response = dispatch_inner(state.clone(), method, path, headers, body).await;
+    let response = dispatch_inner(state.clone(), method, path, query, headers, body).await;
     if let Some(claim) = claim {
         if response.status().is_success() {
             if let Err(error) = catalog.commit(&state, &claim).await {
@@ -4671,7 +4681,9 @@ mod tests {
         )
         .unwrap();
         let state = AppState {
+            shared_catalog: None,
             qdrant: Qdrant {
+                admin_mutation_started: None,
                 client: Client::new(),
                 base: "http://127.0.0.1:1".into(),
                 key: None,
@@ -4741,7 +4753,9 @@ mod tests {
         )
         .unwrap();
         let state = AppState {
+            shared_catalog: None,
             qdrant: Qdrant {
+                admin_mutation_started: None,
                 client: Client::new(),
                 base: "http://127.0.0.1:1".into(),
                 key: None,
@@ -4886,7 +4900,9 @@ mod tests {
         )
         .unwrap();
         let state = AppState {
+            shared_catalog: None,
             qdrant: Qdrant {
+                admin_mutation_started: None,
                 client: Client::new(),
                 base: cfg.qdrant_url.clone(),
                 key: None,
@@ -4949,7 +4965,9 @@ mod tests {
         db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL);")
             .unwrap();
         let state = AppState {
+            shared_catalog: None,
             qdrant: Qdrant {
+                admin_mutation_started: None,
                 client: Client::new(),
                 base: cfg.qdrant_url.clone(),
                 key: None,
@@ -5355,6 +5373,7 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
         let qdrant = Qdrant {
+            admin_mutation_started: None,
             client: Client::new(),
             base: format!("http://{address}"),
             key: None,
@@ -5391,7 +5410,9 @@ mod tests {
             db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[]');")
                 .unwrap();
             let state = AppState {
+                shared_catalog: None,
                 qdrant: Qdrant {
+                    admin_mutation_started: None,
                     client: Client::new(),
                     base: cfg.qdrant_url.clone(),
                     key: None,
@@ -6084,7 +6105,9 @@ mod tests {
         )
         .unwrap();
         let mut state = AppState {
+            shared_catalog: None,
             qdrant: Qdrant {
+                admin_mutation_started: None,
                 client: Client::new(),
                 base: format!("http://{address}"),
                 key: None,
@@ -6175,7 +6198,9 @@ mod tests {
         )
         .unwrap();
         let mut state = AppState {
+            shared_catalog: None,
             qdrant: Qdrant {
+                admin_mutation_started: None,
                 client: Client::new(),
                 base: format!("http://{address}"),
                 key: None,
