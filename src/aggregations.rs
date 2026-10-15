@@ -952,7 +952,6 @@ mod tests {
             &json!({}),
             &[("price".into(), "asc".into())],
             None,
-            1,
             1
         )
         .await

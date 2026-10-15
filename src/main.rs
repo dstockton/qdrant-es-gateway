@@ -2905,7 +2905,6 @@ async fn ordered_numeric_hits(
     body: &Value,
     sorts: &[(String, String)],
     filter: Option<&Value>,
-    total: u64,
     window: usize,
 ) -> Result<Option<Vec<Value>>, GatewayError> {
     if state.cfg.document_projection
@@ -2940,29 +2939,9 @@ async fn ordered_numeric_hits(
     if cursor.is_some_and(|value| !sort_safe_number(value)) {
         return Ok(None);
     }
-    if total == 0 {
-        return Ok(Some(Vec::new()));
-    }
     let mut coverage = json!({"must_not":[{"key":"_qeg_fast_fields","match":{"value":format!("v1:number:{field}")}}]});
     if let Some(filter) = filter {
         coverage["must"] = json!([filter]);
-    }
-    let coverage = state
-        .qdrant
-        .request(
-            Method::POST,
-            &format!("/collections/{coll}/points/scroll"),
-            Some(json!({"filter":coverage,"limit":1,"with_payload":false,"with_vector":false})),
-        )
-        .await?;
-    let uncovered = coverage
-        .pointer("/result/points")
-        .and_then(Value::as_array)
-        .ok_or_else(|| {
-            GatewayError::bad("search", "invalid ordered-scroll eligibility response")
-        })?;
-    if !uncovered.is_empty() {
-        return Ok(None);
     }
     let mut clauses = filter.cloned().into_iter().collect::<Vec<_>>();
     if let Some(cursor) = cursor {
@@ -2976,14 +2955,28 @@ async fn ordered_numeric_hits(
     if !clauses.is_empty() {
         request["filter"] = json!({"must":clauses});
     }
-    let response = state
-        .qdrant
-        .request(
+    let path = format!("/collections/{coll}/points/scroll");
+    let (coverage, response) = tokio::join!(
+        state.qdrant.request(
             Method::POST,
-            &format!("/collections/{coll}/points/scroll"),
-            Some(request),
-        )
-        .await?;
+            &path,
+            Some(json!({"filter":coverage,"limit":1,"with_payload":false,"with_vector":false}))
+        ),
+        state.qdrant.request(Method::POST, &path, Some(request))
+    );
+    let coverage = coverage?;
+    let uncovered = coverage
+        .pointer("/result/points")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            GatewayError::bad("search", "invalid ordered-scroll eligibility response")
+        })?;
+    if !uncovered.is_empty() {
+        // Speculative ordered queries may fail on legacy incompatible fields.
+        // Discard their result and error whenever the safety proof fails.
+        return Ok(None);
+    }
+    let response = response?;
     let points = response
         .pointer("/result/points")
         .and_then(Value::as_array)
@@ -3127,14 +3120,13 @@ async fn search_with_total_format(
         }
     )?;
     let ordered_hits = if !has_text && patterns.is_empty() && size > 0 {
-        if let Some(total) = exact_total {
+        if exact_total.is_some() {
             ordered_numeric_hits(
                 &state,
                 (&index, &coll, &mapping),
                 &body,
                 &sort_specs,
                 filter.as_ref(),
-                total,
                 (from + size) as usize,
             )
             .await?
@@ -8314,9 +8306,11 @@ mod tests {
         ] {
             let observed = Arc::new(Mutex::new(Vec::<Value>::new()));
             let requests = observed.clone();
+            let rendezvous = Arc::new(tokio::sync::Barrier::new(2));
             let mock = Router::new().fallback(any(move |request: axum::http::Request<Body>| {
                 let points = points.clone();
                 let requests = requests.clone();
+                let rendezvous = rendezvous.clone();
                 async move {
                     let body: Value = serde_json::from_slice(
                         &axum::body::to_bytes(request.into_body(), usize::MAX)
@@ -8326,6 +8320,16 @@ mod tests {
                     .unwrap();
                     let ordered = body.get("order_by").is_some();
                     requests.lock().unwrap().push(body);
+                    tokio::time::timeout(std::time::Duration::from_secs(2), rendezvous.wait())
+                        .await
+                        .expect("eligibility and ordered scroll must overlap");
+                    if ordered && eligible != 2 {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Json(json!({"status":{"error":"missing ordered index"}})),
+                        )
+                            .into_response();
+                    }
                     Json(if ordered {
                         json!({"result":{"points":points,"next_page_offset":null}})
                     } else if eligible == 2 {
@@ -8333,6 +8337,7 @@ mod tests {
                     } else {
                         json!({"result":{"points":[{"id":"legacy"}],"next_page_offset":null}})
                     })
+                    .into_response()
                 }
             }));
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -8364,7 +8369,6 @@ mod tests {
                 &json!({"search_after":[10]}),
                 &[("price".into(), "asc".into())],
                 None,
-                2,
                 1,
             )
             .await
@@ -8377,23 +8381,28 @@ mod tests {
                 expected_ids.map(|ids| ids.into_iter().map(str::to_owned).collect::<Vec<_>>())
             );
             let requests = observed.lock().unwrap();
+            assert_eq!(requests.len(), 2);
+            let coverage = requests
+                .iter()
+                .find(|body| body.get("order_by").is_none())
+                .unwrap();
+            let ordered = requests
+                .iter()
+                .find(|body| body.get("order_by").is_some())
+                .unwrap();
             assert_eq!(
-                requests[0]["filter"]["must_not"][0]["match"]["value"],
+                coverage["filter"]["must_not"][0]["match"]["value"],
                 "v1:number:price"
             );
-            if eligible == 2 {
-                assert_eq!(
-                    requests[1]["order_by"],
-                    json!({"key":"price","direction":"asc"})
-                );
-                assert_eq!(
-                    requests[1]["filter"]["must"][0],
-                    json!({"key":"price","range":{"gt":10}})
-                );
-                assert_eq!(requests[1]["limit"], 2);
-            } else {
-                assert_eq!(requests.len(), 1);
-            }
+            assert_eq!(
+                ordered["order_by"],
+                json!({"key":"price","direction":"asc"})
+            );
+            assert_eq!(
+                ordered["filter"]["must"][0],
+                json!({"key":"price","range":{"gt":10}})
+            );
+            assert_eq!(ordered["limit"], 2);
             server.abort();
         }
     }
