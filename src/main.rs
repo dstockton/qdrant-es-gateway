@@ -3135,7 +3135,7 @@ async fn search_with_total_format(
         }
     )?;
     let count_only = size == 0
-        && !(state.cfg.document_projection && !sort_specs.is_empty())
+        && (!state.cfg.document_projection || sort_specs.is_empty())
         && !has_text
         && patterns.is_empty()
         && body.get("post_filter").is_none()
