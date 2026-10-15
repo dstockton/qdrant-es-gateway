@@ -480,6 +480,27 @@ fn ensure_collection_namespace_available(
     Ok(())
 }
 
+fn resolve_index(state: &AppState, name: &str) -> Result<(String, String), GatewayError> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|e| GatewayError::Internal(e.to_string()))?;
+    let mut stmt = db
+        .prepare_cached(
+            "SELECT name FROM indices
+             WHERE name = COALESCE(
+                 (SELECT name FROM indices WHERE name=?1),
+                 (SELECT index_name FROM aliases WHERE alias=?1)
+             )",
+        )
+        .map_err(|e| GatewayError::Internal(e.to_string()))?;
+    let index: String = stmt
+        .query_row(params![name], |r| r.get(0))
+        .map_err(|_| GatewayError::NotFound(format!("no such index [{name}]")))?;
+    let coll = collection(&index);
+    Ok((index, coll))
+}
+
 fn get_index(
     state: &AppState,
     name: &str,
@@ -489,7 +510,7 @@ fn get_index(
         .lock()
         .map_err(|e| GatewayError::Internal(e.to_string()))?;
     let mut stmt = db
-        .prepare(
+        .prepare_cached(
             "SELECT name, mapping, vectors FROM indices
              WHERE name = COALESCE(
                  (SELECT name FROM indices WHERE name=?1),
@@ -505,6 +526,8 @@ fn get_index(
             Ok((index, mapping, vectors))
         })
         .map_err(|_| GatewayError::NotFound(format!("no such index [{name}]")))?;
+    drop(stmt);
+    drop(db);
     let vectors =
         serde_json::from_str(&row.2).map_err(|e| GatewayError::Internal(e.to_string()))?;
     Ok((
@@ -952,7 +975,7 @@ async fn retrieve_sources(
         .request(
             Method::POST,
             &format!("/collections/{}/points", document_collection(index)),
-            Some(json!({"ids":ids,"with_payload":true,"with_vector":false})),
+            Some(json!({"ids":ids,"with_payload":["_es_id","_source"],"with_vector":false})),
         )
         .await?;
     let mut sources = HashMap::new();
@@ -990,7 +1013,9 @@ async fn retrieve_source(
         .request(
             Method::POST,
             &format!("/collections/{collection}/points"),
-            Some(json!({"ids":[point_id(index,id)],"with_payload":true,"with_vector":false})),
+            Some(
+                json!({"ids":[point_id(index,id)],"with_payload":["_source"],"with_vector":false}),
+            ),
         )
         .await?;
     Ok(response
@@ -1048,7 +1073,7 @@ async fn retrieve_existing_ids(
         .request(
             Method::POST,
             &format!("/collections/{collection}/points"),
-            Some(json!({"ids":point_ids,"with_payload":true,"with_vector":false})),
+            Some(json!({"ids":point_ids,"with_payload":["_es_id"],"with_vector":false})),
         )
         .await?;
     Ok(result
@@ -1169,7 +1194,7 @@ async fn get_doc(
     State(state): State<AppState>,
     Path((index, id)): Path<(String, String)>,
 ) -> Result<Response, GatewayError> {
-    let (index, coll, _, _) = get_index(&state, &index)?;
+    let (index, coll) = resolve_index(&state, &index)?;
     Ok(match retrieve_source(&state, &index, &coll, &id).await? {
         Some(source) => {
             es_ok(json!({"_index":index,"_id":id,"found":true,"_source":source,"_version":1}))
@@ -1184,7 +1209,7 @@ async fn head_doc(
     State(state): State<AppState>,
     Path((index, id)): Path<(String, String)>,
 ) -> Response {
-    let (index, coll, _, _) = match get_index(&state, &index) {
+    let (index, coll) = match resolve_index(&state, &index) {
         Ok(index) => index,
         Err(error) => return es_empty_response(error.status()),
     };
@@ -3492,7 +3517,6 @@ async fn search_with_total_format(
         });
     }
     let page = hits
-        .clone()
         .into_iter()
         .skip(from as usize)
         .take(size as usize)
@@ -5389,6 +5413,102 @@ mod tests {
             ));
         }
         assert_eq!(*requests.lock().unwrap(), 0);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn document_reads_select_required_payload_and_resolve_current_alias() {
+        let requests = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let observed = requests.clone();
+        let source =
+            json!({"details":{"values":[1,null,{"name":"nested"}]},"_source":"user field"});
+        let expected_source = source.clone();
+        let mock = Router::new().fallback(any(move |Json(body): Json<Value>| {
+            let observed = observed.clone();
+            let source = source.clone();
+            async move {
+                observed.lock().unwrap().push(body.clone());
+                let payload = json!({"_es_id":"1","_source":source,"unused":"duplicated fields"});
+                let selected = body["with_payload"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|field| {
+                        (
+                            field.as_str().unwrap().to_owned(),
+                            payload[field.as_str().unwrap()].clone(),
+                        )
+                    })
+                    .collect::<serde_json::Map<String, Value>>();
+                Json(json!({"result":[{"payload":selected}]}))
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+        let cfg = Config::from_env();
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products', '{}', '[]'), ('replacement', '{}', '[]'); INSERT INTO aliases VALUES ('current', 'products');").unwrap();
+        let mut state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: format!("http://{address}"),
+                key: None,
+                admin_mutation_started: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            shared_catalog: None,
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+        for projected in [false, true] {
+            state.cfg.document_projection = projected;
+            let response = get_doc(State(state.clone()), Path(("current".into(), "1".into())))
+                .await
+                .unwrap();
+            let body: Value = serde_json::from_slice(
+                &axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(body["_source"], expected_source);
+            assert_eq!(body["_index"], "products");
+            assert_eq!(body["found"], true);
+        }
+        assert!(
+            retrieve_existing_ids(&state, "products", "es_products", &["1".into()])
+                .await
+                .unwrap()
+                .contains("1")
+        );
+        let captured = requests.lock().unwrap();
+        assert_eq!(captured[0]["with_payload"], json!(["_source"]));
+        assert_eq!(captured[1]["with_payload"], json!(["_es_id", "_source"]));
+        assert_eq!(captured[2]["with_payload"], json!(["_es_id"]));
+        drop(captured);
+        // Prepared statements cache query plans, never alias or mapping results.
+        state
+            .db
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE aliases SET index_name='replacement' WHERE alias='current'",
+                [],
+            )
+            .unwrap();
+        assert_eq!(resolve_index(&state, "current").unwrap().0, "replacement");
+        assert_eq!(get_index(&state, "current").unwrap().0, "replacement");
+        state
+            .db
+            .lock()
+            .unwrap()
+            .execute("DELETE FROM indices WHERE name='replacement'", [])
+            .unwrap();
+        assert!(resolve_index(&state, "current").is_err());
+        assert!(get_index(&state, "current").is_err());
         server.abort();
     }
 

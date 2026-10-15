@@ -77,3 +77,39 @@ The script reports the median trial p50, p95 and throughput, and the range of
 trial medians. It refuses incomplete or failed runs. The gateway's reported
 Elasticsearch version is a compatibility response, not its build version; use
 the recorded gateway Git revision and container image digest for provenance.
+
+## Read-only paired image comparisons
+
+To separate read-path changes from ingestion and JVM warmup, first populate the
+same disposable corpus with `run.py`, build both images before timing, and then
+use `compare_reads.py` against the retained data. It never deletes or writes data.
+The compose project name must remain `qeg-balanced` for image and limit provenance.
+
+```sh
+# Replace only the gateway image between rounds, preserving its catalog volume.
+# Wait for the endpoint to answer after replacement. Do not build during timing.
+ROUND=baseline-a REQUESTS=200 TRIALS=3 WARMUP=40 \
+  OUTPUT=results/baseline-a.json python3 compare_reads.py
+# Repeat with candidate-b, candidate-c, then baseline-d (A-B-B-A order).
+```
+
+Each round interleaves all three engines in seeded shuffled order for every
+workload, concurrency and trial, uses the same correctness assertions as the
+full benchmark, and records every latency sample plus container image IDs and
+resource limits. Each trial creates persistent connections per worker and runs
+40 unmeasured warmups by default. Keep all four rounds and compare the two
+baseline rounds with both candidate rounds; a single fastest round is not an
+improvement claim. Repeated native aggregation requests may use native request
+caches; this is the default endpoint behavior, not an uncached engine comparison.
+
+For a separate uncached diagnostic, set `REQUEST_CACHE=false`. This appends
+`?request_cache=false` to every search URL for all three engines and records the
+choice in the output. Preserve the default-cache results alongside this profile;
+it answers a different question and must not replace the default comparison.
+
+Elasticsearch and OpenSearch both cache eligible `size: 0` requests by default.
+See the [Elasticsearch request-cache documentation](https://www.elastic.co/guide/en/elasticsearch/reference/current/shard-request-cache.html)
+and [OpenSearch request-cache documentation](https://docs.opensearch.org/latest/search-plugins/caching/request-cache/).
+Record `/{index}/_stats/request_cache` before and after a diagnostic to verify
+which cache path was exercised; disabling this cache does not disable every
+internal engine cache.
