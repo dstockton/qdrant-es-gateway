@@ -43,3 +43,5 @@ because their candidate membership cannot currently be reduced exactly this way.
 Concurrent writes can change a scroll while it runs. With document projection,
 reductions use mapped non-text values in the search projection, keeping membership
 and values together instead of fetching a newer source document.
+
+The container replay against Elasticsearch 8.15.0 and Qdrant 1.19.2 passed all four cases: complete aggregations, post-filtered hits, the first sorted page, and its cursor continuation. The [captured results](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/aggregations/results.json) include actual request timings. They establish correctness for this fixture, not a speed advantage.

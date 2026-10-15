@@ -6,7 +6,7 @@ The gateway is designed to be a stateless HTTP tier for document and search stat
 
 ## Container
 
-Images are published to `ghcr.io/dstockton/qdrant-es-gateway` for version tags. The image runs as UID 10001, has no Linux capabilities, and uses a read-only root filesystem in the Helm chart. Persist `/data` because SQLite stores mappings and aliases there.
+Images are published to `ghcr.io/dstockton/qdrant-es-gateway` for version tags. The image runs as UID 10001, has no Linux capabilities, and uses a read-only root filesystem in the Helm chart. Persist `/data` when using the default SQLite catalog. Shared-catalog deployments instead require durable Redis/Valkey storage; see [shared catalog operation and recovery](https://dstockton.github.io/qdrant-es-gateway/shared-catalog.md).
 
 Use immutable version tags or image digests in production:
 
@@ -38,7 +38,7 @@ Before exposing the service:
 1. Configure ingress TLS and client authentication.
 2. Create a Kubernetes NetworkPolicy allowing egress only to Qdrant and DNS.
 3. Set resource requests and limits from workload measurements.
-4. Keep the gateway at one replica with the default local SQLite metadata catalog. Horizontal replicas require shared storage with SQLite-compatible locking and `ReadWriteMany` access, plus external serialization of index and alias administration; moving the small catalog to a replicated control-plane store is the safer long-term design.
+4. Keep the default SQLite deployment at one replica. For multiple replicas, configure the optional shared catalog, initialize or migrate it deliberately, and follow its durability and recovery requirements. Do not share SQLite files over a network filesystem.
 5. Configure Qdrant replication, snapshots, monitoring, and disk alerts independently.
 6. Enable `DOCUMENT_PROJECTION=true` and `ASYNC_SEARCH_PROJECTION=true` only with a durable reconciliation process for projection lag or failed asynchronous operations.
 

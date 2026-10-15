@@ -11,19 +11,21 @@ Source: https://dstockton.github.io/qdrant-es-gateway/markdown/compatibility.md
 
 # Compatibility and semantic differences
 
-Supported requests cover CRUD, mappings, bulk ingestion, common index lifecycle calls, multi-search, cursor pagination, basic lexical search, payload filters, source projection, count, indexed keyword terms facets, health, and durable aliases. Request bodies must be valid UTF-8; malformed byte sequences are rejected before JSON or NDJSON parsing instead of being stored as Unicode replacement characters. `PUT /<index>/_mapping` merges new non-text properties into the existing mapping and creates Qdrant payload indexes for supported filterable types; identical existing definitions are idempotent, while type changes and new text fields are rejected. New text fields require a new index because the pinned Qdrant 1.15 schema cannot add their named sparse vectors to an existing collection. Both `POST` and `PUT` bulk requests are accepted. Bulk `update` and `delete` actions require an explicit `_id`; every action line must name exactly one supported action with object metadata and string `_index`/`_id` values. Malformed actions fail before any item is executed instead of assigning an unrelated generated ID or partially applying the request. Standalone and bulk `index` operations check the authoritative document store so a new document returns HTTP 201 with `result: "created"`, while replacing an existing document returns HTTP 200 with `result: "updated"`. Contiguous bulk index writes remain one Qdrant upsert batch and use one batched existence lookup rather than a read per item. Successful bulk `create`, `update`, and `delete` items preserve the operation's result metadata and report the concrete backing index when addressed through an alias. Standalone and bulk `create` operations first check for an existing document and return a 409 conflict rather than overwriting it; they are serialized within one gateway process but are not an atomic cross-replica compare-and-insert. Index existence checks likewise describe the preflight state rather than providing atomic compare-and-write semantics. The compatibility analyzer at `GET /_qdrant_gateway/compatibility` is local-only and reports request counts; no telemetry leaves the process.
+Supported requests cover CRUD, mappings, bulk ingestion, common index lifecycle calls, multi-search, cursor pagination, basic lexical search, payload filters, source projection, count, complete filter-only aggregations, health, and durable aliases. Request bodies must be valid UTF-8; malformed byte sequences are rejected before JSON or NDJSON parsing instead of being stored as Unicode replacement characters. Index creation enforces the static name rules shared by Elasticsearch 9.5.5 and OpenSearch 3.9: lowercase UTF-8 names of at most 255 bytes, excluding their reserved punctuation, the leading `_`/`-`/`+` forms, and the exact names `.` and `..`. Invalid names return HTTP 400 with `invalid_index_name_exception` before catalogue or Qdrant work. Dot-prefixed names other than `.` and `..` remain accepted; the gateway does not emulate engine-specific deprecation warnings, hidden-index settings, or system-index ownership. Creating an index that already exists returns HTTP 400 with `resource_already_exists_exception` before Qdrant work; it does not replace the stored mapping. Names that collide only after Qdrant collection normalization remain a distinct gateway validation error. `PUT /<index>/_mapping` merges new non-text properties into the existing mapping and creates Qdrant payload indexes for supported filterable types; identical existing definitions are idempotent, while type changes and new text fields are rejected. New text fields require a new index because the pinned Qdrant 1.15 schema cannot add their named sparse vectors to an existing collection. Both `POST` and `PUT` bulk requests are accepted. Bulk `update` and `delete` actions require an explicit `_id`; every action line must name exactly one supported action with object metadata and string `_index`/`_id` values. Malformed actions fail before any item is executed instead of assigning an unrelated generated ID or partially applying the request. Standalone and bulk `index` operations check the authoritative document store so a new document returns HTTP 201 with `result: "created"`, while replacing an existing document returns HTTP 200 with `result: "updated"`. Qdrant 1.15.5 reports an absent single point as HTTP 404 rather than a successful null result; that specific response is treated as a missing document, while a missing collection remains an upstream 502. Document HEAD requests preserve the same distinction: an absent point is 404, but transport and storage failures are 502 rather than false “not found” results. HEAD responses are bodyless and include the Elasticsearch product header. Contiguous bulk index writes remain one Qdrant upsert batch and use one batched existence lookup rather than a read per item. Successful bulk `create`, `update`, and `delete` items preserve the operation's result metadata and report the concrete backing index when addressed through an alias. Standalone and bulk `create` operations first check for an existing document and return a 409 conflict rather than overwriting it; they are serialized within one gateway process but are not an atomic cross-replica compare-and-insert. Index existence checks likewise describe the preflight state rather than providing atomic compare-and-write semantics. The compatibility analyzer at `GET /_qdrant_gateway/compatibility` is local-only and reports request counts; no telemetry leaves the process.
 
-Search requests with `size: 0` are accepted for aggregation-only use and return no hits; the gateway uses a one-item internal scroll because Qdrant rejects a zero scroll limit. `from` and `size` must be non-negative integers, `size` cannot exceed `MAX_PAGE_SIZE`, and their combined result window cannot exceed 10,000. Cursor requests require an array with one scalar value per explicit sort field and cannot combine `search_after` with a non-zero `from`. Invalid pagination fails before index lookup or Qdrant access rather than silently using defaults or truncating the page. Native filter-only searches issue an exact Qdrant count alongside the bounded hit retrieval, so `hits.total` is not truncated to `from + size`. Text searches and searches with `post_filter` still derive totals from the retrieved candidate window and return `relation: "gte"`; complete gateway scans for approximate text and pattern queries return exact totals. The extra count can add an upstream round trip to filter-only search latency. Gateway-computed metric/filter aggregations remain bounded by the retrieved candidate window, while server-side terms facets use Qdrant's facet API.
+Search requests with `size: 0` are accepted for aggregation-only use and return no hits; the gateway uses a one-item internal scroll because Qdrant rejects a zero scroll limit. `from` and `size` must be non-negative integers, `size` cannot exceed `MAX_PAGE_SIZE`, and their combined result window cannot exceed 10,000. Cursor requests require an array with one scalar value per explicit sort field and cannot combine `search_after` with a non-zero `from`. Invalid pagination fails before index lookup or Qdrant access rather than silently using defaults or truncating the page. Native filter-only searches issue an exact Qdrant count alongside the bounded hit retrieval, so `hits.total` is not truncated to `from + size`. Ranked text searches derive lower-bound totals from their candidate window. Filter-only post-filter searches and complete gateway scans compute totals over all matching pages; concurrent writes can change what a scan observes. Boolean and non-negative integer `track_total_hits` modes follow the OpenSearch/Elasticsearch response shape: `false` omits `hits.total` and skips the otherwise eligible exact-count request, while a numeric threshold caps the reported value and changes the relation to `gte` when the threshold is exceeded. Numeric thresholds currently shape the response but do not terminate Qdrant's exact count early. The `_search` and `_msearch` endpoints also honor OpenSearch's `rest_total_hits_as_int=true` query parameter: ordinary totals become integers and disabled totals use the native `-1` sentinel. Lowercase `true` and `false` are accepted; as in OpenSearch 3.9.0, an empty or valueless parameter enables the mode. Other values and the native-incompatible combination of integer formatting with a numeric tracking threshold fail before Qdrant work. Integer formatting cannot express the gateway's usual `eq`/`gte` accuracy relation for bounded text searches. Strict `track_total_hits` parsing intentionally excludes OpenSearch's undocumented coercion of strings, fractional numbers, and negative values. The extra count can add an upstream round trip to filter-only search latency. Supported filter-only aggregations scan every matching Qdrant page independently of the returned hit count. Ranked text and pattern queries with aggregations fail explicitly.
+
+Search `_source` filtering accepts booleans, a single field pattern, an array of patterns, or an `include`/`includes` and `exclude`/`excludes` object. Dotted paths and `*`/`?` wildcards preserve the nested object shape rather than flattening selected fields, and the same parser is used for collapse inner hits. Invalid types, mixed-type arrays, and unknown options fail before index lookup or Qdrant work. Filtering shapes the response after the gateway has hydrated each candidate's complete source; it reduces returned data but does not reduce source-read bandwidth or memory use.
 
 Partial `doc` updates use read-merge-write semantics. Inner objects are merged recursively; arrays and scalar values replace the existing value. Identical merged documents return `result: "noop"` without an upstream write by default; `detect_noop: false` forces the write. A missing document can be created explicitly with either `doc_as_upsert: true` or a separate `upsert` object; the separate form writes the `upsert` source rather than the partial `doc`, while an existing document still receives `doc`. Both standalone and bulk update paths share this behavior. In the default embedded-source mode, non-text updates refresh the complete stored `_source` and all mapped filter/sort payload fields in one payload write; this preserves untouched source fields and keeps filtering consistent with document reads. This path transfers the merged source even when the patch is small. Updates are not an atomic compare-and-write, Elasticsearch `nested` query semantics remain unsupported, scripts remain unsupported, and version counters remain approximate.
 
-Aliases currently map one alias to one concrete index. CRUD, search, count, mapping, and multi-search requests resolve that concrete index before selecting a Qdrant collection or deriving a deterministic point ID. Alias inspection is Elasticsearch-shaped and keyed by the concrete index. Alias action batches are fully validated before a single SQLite transaction applies them, so a malformed later action cannot leave an earlier routing change behind. Multi-index aliases, filtered aliases, write-index selection, and Qdrant-native atomic alias switching remain unsupported.
+Aliases currently map one alias to one concrete index. CRUD, search, count, mapping, and multi-search requests resolve that concrete index before selecting a Qdrant collection or deriving a deterministic point ID. Alias inspection is Elasticsearch-shaped and keyed by the concrete index. Alias action batches are fully validated before a single SQLite transaction applies them, so a malformed later action cannot leave an earlier routing change behind. Elasticsearch 9.5.5 and OpenSearch 3.9.0 both preserve the original target when an `add` action attaches the same alias to a second index. Because the gateway cannot represent that multi-index state, it rejects such a final topology before changing the catalogue instead of silently replacing the original target. An atomic batch that removes the old target and adds the new one remains supported in either action order. Native alias filters, routing fields, write-index/hidden flags, remove `must_exist`, and unknown action options are rejected before catalogue access instead of being acknowledged and discarded. Multi-index aliases, filtered aliases, write-index selection, routing, hidden aliases, and Qdrant-native alias switching remain unsupported.
 
 Qdrant's server-side BM25 uses sparse vectors and its own tokenization/model implementation. Results should be evaluated by relevant document IDs and product metrics, not numerical `_score` equality with Elasticsearch. `match_phrase` currently uses the same native lexical representation and is therefore not a Lucene positional phrase guarantee.
 
-Filter-only `should` clauses and numeric or percentage `minimum_should_match` are supported when they can be represented as Qdrant filter alternatives. Scalar and array forms of `must_not` are accepted, and nested filter-only bools preserve their clause boundaries when negated or used as alternatives. As in Elasticsearch, a `bool` containing `must` or `filter` defaults `minimum_should_match` to zero; without either required clause, at least one `should` remains required. Optional filter-only clauses preserve the matching document set but do not boost Qdrant scores. `dis_max`, `match_bool_prefix`, and fuzzy-shaped requests are accepted through the gateway's lexical field path; their ranking and typo/prefix semantics are intentionally approximate because Qdrant's sparse model is not Lucene. Basic response sorting accepts a field name, a direct order such as `{"price":"asc"}`, or the standard options object `{"price":{"order":"desc"}}`; `_score` defaults to descending and other fields default to ascending. Unsupported sort options and invalid directions are rejected instead of silently changing the order. Cursor pagination accepts `search_after` alongside explicit sort fields and returns the corresponding `sort` values in each hit; the cursor is stable only while the ordered result set is unchanged. Sorting and cursor filtering operate over the gateway's bounded candidate window rather than a Qdrant-native global field order, so they are intended for modest result sets. Scripts, scroll, and analyzer settings that would materially change semantics remain unsupported. Every rejection identifies the request feature and a safe alternative where one exists.
+Filter-only `should` clauses and numeric or percentage `minimum_should_match` are supported when they can be represented as Qdrant filter alternatives. Scalar and array forms of `must_not` are accepted, and nested filter-only bools preserve their clause boundaries when negated or used as alternatives. As in Elasticsearch, a `bool` containing `must` or `filter` defaults `minimum_should_match` to zero; without either required clause, at least one `should` remains required. Optional filter-only clauses preserve the matching document set but do not boost Qdrant scores. `dis_max`, `match_bool_prefix`, and fuzzy-shaped requests are accepted through the gateway's lexical field path; their ranking and typo/prefix semantics are intentionally approximate because Qdrant's sparse model is not Lucene. Basic response sorting accepts a field name, a direct order such as `{"price":"asc"}`, or the standard options object `{"price":{"order":"desc"}}`; `_score` defaults to descending and other fields default to ascending. Unsupported sort options and invalid directions are rejected instead of silently changing the order. Filter-only field sorting and `search_after` visit every matching page and retain the best `from + size` hits, so point order cannot hide a later winner. Ranked text searches still sort a bounded candidate window. Cursors do not freeze the data: use stable data and a unique explicit tie-breaker for repeatable pages. Scripts, scroll, and analyzer settings that would materially change semantics remain unsupported. Every rejection identifies the request feature and a safe alternative where one exists.
 
-Field collapse accepts one field and one standard `inner_hits` definition with `name`, `size`, `_source`, and `_id` in `fields`. The response uses the requested inner-hit name, caps its size at `MAX_PAGE_SIZE`, and applies its source projection independently of the top-level projection. Unsupported collapse options, multiple inner-hit definitions, and inner-hit sorting are rejected before Qdrant work. Collapse and group totals are computed over the gateway's bounded candidate window, not every matching document.
+Field collapse accepts one field and one standard `inner_hits` definition with `name`, `size`, `_source`, and `_id` in `fields`. The response uses the requested inner-hit name, caps its size at `MAX_PAGE_SIZE`, and applies its source projection independently of the top-level projection. Unsupported collapse options, multiple inner-hit definitions, and inner-hit sorting are rejected before Qdrant work. Collapse follows the candidate scope of its query; complete filter scans retain all group members, so collapse memory is proportional to matching documents. Collapse with `search_after` is rejected. Ranked text collapse remains limited to retrieved candidates.
 
 `exists` queries over mapped payload fields exclude missing values, JSON `null`, empty arrays, and arrays containing only `null`; empty strings and arrays with at least one non-null value count as present. This matches the ordinary Elasticsearch boundary, but not mapping-dependent cases such as `index: false`, `ignore_above`, or malformed values ignored by an analyzer. Server-side `exists` filtering is limited to fields mirrored into the searchable Qdrant payload; `post_filter` evaluates the hydrated `_source`.
 
@@ -32,7 +34,40 @@ For application mappings that expose a conventional `.keyword` multi-field name,
 
 `regexp`, `prefix`, and `wildcard` clauses are evaluated by the gateway using Rust's regular-expression engine after candidate documents are read from Qdrant. Positive pattern clauses can be combined with ordinary Qdrant-translated filters in `bool.must` or `bool.filter`; pattern clauses in `should` and `must_not` are rejected rather than approximated. Pattern-only search and count requests scan the collection in bounded scroll pages, so their totals are exact for the stable collection snapshot seen by the scan, but they are useful only for modest catalog and identifier searches and should not be used as a substitute for a dedicated indexed pattern field at very large scale. Wildcards preserve the position of Elasticsearch/OpenSearch-style `*` and `?` operators, including leading, trailing, and consecutive stars. Gateway-side matching uses stored source strings, so prefix and wildcard case behavior on analyzed `text` fields can differ from a native engine's normalized term dictionary; use a normalized keyword field when case behavior is part of the contract. Regular expressions use Rust/RE2-style syntax and reject invalid expressions with a structured 400 response.
 
-Search responses also accept `post_filter` for simple term, terms, numeric range, exists, match-all, and bool clauses. The complete `post_filter` tree is validated before index lookup or Qdrant work; unsupported query types, unknown bool options, ambiguous multi-field clauses, and malformed range options return a structured 400 instead of silently producing an empty result set. The filter is applied to hydrated hits after the main query. Gateway-computed min, max, filter, and keyed-filter aggregations retain the query-matched candidate window before `post_filter`, collapse, or `search_after` transforms the hits, preserving Elasticsearch's hit-versus-aggregation boundary within that window. Scalar and array-valued source fields use the same any-element matching rule for term, terms, range, prefix, wildcard, and regexp predicates, keeping gateway-side evaluation aligned with native Qdrant filters. Arrays of objects still require Elasticsearch `nested` semantics and are unsupported. Supported aggregation shapes now include terms, min, max, keyed filters, and simple filter wrappers; metric and filter counts are computed over the retrieved candidate set and should be treated as bounded until exact matching-document scans are enabled. Requests containing gateway-computed aggregations temporarily retain a second copy of that bounded candidate set.
+Search responses also accept `post_filter` for simple term, terms, numeric range, exists, match-all, and bool clauses. The complete `post_filter` tree is validated before index lookup or Qdrant work; unsupported query types, unknown bool options, ambiguous multi-field clauses, and malformed range options return a structured 400 instead of silently producing an empty result set. The filter is applied to hydrated hits after the main query. Min, max, terms, filter, keyed filters, and supported calendar histograms reduce every query-matched page before hit-only post-filtering, collapse, or cursor selection. Scalar and array-valued source fields use the same any-element matching rule for term, terms, range, prefix, wildcard, and regexp predicates, keeping gateway-side evaluation aligned with native Qdrant filters. Arrays of objects still require Elasticsearch `nested` semantics and are unsupported. Aggregation memory uses constant metric state and at most 10,000 distinct buckets per aggregation, with at most 100 aggregations per request. Exceeding a bound fails instead of returning partial results. Calendar histograms accept day, week, month, and year intervals, IANA timezones, and explicit `min_doc_count: 1`; unsupported formats, bounds, offsets, and empty-bucket filling fail. Timezone rules come from the compiled chrono-tz dependency. Scans are not point-in-time snapshots. In document-projection mode, aggregation fields must be supported mapped payload fields; reductions use search-projection values. See the [comparison fixture](https://github.com/dstockton/qdrant-es-gateway/tree/main/validation/aggregations).
+
+### Explicit sparse embeddings
+
+New indices can map a top-level field as `sparse_vector`. Optional
+`method: {name: seismic, engine: lucene}` is accepted for OpenSearch request
+compatibility; Qdrant performs exact sparse dot-product search, not SEISMIC.
+The optional engine may be omitted. Other method keys, the native engine and
+pruning options are rejected. Named vectors are provisioned at index creation;
+adding sparse fields through `_mapping` requires a new index.
+
+Documents supply a token-weight object, for example `{"v":{"65536":1.0}}`.
+Keys must be canonical decimal unsigned 32-bit IDs; weights must remain positive
+and finite after float32 conversion. IDs are never hashed, folded or narrowed.
+Missing/null fields omit the vector; an empty document vector is allowed.
+Malformed vectors fail before any source or search write in that write batch.
+Bulk index operations isolate invalid sparse documents as per-item 400 errors,
+allowing adjacent valid items to proceed. Partial updates rebuild sparse vectors
+when the sparse field changes, including with document projection enabled.
+
+`{"query":{"neural_sparse":{"v":{"query_tokens":{"65536":1.0}}}}}`
+supports one mapped field as the sole top-level query. Inference (`query_text`,
+`model_id`), `method_parameters`, bool composition, sort, search_after, collapse,
+post_filter, min_score and aggregations are rejected. `from`/`size` retain gateway limits;
+reported total hits are a lower bound. Query token objects must not be empty. Scalar predicates (including exists, term,
+range and nested bool filters), filter/metric aggregations on sparse fields or
+their token subpaths are rejected for search and count; sparse vectors are not
+scalar payload fields.
+The OpenSearch Lucene default-path comparison in `examples/explicit-sparse`
+verifies full-width token IDs; it does not reproduce SEISMIC approximation bugs.
+
+## Shared metadata and consistency
+
+SQLite remains the default single-replica catalog. The optional [Redis/Valkey catalog](https://dstockton.github.io/qdrant-es-gateway/shared-catalog.md) shares mappings and single-index aliases across replicas, with explicit recovery after uncertain administrative writes. It does not supply atomic document updates or snapshot pagination. Unsupported `pit` search bodies and URL parameters `if_seq_no`, `if_primary_term`, `version`, `version_type`, `retry_on_conflict`, `op_type`, `routing`, and `scroll` return a structured 400 rather than being ignored.
 
 
 Source: https://dstockton.github.io/qdrant-es-gateway/markdown/architecture.md
@@ -55,7 +90,7 @@ Elasticsearch client / REST
       Qdrant collections
 ```
 
-Each ES index maps to a Qdrant collection named `es_<safe-index-name>`. SQLite stores the original mapping, text-field vector names, and aliases so restarts do not depend on collection introspection. This makes the current service stateless with respect to documents—there is no local source cache—but not fully stateless as a horizontally replicated service: the metadata database must be persisted or shared by replicas. Moving this small, rebuildable metadata catalog into Qdrant would be the follow-up required for true replica-safe statelessness. Documents are payload-first: the original source is stored under `_source`, while mapped non-text fields are mirrored for Qdrant filtering, sorting, and aggregations.
+Each ES index maps to a Qdrant collection named `es_<safe-index-name>`. SQLite stores mappings, vector names, and aliases in the default single-gateway deployment. The optional [Redis/Valkey catalog](https://dstockton.github.io/qdrant-es-gateway/shared-catalog.md) keeps authoritative metadata outside the gateway; each request materializes a fresh ephemeral SQLite view. Gateway replicas then require no durable local catalog. Metadata administration uses an explicit ownership/recovery protocol; there is no transaction spanning the catalog and Qdrant. Documents are payload-first: the original source is stored under `_source`, while mapped non-text fields are mirrored for Qdrant filtering, sorting, and aggregations.
 
 When `DOCUMENT_PROJECTION=true`, every index also has `es_<safe-index-name>_documents`. This second collection is a durable document projection with no payload indexes and no HNSW graph. Qdrant 1.15 requires a vector field on points, so the gateway uses a one-dimensional on-disk placeholder vector and `m=0`; it is never searched. The searchable collection contains sparse representations plus only `_es_id`, `_es_index`, and mapped non-text fields. GETs and search response hydration read the authoritative `_source` from the document collection in a batch, which avoids storing the full source in the searchable collection. A full write persists the document projection first, then updates the searchable projection. `ASYNC_SEARCH_PROJECTION=true` uses Qdrant's asynchronous operation acknowledgement for the second step, so metadata-only writes can be acknowledged without waiting for sparse-index maintenance. The gateway itself owns no document queue or source cache.
 
@@ -76,7 +111,7 @@ The gateway is designed to be a stateless HTTP tier for document and search stat
 
 ## Container
 
-Images are published to `ghcr.io/dstockton/qdrant-es-gateway` for version tags. The image runs as UID 10001, has no Linux capabilities, and uses a read-only root filesystem in the Helm chart. Persist `/data` because SQLite stores mappings and aliases there.
+Images are published to `ghcr.io/dstockton/qdrant-es-gateway` for version tags. The image runs as UID 10001, has no Linux capabilities, and uses a read-only root filesystem in the Helm chart. Persist `/data` when using the default SQLite catalog. Shared-catalog deployments instead require durable Redis/Valkey storage; see [shared catalog operation and recovery](https://dstockton.github.io/qdrant-es-gateway/shared-catalog.md).
 
 Use immutable version tags or image digests in production:
 
@@ -108,7 +143,7 @@ Before exposing the service:
 1. Configure ingress TLS and client authentication.
 2. Create a Kubernetes NetworkPolicy allowing egress only to Qdrant and DNS.
 3. Set resource requests and limits from workload measurements.
-4. Keep the gateway at one replica with the default local SQLite metadata catalog. Horizontal replicas require shared storage with SQLite-compatible locking and `ReadWriteMany` access, plus external serialization of index and alias administration; moving the small catalog to a replicated control-plane store is the safer long-term design.
+4. Keep the default SQLite deployment at one replica. For multiple replicas, configure the optional shared catalog, initialize or migrate it deliberately, and follow its durability and recovery requirements. Do not share SQLite files over a network filesystem.
 5. Configure Qdrant replication, snapshots, monitoring, and disk alerts independently.
 6. Enable `DOCUMENT_PROJECTION=true` and `ASYNC_SEARCH_PROJECTION=true` only with a durable reconciliation process for projection lag or failed asynchronous operations.
 
@@ -401,7 +436,7 @@ The default SQLite catalog is still the simplest choice for one gateway. No meas
 
 Set `CATALOG_REDIS_URL` to a `redis://` or TLS `rediss://` URL. All replicas serving the same Qdrant collections must use the same `CATALOG_REDIS_KEY` (default `qeg:{catalog}:v1`) and collection-related configuration. The URL may contain credentials; supply it through a secret. Redis Cluster is not a supported connection topology.
 
-The authoritative catalog contains mappings, named vector metadata, and single-index aliases. Every request loads the current committed snapshot into an ephemeral SQLite database. There is no replica metadata cache and no persistent local metadata dependency in shared mode. Snapshot size is limited to 8 MiB. Fetching and materializing the whole catalog on each request favors small catalogs and correctness; it is not a high-throughput optimization. Network operations time out after five seconds.
+The authoritative catalog contains mappings, named vector metadata, and single-index aliases. Every request loads the current committed snapshot into an ephemeral SQLite database. There is no replica metadata cache and no persistent local metadata dependency in shared mode. Snapshot size is limited to 8 MiB. Index creation and mapping changes check the exact prospective serialized size before mutating Qdrant; alias batches check it before committing local metadata. Oversized changes return a validation error and release the administrative claim. Fetching and materializing the whole catalog on each request favors small catalogs and correctness; it is not a high-throughput optimization. Network operations time out after five seconds.
 
 ## Starting a new deployment
 
@@ -448,10 +483,10 @@ Do not delete a claim while a writer may still be running. A Redis/Valkey transa
 Unit tests cover snapshot round-tripping, malformed metadata and administrative route classification. Run the real-server coordination test against a disposable Redis/Valkey instance:
 
 ```sh
-CATALOG_TEST_REDIS_URL=redis://127.0.0.1:16379 cargo test shared_catalog_serializes_replicas -- --ignored
+CATALOG_TEST_REDIS_URL=redis://127.0.0.1:16379 cargo test shared_catalog -- --include-ignored
 ```
 
-The test checks fresh cross-client reads, concurrent administration exclusion, absence of lock expiry, wrong-owner rejection and safe release before an upstream mutation and retention of a claim after its owner disappears. It creates unique temporary keys and deletes them on success.
+The tests check fresh cross-client reads, successful create/mapping/alias dispatch across independent replicas, concurrent administration exclusion, absence of lock expiry, wrong-owner rejection, safe validation-error release, capacity rejection before upstream writes and retention of a claim after its owner disappears. It creates unique temporary keys and deletes them on success.
 
 
 Source: https://dstockton.github.io/qdrant-es-gateway/markdown/storage-findings.md
@@ -516,6 +551,49 @@ The reproducible collector is [benchmark/disk_usage.sh](https://dstockton.github
 
 ---
 
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-sorted-pages-look-past-first-candidates.md
+
+# Find the next page across the whole catalogue
+
+Sorting the first few candidates is not the same as finding the first few sorted
+results. Likewise, asking for a page after price 20 cannot work reliably if the
+gateway only fetched records priced below 20.
+
+Filter-only searches with explicit field sorting now inspect every matching
+Qdrant scroll page. The gateway keeps the best `from + size` candidates, drops
+records before `search_after`, and continues until the scroll ends. Without
+collapse, retained hit candidates are bounded by the requested window plus the
+current upstream page.
+
+```json
+{"size":2,"sort":[{"rank":"asc"}],"search_after":[2]}
+```
+
+The six-document [comparison fixture](https://github.com/dstockton/qdrant-es-gateway/tree/main/validation/aggregations)
+expects records 3 and 4 from that request. It sends the same request to
+Elasticsearch and to the gateway. A deterministic regression also puts the
+cheapest record on a later page and verifies that it wins the first sorted page.
+
+`post_filter` now scans beyond the initial candidate window too. Matching records
+on later pages can fill the requested page, and the hit count covers the complete
+post-filtered set. Aggregations continue to see the query before `post_filter`.
+
+Run `cargo test aggregation_scroll_visits_every_page_and_uses_search_projection_values`
+to exercise those cases without a running database.
+
+This preserves stateless request handling: no server-side cursor session or Redis
+entry is required. The trade-off is scanning matching records for each request.
+Use a unique final sort field for predictable cursor boundaries. These changes
+apply to filter-only searches; ranked text pagination retains its documented
+candidate limits. Collapse still needs retained group members, so its memory cost
+is different. Concurrent writes can move records between pages because this is
+not a point in time snapshot.
+
+The container replay against Elasticsearch 8.15.0 and Qdrant 1.19.2 passed all four cases: complete aggregations, post-filtered hits, the first sorted page, and its cursor continuation. The [captured results](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/aggregations/results.json) include actual request timings. They establish correctness for this fixture, not a speed advantage.
+
+
+---
+
 Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-sharing-mappings-between-gateway-replicas.md
 
 # Two gateways need one view of their mappings
@@ -564,6 +642,73 @@ This improves the evidence trail, not the gateway's query speed. When a source r
 
 ---
 
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-explicit-sparse-vectors-without-token-folding.md
+
+# Keep your sparse token IDs intact
+
+A sparse embedding is a small dictionary: token IDs paired with weights. If the
+same token changes identity between indexing and searching, a successful HTTP
+response can hide the wrong answer.
+
+An [OpenSearch report](https://github.com/opensearch-project/neural-search/issues/2048)
+describes exactly that problem in the SEISMIC approximate path of OpenSearch
+3.9.0: “the query token is folded, the document tokens are not.” The report also
+says the Lucene exact path returns the correct results.
+
+The gateway now accepts explicit sparse embeddings and passes their numeric IDs
+to Qdrant unchanged. IDs such as `32768`, `65535` and `65536` stay distinct.
+Documents and queries share the same validation: canonical decimal IDs in the
+unsigned 32-bit range and positive, finite float32 weights. Invalid vectors fail
+before document writes. You supply embeddings; the gateway does not run a model.
+
+Create a field with the common OpenSearch mapping shape:
+
+```json
+{"settings":{"index.sparse":true},"mappings":{"properties":{"v":{"type":"sparse_vector","method":{"name":"seismic","engine":"lucene"}}}}}
+```
+
+Index a document containing `{"v":{"65536":1.0}}`, then search:
+
+```json
+{"size":10,"query":{"neural_sparse":{"v":{"query_tokens":{"65536":1.0}}}}}
+```
+
+Qdrant executes an exact sparse dot product. The method labels in the mapping
+are accepted compatibility syntax, not a request to run Lucene inside Qdrant.
+Engine-specific tuning and model inference are rejected with a 400 response.
+
+We checked the common request shape against real OpenSearch 3.9.0 and Qdrant
+1.19.2. Eight documents used tokens `0`, `1`, `32767`, `32768`, `40342`, `65535`,
+`65536` and `105878`. Every query returned exactly its own document on both
+endpoints. This is a correctness check, **not a reproduction of the reported
+approximate-path bug** or a speed comparison.
+
+To repeat it from the repository checkout:
+
+```sh
+docker compose -f examples/explicit-sparse/compose.yml up -d --build
+# Wait for both endpoints to answer GET /.
+python3 examples/explicit-sparse/compare.py
+docker compose -f examples/explicit-sparse/compose.yml down -v
+```
+
+The [demo and captured results](https://github.com/dstockton/qdrant-es-gateway/tree/main/examples/explicit-sparse)
+include the complete fixture and individual timings. The script sends identical
+requests to both endpoints, changing only the endpoint address. It replaces its
+own demo index, so run it against disposable instances.
+
+For an application already using Qdrant, this adds an OpenSearch-shaped way to
+search precomputed embeddings without another inference service or gateway
+session store. It does not establish that migrating from OpenSearch is better:
+the tested native exact path is correct too. Sparse queries currently support a
+single top-level field and bounded `from`/`size`; total hits are a lower bound.
+They reject aggregations, sorting, collapse, post-filtering, `min_score` and
+`search_after`. Scalar filters on the sparse field also fail explicitly.
+Use a new index when adding sparse fields to an existing mapping.
+
+
+---
+
 Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-documentation-you-can-read-as-text.md
 
 # Documentation you can read as text
@@ -577,6 +722,101 @@ These files are generated from the same Markdown sources that build the site. Th
 The format follows the [llms.txt proposal](https://llmstxt.org/). It gives tools a predictable entry point; it does not guarantee that any crawler or assistant will discover, index, or follow it. Search engines can still use the normal HTML pages and sitemap.
 
 For a migration review, start with the compatibility guide before reading a successful example. A post proves a particular workload, not full Elasticsearch or OpenSearch equivalence. Keeping that boundary beside the examples makes the repository easier to use responsibly, for people and agents alike.
+
+
+---
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-calendar-days-follow-local-time.md
+
+# A reporting day is not always 24 hours
+
+A sales report grouped by London day should move its boundaries when the clocks
+change. Adding 86,400 seconds to yesterday's boundary gets that wrong twice a year.
+
+The gateway now supports a small, explicit `date_histogram` subset: calendar days,
+Monday-starting weeks, months, and years in an IANA time zone. It converts each
+timestamp into local calendar time and converts that calendar boundary back to UTC.
+
+```json
+{"size":0,"aggs":{"sales_days":{"date_histogram":{"field":"date","calendar_interval":"day","time_zone":"Europe/London","min_doc_count":1}}}}
+```
+
+The deterministic test measures 23 hours between the March 29 and March 30, 2026
+London boundaries and 25 hours between October 25 and October 26. Documents with
+multiple timestamps count once per bucket. Run:
+
+```sh
+cargo test calendar_days_follow_dst_and_weeks_start_monday
+```
+
+The [comparison fixture](https://github.com/dstockton/qdrant-es-gateway/tree/main/validation/aggregations)
+contains dates on both sides of those transitions and sends identical requests to
+Elasticsearch and the gateway. This is compatibility work for teams already using
+Qdrant; there is no claimed speed advantage over a native calendar histogram.
+
+Only nonempty buckets are supported, so `min_doc_count:1` is required. Custom
+formats, fixed intervals, offsets, bounds, subaggregations, and nonexistent local
+midnight boundaries fail explicitly. Input dates accept epoch milliseconds,
+RFC3339 timestamps, and `YYYY-MM-DD` dates. Date-only input denotes midnight UTC.
+
+Time-zone rules come from the compiled `chrono-tz` dependency. Keeping that data
+current still matters: implementing a calendar reducer does not repair stale rules.
+This does **not** claim to resolve the
+[Graylog OpenSearch tzdata report](https://github.com/Graylog2/graylog2-server/issues/27755),
+which describes "events near midnight land on the wrong day" under outdated rules.
+That reported deployment needs separate reproduction with its exact engine and
+updated zone data. The London checks exercise established DST rules, not those
+reported Canadian and Moroccan rule changes.
+
+The container replay against Elasticsearch 8.15.0 and Qdrant 1.19.2 passed all four cases: complete aggregations, post-filtered hits, the first sorted page, and its cursor continuation. The [captured results](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/aggregations/results.json) include actual request timings. They establish correctness for this fixture, not a speed advantage.
+
+
+---
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-aggregations-beyond-the-first-page.md
+
+# The cheapest item may be on the next page
+
+A price filter should describe the matching catalogue, even when the shopper only
+asks for one product. The gateway previously calculated `min`, `max`, and filter
+counts from the hit candidates it had fetched. A small `size` could therefore
+produce a plausible but incomplete answer.
+
+The fix separates those two jobs. Qdrant scrolls through every matching page;
+the gateway retains the current extrema and bucket counters, then discards each
+page. The hit limit no longer sets the scope of an aggregation. `post_filter`,
+collapse, and `search_after` still affect hits, not aggregation membership.
+
+For example:
+
+```json
+{"size":0,"aggs":{"lowest_price":{"min":{"field":"price"}},"brands":{"terms":{"field":"brand","size":2}}}}
+```
+
+Our regression puts prices 50 and 2 on separate pages. The result is 2, including
+when the search returns no hits. Terms now count the complete matching set too,
+deduplicate repeated values within one document, and report the actual count
+outside the returned top buckets.
+
+Run `cargo test aggregation_scroll_visits_every_page_and_uses_search_projection_values`
+for the deterministic two-page check. The repository's
+[`validation/aggregations` comparison](https://github.com/dstockton/qdrant-es-gateway/tree/main/validation/aggregations)
+also sends the same six-document fixture and requests to Elasticsearch 8.15.0 and
+the gateway with Qdrant. It prints the observed results and individual timings.
+
+This improves correctness within the gateway's supported subset; it is not a
+claim that scanning is faster than Elasticsearch's native aggregations. A full
+scan costs work proportional to the matching data. Metrics use constant state;
+buckets have an explicit 10,000-distinct-value limit per aggregation and fail
+rather than return truncated totals. There are at most 100 aggregations per request.
+
+Ranked text and pattern queries are rejected when combined with aggregations,
+because their candidate membership cannot currently be reduced exactly this way.
+Concurrent writes can change a scroll while it runs. With document projection,
+reductions use mapped non-text values in the search projection, keeping membership
+and values together instead of fetching a newer source document.
+
+The container replay against Elasticsearch 8.15.0 and Qdrant 1.19.2 passed all four cases: complete aggregations, post-filtered hits, the first sorted page, and its cursor continuation. The [captured results](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/aggregations/results.json) include actual request timings. They establish correctness for this fixture, not a speed advantage.
 
 
 ---
@@ -600,6 +840,187 @@ For applications that use only the supported subset, Qdrant can remain the docum
 
 ---
 
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-14-index-names-are-a-client-contract.md
+
+# Index names are a client contract
+
+An invalid index name used to make it through the gateway's metadata catalogue and into a normalized Qdrant collection name. That was more than cosmetic. An application could successfully provision state that the same Elasticsearch or OpenSearch client would expect a native cluster to reject, and distinct punctuation could then collide in Qdrant's namespace.
+
+Elasticsearch and OpenSearch implement their validators independently, so this change checked both rather than assuming the fork still behaved like its ancestor. [Elasticsearch 9.5.5's validator](https://github.com/elastic/elasticsearch/blob/v9.5.5/server/src/main/java/org/elasticsearch/cluster/metadata/MetadataCreateIndexService.java#L342-L365) and [OpenSearch 3.9's validator](https://github.com/opensearch-project/OpenSearch/blob/3.9/server/src/main/java/org/opensearch/cluster/metadata/MetadataCreateIndexService.java#L313-L342) agree on the static boundary:
+
+- a name must be non-empty and lowercase;
+- filesystem-reserved punctuation, `#`, and `:` are forbidden;
+- `_`, `-`, and `+` cannot be the first character;
+- the UTF-8 encoding cannot exceed 255 bytes; and
+- `.` and `..` are invalid.
+
+The byte boundary matters for non-ASCII names: 127 copies of `é` occupy 254 UTF-8 bytes and pass, while 128 copies occupy 256 bytes and fail. The source implementations permit `+` away from the first character, despite the current OpenSearch prose documentation listing `+` among generally forbidden characters. The gateway follows the versioned 3.9 implementation for that edge rather than broadening the rejection.
+
+Invalid create requests now return HTTP 400 with the client-recognizable `invalid_index_name_exception`, root cause, index name, and `_na_` index UUID. Validation runs under the existing index-administration lock but before SQLite reads and Qdrant requests. Focused regressions cover the UTF-8 byte limit, punctuation, prefixes, lowercase requirement, response shape, and a zero-request mock upstream counter:
+
+```console
+cargo test index_name_validation_matches_shared_native_rules
+cargo test invalid_index_creation_fails_before_qdrant_work
+```
+
+This run is source- and request-level validation, not a live-engine benchmark. The local Docker service did not answer its availability check, so no native containers were claimed. Dot-prefixed names other than the exact `.` and `..` remain accepted by both versioned static validators; their separate hidden/system-index checks and deprecation behavior are not emulated by the gateway.
+
+
+---
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-14-alias-options-must-not-disappear.md
+
+# Alias options must not disappear
+
+The gateway deliberately implements unfiltered, unrouted aliases with one concrete target. Its alias action parser previously read only `index` and `alias`, but silently ignored every other metadata field. A request for a tenant filter, custom routing, or a write index could therefore return `{"acknowledged":true}` while the stored alias exposed all documents and routed every operation normally. That is more dangerous than an unsupported-feature error because the response tells the caller that a data-access or write-routing boundary exists when it does not.
+
+Elasticsearch 9.5.5 and OpenSearch 3.9.0 expose the same relevant action fields, but they were checked independently. The versioned [Elasticsearch request parser](https://github.com/elastic/elasticsearch/blob/v9.5.5/server/src/main/java/org/elasticsearch/action/admin/indices/alias/IndicesAliasesRequest.java#L98-L108) accepts `filter`, `routing`, `index_routing`, `search_routing`, `is_write_index`, and `is_hidden` for add actions, plus `must_exist` for removals. The versioned [OpenSearch request parser](https://github.com/opensearch-project/OpenSearch/blob/3.9.0/server/src/main/java/org/opensearch/action/admin/indices/alias/IndicesAliasesRequest.java#L106-L116) declares the corresponding fields, and the separate [OpenSearch alias documentation](https://docs.opensearch.org/latest/api-reference/alias/aliases-api/) describes their effects. This is source-level evidence for the two engines, not an assumption that verification against one applies to the other.
+
+The gateway now rejects every action metadata field outside its supported `index` and `alias` subset. Known native options and unknown fields receive a structured HTTP 400 naming the exact path, such as `_aliases.add.filter` or `_aliases.remove.must_exist`. Validation happens before index lookup and before the SQLite transaction, so a rejected request cannot create, remove, or modify an alias and never contacts Qdrant.
+
+```console
+cargo test alias_actions_reject_options_the_gateway_cannot_apply
+```
+
+The regression covers filters, all three routing forms, write-index and hidden flags, removal `must_exist`, and an unknown option. It also asserts that the catalogue still contains only its original alias after all failures. Docker was not responsive during this run, so no live Elasticsearch, OpenSearch, or Qdrant endpoint result is claimed. This change does not add filtered, routed, hidden, or multi-index aliases; it makes the existing compatibility boundary honest and fail closed.
+
+
+---
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-13-creating-an-index-is-not-a-mapping-update.md
+
+# Creating an index is not a mapping update
+
+Provisioning code often treats “already exists” as a narrow, recoverable race. It can do that reliably only when the server identifies the condition correctly. The gateway already rejected a second `PUT /products` before contacting Qdrant, but it grouped the request with unsupported query features and returned `qdrant_gateway_unsupported_query`. That classification could make an Elasticsearch or OpenSearch client treat a normal create race as an incompatible request.
+
+Elasticsearch and OpenSearch implement this case independently but agree on the exception class. [Elasticsearch 9.5.5's create-index service](https://github.com/elastic/elasticsearch/blob/v9.5.5/server/src/main/java/org/elasticsearch/cluster/metadata/MetadataCreateIndexService.java#L291-L295) throws `ResourceAlreadyExistsException` when either routing or index metadata already contains the name. [OpenSearch 3.9's corresponding service](https://github.com/opensearch-project/OpenSearch/blob/3.9/server/src/main/java/org/opensearch/cluster/metadata/MetadataCreateIndexService.java#L275-L279) performs the same two checks. OpenSearch also publishes the resulting REST example as HTTP 400 with `resource_already_exists_exception` in its [create/delete error-shape discussion](https://github.com/opensearch-project/OpenSearch/issues/14805).
+
+The gateway now returns the shared client-visible shape, including a root cause, top-level exception, reason, index name, and status 400. The check runs under the existing index-administration lock and before any Qdrant request. A focused regression also proves that the original mapping remains unchanged:
+
+```console
+cargo test duplicate_index_creation_returns_native_conflict_without_qdrant_work
+```
+
+This is request-level validation with a mocked upstream request counter, not a live-engine benchmark. Cached Elasticsearch 9.5.5 and OpenSearch 3.9.0 containers were available for a native probe, but the local Docker storage backend returned an input/output error before either container started. The version-specific source above is therefore the native evidence for this run. The gateway does not include a native index UUID because its metadata catalogue does not currently assign one. A different requested name that merely normalizes to an occupied Qdrant collection remains a gateway-specific `index.name` validation error rather than pretending that the Elasticsearch/OpenSearch index itself already exists.
+
+
+---
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-13-alias-add-is-not-a-retarget.md
+
+# Alias add is not a retarget
+
+The gateway stores one concrete index per alias. Its alias transaction used SQLite `INSERT OR REPLACE` for an `add` action, so adding an existing alias to a different index silently discarded the original target. That looked like a convenient retarget, but it changed the meaning of a standard Elasticsearch/OpenSearch request and could redirect application reads and writes without the caller expressing a swap.
+
+A direct endpoint probe against Elasticsearch 9.5.5 and OpenSearch 3.9.0 used the same five-request sequence: create `products-v1` and `products-v2`, add `current-products` to the first, add it to the second, then inspect the alias. Both native engines acknowledged both adds and returned both indices as targets. This agrees with the independent [Elasticsearch alias documentation](https://www.elastic.co/guide/en/elasticsearch/reference/current/aliases.html) and [OpenSearch manage-aliases documentation](https://docs.opensearch.org/latest/api-reference/alias/aliases-api/): aliases can cover multiple indices, and a move is expressed as remove plus add in one atomic request. The sanitized [probe evidence](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/evidence/elasticsearch-9.5.5-opensearch-3.9-alias-add-2026-10-13.json) records the versions, requests, acknowledgements, and final targets.
+
+The gateway still deliberately supports only single-target aliases. It now evaluates the final topology of the complete action batch before opening the write transaction. An add-only request that would require two targets receives a structured HTTP 400 compatibility error, and the existing target remains unchanged. A remove+add swap remains accepted in either action order because the final topology has one target and the SQLite transaction makes the change atomically visible.
+
+```console
+cargo test alias_add_does_not_silently_retarget_a_single_index_alias
+```
+
+This is a fail-closed compatibility improvement, not multi-index alias support. The gateway does not yet merge searches across indices, select a write index, apply alias filters, or reproduce native per-action partial-failure responses. The endpoint probe measures request semantics only; it makes no latency or resource-use claim.
+
+
+---
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-12-head-must-not-hide-storage-failures.md
+
+# HEAD must not hide storage failures
+
+Document-existence checks have a deliberately small contract. The [Elasticsearch 8 API reference](https://www.elastic.co/docs/api/doc/elasticsearch/v8/operation/operation-exists) and the [OpenSearch Get Document API reference](https://docs.opensearch.org/latest/api-reference/document-apis/get-documents/#checking-document-existence) both describe `HEAD /<index>/_doc/<id>` as HTTP 200 when the document exists and HTTP 404 when it does not. A storage outage is neither result.
+
+The gateway's HEAD path previously caught every Qdrant error and returned 404. A connection failure, missing collection, or Qdrant 5xx therefore looked like a trustworthy “document absent” answer. That can make health checks, conditional writes, and reconciliation jobs take destructive action on false information.
+
+HEAD now uses the same narrow missing-point classification as GET without retrieving the document source. The known Qdrant missing-point response remains a 404, while transport failures and upstream errors return 502. All gateway HEAD routes also attach `X-Elastic-Product: Elasticsearch`, and the response body remains empty. The focused regression injects a Qdrant 503 and verifies an empty 502 response in both embedded-source and document-projection modes:
+
+```console
+cargo test head_document_does_not_hide_qdrant_failures_as_not_found
+```
+
+This validation is request-level and uses a mocked Qdrant response; it is not a live Elasticsearch, OpenSearch, or Qdrant benchmark. The native status contract comes from the public engine documentation above. Query parameters such as `routing`, `refresh`, `realtime`, and explicit version checks remain outside the gateway's current HEAD compatibility surface.
+
+
+---
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-12-a-missing-point-is-not-a-failed-upstream.md
+
+# A missing point is not a failed upstream
+
+The Elasticsearch and OpenSearch index APIs are upserts, but their response describes which side of the operation happened. Live probes against Elasticsearch 9.5.5 and OpenSearch 3.9.0 both returned HTTP 201 with `result: "created"` for the first `PUT /<index>/_doc/<id>`, then HTTP 200 with `result: "updated"` for the replacement.
+
+The gateway already performed a point read before this write so it could make the same distinction. Against the repository's pinned Qdrant 1.15.5, however, a missing single point returns HTTP 404 with a structured “Point with id … does not exists” error. The generic Qdrant client treated every non-success response as an upstream failure, so the very first index request returned 502 and never reached the upsert.
+
+Single-point reads now recognize that exact missing-point response as an absent document. The shared path fixes ordinary GETs and the preflight reads used by standalone index, create, update, and delete operations. The exception is deliberately narrow: a Qdrant 404 that says the collection is missing still becomes a gateway 502, preserving a visible signal for storage/catalogue drift instead of pretending the document is absent.
+
+The sanitized [Elasticsearch 9.5.5, OpenSearch 3.9.0, and Qdrant 1.15.5 evidence](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/evidence/elasticsearch-9.5.5-opensearch-3.9-qdrant-missing-point-2026-10-12.json) records the native contract, Qdrant response shape, and live changed-gateway results. The gateway returned 404 for a missing GET, 201/`created` for the first PUT, 200/`updated` for the second PUT, and the replacement source on the final GET. Focused regressions use the observed Qdrant error body in both source-storage modes and prove that missing collections remain upstream errors.
+
+This is a single-document correctness check, not a concurrency or performance benchmark. The extra existence read was already part of the standalone index path, so the fix adds no request. That preflight still is not an atomic compare-and-write across gateway replicas, and the gateway's sequence-number, primary-term, and version fields remain approximate.
+
+
+---
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-11-source-filters-should-not-leak-siblings.md
+
+# Source filters should not leak sibling fields
+
+Elasticsearch clients often use `_source` filtering to keep response payloads small or avoid returning fields a particular view does not need. The gateway accepted array-shaped top-level filters, but a string such as `"profile.name"` silently returned the complete source. Nested paths were compared only with top-level keys, so even some accepted filters returned the wrong shape. A caller asking for a profile name could therefore receive sibling contact fields or unrelated metadata.
+
+A live probe against native Elasticsearch 9.5.5 established four narrow response contracts. A single dotted field returned `{"profile":{"name":"Ada"}}`; `profile.contact.*` preserved the nested contact object; an include of `profile.*` plus an exclusion of `profile.contact.phone` retained the email but removed the phone; and a numeric `_source` value failed with HTTP 400. The changed gateway produced the same shapes against pinned Qdrant 1.15.5. The sanitized [endpoint evidence](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/evidence/elasticsearch-9.5.5-source-filtering-2026-10-11.json) records the fixture, requests, statuses, and projected sources.
+
+The gateway now parses source filters before index lookup or Qdrant access, supports string and string-array patterns plus the singular and plural include/exclude options, and reconstructs nested objects while applying `*` and `?` wildcards. Collapse inner hits use the same parser. Malformed or mixed-type filters fail rather than falling back to the full source.
+
+This is response minimization, not field-level authorization. The gateway still hydrates the complete source before applying the filter, so source filtering does not reduce Qdrant read bandwidth or in-process memory use. The probe covers nested objects and common wildcard forms, not every Elasticsearch source-filtering edge case. OpenSearch was not run, so this result does not claim OpenSearch parity.
+
+
+---
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-11-integer-hit-totals-need-the-minus-one-sentinel.md
+
+# Integer hit totals need the minus-one sentinel
+
+OpenSearch retains a legacy response mode for clients that expect `hits.total` to be a number rather than the newer `{value, relation}` object. A live probe against OpenSearch 3.9.0 confirmed that `rest_total_hits_as_int=true` returns the exact integer for an ordinary search and the sentinel `-1` when the request also sets `track_total_hits: false`. The same query parameter applies to every item in `_msearch`. The gateway previously discarded the query string, so these requests silently received the wrong response shape.
+
+The gateway now carries the parameter through both endpoints, returns integer totals and the native disabled sentinel, and preserves the existing object shape for `false` or an absent parameter. Parsing matches the observed OpenSearch boundary: lowercase `true` and `false` are accepted, an empty or valueless parameter enables the mode, duplicate parameters use the last value, and a numeric `track_total_hits` threshold combined with integer formatting fails before index lookup or Qdrant work because the requested format cannot represent an inexact threshold.
+
+The sanitized [OpenSearch 3.9.0 evidence](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/evidence/opensearch-3.9-rest-total-hits-as-int-2026-10-11.json) records six `_search` cases and the two `_msearch` totals over three documents. A live gateway backed by pinned Qdrant 1.15.5 matched those shapes; focused tests also cover strict parsing, duplicate parameters, fail-fast validation, and upstream request counts.
+
+This is response-shape compatibility, not a performance benchmark. Integer totals have no place to carry the gateway's normal `eq` or `gte` relation, so callers using bounded text-search paths should prefer the object form when accuracy metadata matters. Elasticsearch was not run for this note, and no cross-engine parity claim is made.
+
+
+---
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-10-disabled-hit-totals-should-skip-the-count.md
+
+# Disabled hit totals should skip the count
+
+OpenSearch lets a search caller choose the cost and precision of `hits.total`. A live probe against OpenSearch 3.6.0 with 15 matching documents confirmed the three useful modes: the default returned `15/eq`, `track_total_hits: false` omitted `hits.total`, a threshold of 5 returned `5/gte`, and a threshold of 20 returned `15/eq`. The gateway previously ignored all four request shapes and always paid for its exact Qdrant count on eligible filter-only searches.
+
+The gateway now accepts boolean and non-negative integer modes. Disabling totals omits the response field and, importantly, skips the exact-count request. A live gateway backed by the repository's pinned Qdrant 1.15.5 image matched all four OpenSearch response shapes after write visibility converged. A request-level regression with a mocked Qdrant endpoint records one upstream scroll request instead of the usual count plus scroll pair. Numeric thresholds cap exact or bounded totals and preserve an honest `eq` or `gte` relation.
+
+The [saved native-engine evidence](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/evidence/opensearch-3.6-track-total-hits-2026-10-10.json) contains the fixture and response values without endpoint or container identifiers. This is a request-count result, not a latency benchmark: the actual saving depends on collection size, filters, Qdrant load, and network placement.
+
+There are two deliberate boundaries. A numeric threshold shapes the gateway response but does not terminate Qdrant's exact count early, so only `false` has a demonstrated upstream request saving. OpenSearch 3.6.0 also coerced some undocumented string, fractional, and negative values during the probe; the gateway accepts the documented boolean and non-negative integer forms and rejects other types before index lookup or Qdrant work. Elasticsearch was not run for this field note, so the native evidence here is OpenSearch-specific even though the supported request forms are shared by both APIs.
+
+
+---
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-09-search-after-needs-more-than-one-page.md
+
+# Search-after needs more than one page
+
+A deterministic catalogue replay against native Elasticsearch 9.5.5 exposed an empty second page from the gateway. Six products were sorted by ascending price, the first two sort values were returned as the cursor, and Elasticsearch returned the next two products. The gateway returned none.
+
+The cursor comparison itself was correct. The gateway had asked Qdrant for only `size` candidates, sorted those candidates locally, and then tried to find a cursor from the previous request inside that new first-page-sized set. The same boundary could also make the first sorted page depend on Qdrant's unrelated point order.
+
+Explicitly sorted searches now retrieve a candidate window of at least the configured `MAX_PAGE_SIZE` before ordering and applying `search_after`. A request-level regression uses a Qdrant mock that really truncates its response to the requested limit; with a three-candidate window, a two-hit first page and its cursor produce the remaining document. The live replay with the default 1,000-candidate window improved from 10/12 to 11/12 checks against Elasticsearch 9.5.5. The saved [endpoint evidence](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/evidence/elasticsearch-9.5.5-2026-10-09.json) records the exact requests, endpoint identities, and one-second gateway convergence allowance.
+
+This is bounded compatibility, not global Qdrant field ordering. A cursor cannot advance beyond the configured candidate window, changes to that window can invalidate a cursor, and each explicitly sorted request can now retrieve and hydrate up to `MAX_PAGE_SIZE` candidates even when the returned page is small. The remaining replay difference is the already documented analyzer boundary: Elasticsearch's lowercase prefix over a `text` field matches `Wireless`, while gateway-side stored-source matching remains case-sensitive. This run validated Elasticsearch 9.5.5; it did not treat the prior OpenSearch 3.6.0 replay as proof of identical server behavior.
+
+
+---
+
 Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-09-opensearch-wildcards-keep-the-leading-star.md
 
 # OpenSearch wildcards keep the leading star
@@ -613,76 +1034,6 @@ The reproducible endpoint replay used native OpenSearch 3.6.0, Qdrant ES Gateway
 The settle is part of the result, not a hidden correction. OpenSearch honored `refresh=wait_for`; the gateway's sparse search projection still needs a convergence allowance. The replay now records that allowance and sends `refresh=wait_for` for the final delete on both endpoints, preventing unmatched refresh timing from masquerading as a count incompatibility.
 
 The current official Python client was checked separately at the transport boundary: `opensearch-py` 3.2.0 completed info, index creation, bulk indexing, search, count, update, get, and delete against the gateway. That is client-shape evidence, not a claim that the gateway identifies itself as OpenSearch or implements the full OpenSearch API.
-
-
----
-
-Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-09-media-clearance-shortlist.md
-
-# Is this coastal clip cleared for the UK edit?
-
-A media producer needs coastal footage under 31 seconds with UK clearance. A French-only clip, a long coastal walk, and an uncleared aerial should stay out of the shortlist. These six synthetic archive records use topic and territory arrays; matching either array means matching any element.
-
-Use running Elasticsearch-compatible servers and a fresh `field_note_media` index. Curl is the client: execute the same commands against each server, changing only `ES` to the gateway URL (for example, `http://localhost:9200`).
-
-```sh
-ES=http://localhost:19200
-curl -fsS -X PUT "$ES/field_note_media" \
-  -H 'Content-Type: application/json' -d '{"mappings":{"properties":{"title":{"type":"text"},"topics":{"type":"keyword"},"territories":{"type":"keyword"},"format":{"type":"keyword"},"duration_seconds":{"type":"integer"}}}}'
-curl -fsS -X POST "$ES/field_note_media/_bulk?refresh=wait_for" \
-  -H 'Content-Type: application/x-ndjson' --data-binary @- <<'NDJSON'
-{"index":{"_id":"clip-101"}}
-{"title":"Whitby harbour at dawn","topics":["coast","harbour"],"territories":["GB","FR"],"format":"landscape","duration_seconds":20}
-{"index":{"_id":"clip-102"}}
-{"title":"Cornish surf close-up","topics":["coast","surf"],"territories":["GB"],"format":"portrait","duration_seconds":12}
-{"index":{"_id":"clip-103"}}
-{"title":"Brittany lighthouse","topics":["coast"],"territories":["FR"],"format":"landscape","duration_seconds":18}
-{"index":{"_id":"clip-104"}}
-{"title":"Northumberland coastal walk","topics":["coast","walking"],"territories":["GB"],"format":"landscape","duration_seconds":75}
-{"index":{"_id":"clip-105"}}
-{"title":"York market stalls","topics":["city","food"],"territories":["GB"],"format":"portrait","duration_seconds":15}
-{"index":{"_id":"clip-106"}}
-{"title":"Uncleared beach aerial","topics":["coast"],"territories":[],"format":"landscape","duration_seconds":25}
-NDJSON
-sleep 5
-```
-
-The same five-second settling pause is used on both endpoints; it does not establish immediate gateway refresh visibility.
-
-Find clips with the `coast` topic, `GB` clearance, and at most 30 seconds of footage:
-
-```sh
-curl -fsS -X POST "$ES/field_note_media/_search" \
-  -H 'Content-Type: application/json' -d '{"size":10,"query":{"bool":{"filter":[{"term":{"topics":"coast"}},{"term":{"territories":"GB"}},{"range":{"duration_seconds":{"lte":30}}}]}}}'
-```
-
-Expect exactly `clip-101` (Whitby harbour) and `clip-102` (Cornish surf), with their complete sources and total `2`. Hit order is immaterial. Count formats over that same filtered shortlist:
-
-```sh
-curl -fsS -X POST "$ES/field_note_media/_search" \
-  -H 'Content-Type: application/json' -d '{"size":0,"query":{"bool":{"filter":[{"term":{"topics":"coast"}},{"term":{"territories":"GB"}},{"range":{"duration_seconds":{"lte":30}}}]}},"aggs":{"formats":{"terms":{"field":"format","size":10}}}}'
-```
-
-Expect `landscape: 1` and `portrait: 1`, with no hits. Now the archive removes UK clearance from the harbour clip, leaving France:
-
-```sh
-curl -fsS -X POST "$ES/field_note_media/_update/clip-101?refresh=wait_for" \
-  -H 'Content-Type: application/json' -d '{"doc":{"territories":["FR"]}}'
-sleep 5
-curl -fsS "$ES/field_note_media/_doc/clip-101"
-```
-
-The update returns `updated`. The read must show `territories: ["FR"]`, preserving the title, both topics, landscape format, and 20-second duration. Repeat the two search requests above: only `clip-102` remains, total `1`, and the sole format bucket is `portrait: 1`. Replacing an array must remove the old clearance, not append to it. This is metadata retrieval; the archive remains responsible for clearance decisions.
-
-The [fixture](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/fixtures/media.json) and [replay](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/media.py) check statuses, bulk results, every stored ID/source, exact search totals, format counts, and clearance removal. The [recorded run](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/evidence/media-2026-10-09.json) passed 70/70 checks on Elasticsearch 8.15.0 and gateway 0.2.0 with Qdrant 1.15.5, using identical requests and default embedded-source, synchronous writes. The curl blocks were also run on both endpoints. No gateway code change or performance claim is involved.
-
-Boundary: concurrent atomic updates and Elasticsearch `nested` semantics for per-territory rights objects remain [unsupported](https://dstockton.github.io/qdrant-es-gateway/compatibility/).
-
-Remove this example's index when finished:
-
-```sh
-curl -fsS -X DELETE "$ES/field_note_media"
-```
 
 
 ---

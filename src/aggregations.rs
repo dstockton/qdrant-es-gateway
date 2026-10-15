@@ -178,7 +178,11 @@ impl Plan {
         Ok(Some(Self(plan)))
     }
 
-    pub(super) fn validate_projection(&self, mapping: &Value) -> Result<(), GatewayError> {
+    pub(super) fn validate_mapping(
+        &self,
+        mapping: &Value,
+        document_projection: bool,
+    ) -> Result<(), GatewayError> {
         fn query_fields(query: &Value, fields: &mut Vec<String>) {
             if let Some(object) = query.as_object() {
                 for (kind, options) in object {
@@ -226,9 +230,17 @@ impl Plan {
                 .and_then(|properties| properties.get(&field))
                 .and_then(|spec| spec.get("type"))
                 .and_then(Value::as_str);
-            if kind.is_none() || kind == Some("text") {
+            if matches!(
+                kind,
+                Some("text" | "sparse_vector" | "dense_vector" | "knn_vector")
+            ) {
                 return Err(bad(format!(
-                    "document projection aggregations require a mapped non-text field: {field}"
+                    "aggregations do not support text or vector field: {field}"
+                )));
+            }
+            if document_projection && kind.is_none() {
+                return Err(bad(format!(
+                    "document projection aggregations require a mapped scalar field: {field}"
                 )));
             }
         }
@@ -427,7 +439,7 @@ impl Reduction {
                     .skip(size)
                     .map(|(_, count)| count)
                     .sum::<u64>();
-                json!({"doc_count_error_upper_bound":0,"sum_other_doc_count":others,"buckets":buckets.into_iter().take(size).map(|(key,count)|json!({"key":key,"doc_count":count})).collect::<Vec<_>>()})
+                json!({"doc_count_error_upper_bound":0,"sum_other_doc_count":others,"buckets":buckets.into_iter().take(size).map(|(key,count)| if let Some(value) = key.as_bool() { json!({"key":u8::from(value),"key_as_string":value.to_string(),"doc_count":count}) } else { json!({"key":key,"doc_count":count}) }).collect::<Vec<_>>()})
             }
             Self::Histogram {
                 timezone, counts, ..
@@ -484,6 +496,42 @@ mod tests {
     }
 
     #[test]
+    fn mappings_reject_text_and_vectors_in_every_storage_mode() {
+        for kind in ["text", "sparse_vector", "dense_vector", "knn_vector"] {
+            let mapping = json!({"properties":{"value":{"type":kind}}});
+            for projection in [false, true] {
+                for spec in [
+                    json!({"values":{"terms":{"field":"value"}}}),
+                    json!({"values":{"filter":{"exists":{"field":"value"}}}}),
+                ] {
+                    let plan = Plan::parse(Some(&spec)).unwrap().unwrap();
+                    assert!(plan.validate_mapping(&mapping, projection).is_err());
+                }
+            }
+        }
+        let plan = Plan::parse(Some(&json!({"values":{"terms":{"field":"value"}}})))
+            .unwrap()
+            .unwrap();
+        assert!(plan.validate_mapping(&json!({}), false).is_ok());
+        assert!(plan.validate_mapping(&json!({}), true).is_err());
+    }
+
+    #[test]
+    fn boolean_terms_use_elasticsearch_numeric_keys_and_string_labels() {
+        let mut plan = Plan::parse(Some(&json!({"flags":{"terms":{"field":"flag"}}})))
+            .unwrap()
+            .unwrap();
+        let reducer = plan.0.get_mut("flags").unwrap();
+        reducer.observe(&json!({"flag":[true,true,false]})).unwrap();
+        reducer.observe(&json!({"flag":true})).unwrap();
+        let result = plan.0.remove("flags").unwrap().finish();
+        assert_eq!(
+            result["buckets"],
+            json!([{"key":1,"key_as_string":"true","doc_count":2},{"key":0,"key_as_string":"false","doc_count":1}])
+        );
+    }
+
+    #[test]
     fn options_fail_closed_instead_of_silently_changing_semantics() {
         for spec in [
             json!({"a":{"min":{"field":"price","missing":5}}}),
@@ -493,6 +541,93 @@ mod tests {
         ] {
             assert!(Plan::parse(Some(&spec)).is_err());
         }
+    }
+
+    fn search_test_state(base: String, projection: bool) -> AppState {
+        let mut cfg = Config::from_env();
+        cfg.max_page_size = 1;
+        cfg.document_projection = projection;
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY,mapping TEXT NOT NULL,vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY,index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products','{}','[]');").unwrap();
+        AppState {
+            shared_catalog: None,
+            qdrant: Qdrant {
+                admin_mutation_started: None,
+                client: Client::new(),
+                base,
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(1)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        }
+    }
+
+    #[tokio::test]
+    async fn projected_sort_skips_missing_sources_and_hydrates_each_page_once() {
+        let reads = Arc::new(Mutex::new(0));
+        let observed_reads = reads.clone();
+        let mock = Router::new().fallback(any(move |uri: axum::http::Uri, Json(request): Json<Value>| {
+            let reads = reads.clone();
+            async move {
+                if uri.path().ends_with("/count") { return Json(json!({"result":{"count":3}})); }
+                if uri.path().ends_with("_documents/points") {
+                    *reads.lock().unwrap() += 1;
+                    let id = &request["ids"][0];
+                    if id == &json!(point_id("products","missing")) { return Json(json!({"result":[]})); }
+                    let (id,price) = if id == &json!(point_id("products","a")) { ("a",50) } else { ("b",2) };
+                    return Json(json!({"result":[{"payload":{"_es_id":id,"_source":{"price":price}}}]}));
+                }
+                let (id,next) = match request.get("offset").and_then(Value::as_str) {
+                    None => ("missing",json!("a")), Some("a") => ("a",json!("b")), _ => ("b",Value::Null),
+                };
+                Json(json!({"result":{"points":[{"payload":{"_es_id":id}}],"next_page_offset":next}}))
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+        let state = search_test_state(format!("http://{address}"), true);
+        let response = search(
+            State(state),
+            Path("products".into()),
+            Json(json!({"size":1,"sort":[{"price":"asc"}]})),
+        )
+        .await
+        .unwrap();
+        let result: Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(result["hits"]["hits"][0]["_id"], "b");
+        assert_eq!(result["hits"]["total"], json!({"value":2,"relation":"eq"}));
+        assert_eq!(*observed_reads.lock().unwrap(), 3);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn sorted_scan_rejects_a_nonadvancing_cursor() {
+        let mock = Router::new().fallback(any(|uri: axum::http::Uri| async move {
+            if uri.path().ends_with("/count") { return Json(json!({"result":{"count":1}})); }
+            Json(json!({"result":{"points":[{"payload":{"_es_id":"a","_source":{"price":1}}}],"next_page_offset":"repeated"}}))
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+        let state = search_test_state(format!("http://{address}"), false);
+        let error = search(
+            State(state),
+            Path("products".into()),
+            Json(json!({"size":1,"sort":[{"price":"asc"}]})),
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("did not advance"));
+        server.abort();
     }
 
     #[tokio::test]

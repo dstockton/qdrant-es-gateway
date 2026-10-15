@@ -1,0 +1,364 @@
+{
+  "native": {
+    "aggregation_only": {
+      "elapsed_ms": 4.576,
+      "total": {
+        "value": 6,
+        "relation": "eq"
+      },
+      "ids": [],
+      "aggregations": {
+        "lowest": {
+          "value": 2.0
+        },
+        "highest": {
+          "value": 50.0
+        },
+        "brands": {
+          "doc_count_error_upper_bound": 0,
+          "sum_other_doc_count": 1,
+          "buckets": [
+            {
+              "key": "B",
+              "doc_count": 3
+            },
+            {
+              "key": "A",
+              "doc_count": 2
+            }
+          ]
+        },
+        "cheap": {
+          "doc_count": 2
+        },
+        "groups": {
+          "buckets": {
+            "B": {
+              "doc_count": 3
+            }
+          }
+        },
+        "days": {
+          "buckets": [
+            {
+              "key_as_string": "2026-03-28T00:00:00.000Z",
+              "key": 1774656000000,
+              "doc_count": 1
+            },
+            {
+              "key_as_string": "2026-03-29T00:00:00.000Z",
+              "key": 1774742400000,
+              "doc_count": 1
+            },
+            {
+              "key_as_string": "2026-03-30T00:00:00.000+01:00",
+              "key": 1774825200000,
+              "doc_count": 1
+            },
+            {
+              "key_as_string": "2026-10-24T00:00:00.000+01:00",
+              "key": 1792796400000,
+              "doc_count": 1
+            },
+            {
+              "key_as_string": "2026-10-25T00:00:00.000+01:00",
+              "key": 1792882800000,
+              "doc_count": 1
+            },
+            {
+              "key_as_string": "2026-10-26T00:00:00.000Z",
+              "key": 1792972800000,
+              "doc_count": 1
+            }
+          ]
+        }
+      }
+    },
+    "post_filter": {
+      "elapsed_ms": 4.539,
+      "total": {
+        "value": 3,
+        "relation": "eq"
+      },
+      "ids": [
+        "3",
+        "4"
+      ],
+      "aggregations": {
+        "lowest": {
+          "value": 2.0
+        },
+        "highest": {
+          "value": 50.0
+        },
+        "brands": {
+          "doc_count_error_upper_bound": 0,
+          "sum_other_doc_count": 1,
+          "buckets": [
+            {
+              "key": "B",
+              "doc_count": 3
+            },
+            {
+              "key": "A",
+              "doc_count": 2
+            }
+          ]
+        },
+        "cheap": {
+          "doc_count": 2
+        },
+        "groups": {
+          "buckets": {
+            "B": {
+              "doc_count": 3
+            }
+          }
+        },
+        "days": {
+          "buckets": [
+            {
+              "key_as_string": "2026-03-28T00:00:00.000Z",
+              "key": 1774656000000,
+              "doc_count": 1
+            },
+            {
+              "key_as_string": "2026-03-29T00:00:00.000Z",
+              "key": 1774742400000,
+              "doc_count": 1
+            },
+            {
+              "key_as_string": "2026-03-30T00:00:00.000+01:00",
+              "key": 1774825200000,
+              "doc_count": 1
+            },
+            {
+              "key_as_string": "2026-10-24T00:00:00.000+01:00",
+              "key": 1792796400000,
+              "doc_count": 1
+            },
+            {
+              "key_as_string": "2026-10-25T00:00:00.000+01:00",
+              "key": 1792882800000,
+              "doc_count": 1
+            },
+            {
+              "key_as_string": "2026-10-26T00:00:00.000Z",
+              "key": 1792972800000,
+              "doc_count": 1
+            }
+          ]
+        }
+      }
+    },
+    "sorted": {
+      "elapsed_ms": 2.852,
+      "total": {
+        "value": 6,
+        "relation": "eq"
+      },
+      "ids": [
+        "1",
+        "2"
+      ],
+      "aggregations": null
+    },
+    "next_page": {
+      "elapsed_ms": 2.343,
+      "total": {
+        "value": 6,
+        "relation": "eq"
+      },
+      "ids": [
+        "3",
+        "4"
+      ],
+      "aggregations": null
+    }
+  },
+  "gateway": {
+    "aggregation_only": {
+      "elapsed_ms": 3.149,
+      "total": {
+        "relation": "eq",
+        "value": 6
+      },
+      "ids": [],
+      "aggregations": {
+        "brands": {
+          "buckets": [
+            {
+              "doc_count": 3,
+              "key": "B"
+            },
+            {
+              "doc_count": 2,
+              "key": "A"
+            }
+          ],
+          "doc_count_error_upper_bound": 0,
+          "sum_other_doc_count": 1
+        },
+        "cheap": {
+          "doc_count": 2
+        },
+        "days": {
+          "buckets": [
+            {
+              "doc_count": 1,
+              "key": 1774656000000,
+              "key_as_string": "2026-03-28T00:00:00.000Z"
+            },
+            {
+              "doc_count": 1,
+              "key": 1774742400000,
+              "key_as_string": "2026-03-29T00:00:00.000Z"
+            },
+            {
+              "doc_count": 1,
+              "key": 1774825200000,
+              "key_as_string": "2026-03-30T00:00:00.000+01:00"
+            },
+            {
+              "doc_count": 1,
+              "key": 1792796400000,
+              "key_as_string": "2026-10-24T00:00:00.000+01:00"
+            },
+            {
+              "doc_count": 1,
+              "key": 1792882800000,
+              "key_as_string": "2026-10-25T00:00:00.000+01:00"
+            },
+            {
+              "doc_count": 1,
+              "key": 1792972800000,
+              "key_as_string": "2026-10-26T00:00:00.000Z"
+            }
+          ]
+        },
+        "groups": {
+          "buckets": {
+            "B": {
+              "doc_count": 3
+            }
+          }
+        },
+        "highest": {
+          "value": 50.0
+        },
+        "lowest": {
+          "value": 2.0
+        }
+      }
+    },
+    "post_filter": {
+      "elapsed_ms": 2.9,
+      "total": {
+        "relation": "eq",
+        "value": 3
+      },
+      "ids": [
+        "3",
+        "4"
+      ],
+      "aggregations": {
+        "brands": {
+          "buckets": [
+            {
+              "doc_count": 3,
+              "key": "B"
+            },
+            {
+              "doc_count": 2,
+              "key": "A"
+            }
+          ],
+          "doc_count_error_upper_bound": 0,
+          "sum_other_doc_count": 1
+        },
+        "cheap": {
+          "doc_count": 2
+        },
+        "days": {
+          "buckets": [
+            {
+              "doc_count": 1,
+              "key": 1774656000000,
+              "key_as_string": "2026-03-28T00:00:00.000Z"
+            },
+            {
+              "doc_count": 1,
+              "key": 1774742400000,
+              "key_as_string": "2026-03-29T00:00:00.000Z"
+            },
+            {
+              "doc_count": 1,
+              "key": 1774825200000,
+              "key_as_string": "2026-03-30T00:00:00.000+01:00"
+            },
+            {
+              "doc_count": 1,
+              "key": 1792796400000,
+              "key_as_string": "2026-10-24T00:00:00.000+01:00"
+            },
+            {
+              "doc_count": 1,
+              "key": 1792882800000,
+              "key_as_string": "2026-10-25T00:00:00.000+01:00"
+            },
+            {
+              "doc_count": 1,
+              "key": 1792972800000,
+              "key_as_string": "2026-10-26T00:00:00.000Z"
+            }
+          ]
+        },
+        "groups": {
+          "buckets": {
+            "B": {
+              "doc_count": 3
+            }
+          }
+        },
+        "highest": {
+          "value": 50.0
+        },
+        "lowest": {
+          "value": 2.0
+        }
+      }
+    },
+    "sorted": {
+      "elapsed_ms": 1.899,
+      "total": {
+        "relation": "eq",
+        "value": 6
+      },
+      "ids": [
+        "1",
+        "2"
+      ],
+      "aggregations": null
+    },
+    "next_page": {
+      "elapsed_ms": 2.281,
+      "total": {
+        "relation": "eq",
+        "value": 6
+      },
+      "ids": [
+        "3",
+        "4"
+      ],
+      "aggregations": null
+    }
+  },
+  "correctness": "all four cases match",
+  "verification": {
+    "recorded_at": "2026-10-15T06:12:16.689154+00:00",
+    "native_elasticsearch": "8.15.0",
+    "native_opensearch": "3.9.0",
+    "qdrant": "1.19.2",
+    "interpretation": "Deterministic correctness smoke checks on shared local container runtime; individual timings are not comparative benchmarks. No concurrent writes during queries."
+  }
+}

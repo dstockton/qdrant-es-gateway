@@ -42,3 +42,5 @@ which describes "events near midnight land on the wrong day" under outdated rule
 That reported deployment needs separate reproduction with its exact engine and
 updated zone data. The London checks exercise established DST rules, not those
 reported Canadian and Moroccan rule changes.
+
+The container replay against Elasticsearch 8.15.0 and Qdrant 1.19.2 passed all four cases: complete aggregations, post-filtered hits, the first sorted page, and its cursor continuation. The [captured results](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/aggregations/results.json) include actual request timings. They establish correctness for this fixture, not a speed advantage.

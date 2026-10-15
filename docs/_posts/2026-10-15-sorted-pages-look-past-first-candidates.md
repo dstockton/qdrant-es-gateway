@@ -38,3 +38,5 @@ apply to filter-only searches; ranked text pagination retains its documented
 candidate limits. Collapse still needs retained group members, so its memory cost
 is different. Concurrent writes can move records between pages because this is
 not a point in time snapshot.
+
+The container replay against Elasticsearch 8.15.0 and Qdrant 1.19.2 passed all four cases: complete aggregations, post-filtered hits, the first sorted page, and its cursor continuation. The [captured results](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/aggregations/results.json) include actual request timings. They establish correctness for this fixture, not a speed advantage.

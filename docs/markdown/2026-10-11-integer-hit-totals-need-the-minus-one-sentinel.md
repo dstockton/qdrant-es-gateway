@@ -1,0 +1,9 @@
+# Integer hit totals need the minus-one sentinel
+
+OpenSearch retains a legacy response mode for clients that expect `hits.total` to be a number rather than the newer `{value, relation}` object. A live probe against OpenSearch 3.9.0 confirmed that `rest_total_hits_as_int=true` returns the exact integer for an ordinary search and the sentinel `-1` when the request also sets `track_total_hits: false`. The same query parameter applies to every item in `_msearch`. The gateway previously discarded the query string, so these requests silently received the wrong response shape.
+
+The gateway now carries the parameter through both endpoints, returns integer totals and the native disabled sentinel, and preserves the existing object shape for `false` or an absent parameter. Parsing matches the observed OpenSearch boundary: lowercase `true` and `false` are accepted, an empty or valueless parameter enables the mode, duplicate parameters use the last value, and a numeric `track_total_hits` threshold combined with integer formatting fails before index lookup or Qdrant work because the requested format cannot represent an inexact threshold.
+
+The sanitized [OpenSearch 3.9.0 evidence](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/evidence/opensearch-3.9-rest-total-hits-as-int-2026-10-11.json) records six `_search` cases and the two `_msearch` totals over three documents. A live gateway backed by pinned Qdrant 1.15.5 matched those shapes; focused tests also cover strict parsing, duplicate parameters, fail-fast validation, and upstream request counts.
+
+This is response-shape compatibility, not a performance benchmark. Integer totals have no place to carry the gateway's normal `eq` or `gte` relation, so callers using bounded text-search paths should prefer the object form when accuracy metadata matters. Elasticsearch was not run for this note, and no cross-engine parity claim is made.

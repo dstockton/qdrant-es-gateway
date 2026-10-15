@@ -5,56 +5,56 @@
       "ids": [
         "0"
       ],
-      "elapsed_ms": 3.038
+      "elapsed_ms": 2.756
     },
     {
       "token": 1,
       "ids": [
         "1"
       ],
-      "elapsed_ms": 2.652
+      "elapsed_ms": 2.491
     },
     {
       "token": 32767,
       "ids": [
         "32767"
       ],
-      "elapsed_ms": 2.841
+      "elapsed_ms": 2.587
     },
     {
       "token": 32768,
       "ids": [
         "32768"
       ],
-      "elapsed_ms": 2.302
+      "elapsed_ms": 2.47
     },
     {
       "token": 40342,
       "ids": [
         "40342"
       ],
-      "elapsed_ms": 2.702
+      "elapsed_ms": 2.243
     },
     {
       "token": 65535,
       "ids": [
         "65535"
       ],
-      "elapsed_ms": 2.539
+      "elapsed_ms": 2.279
     },
     {
       "token": 65536,
       "ids": [
         "65536"
       ],
-      "elapsed_ms": 2.493
+      "elapsed_ms": 2.079
     },
     {
       "token": 105878,
       "ids": [
         "105878"
       ],
-      "elapsed_ms": 2.512
+      "elapsed_ms": 2.212
     }
   ],
   "gateway": [
@@ -63,56 +63,63 @@
       "ids": [
         "0"
       ],
-      "elapsed_ms": 1.816
+      "elapsed_ms": 1.455
     },
     {
       "token": 1,
       "ids": [
         "1"
       ],
-      "elapsed_ms": 0.926
+      "elapsed_ms": 0.952
     },
     {
       "token": 32767,
       "ids": [
         "32767"
       ],
-      "elapsed_ms": 0.899
+      "elapsed_ms": 0.982
     },
     {
       "token": 32768,
       "ids": [
         "32768"
       ],
-      "elapsed_ms": 0.824
+      "elapsed_ms": 0.907
     },
     {
       "token": 40342,
       "ids": [
         "40342"
       ],
-      "elapsed_ms": 0.807
+      "elapsed_ms": 0.861
     },
     {
       "token": 65535,
       "ids": [
         "65535"
       ],
-      "elapsed_ms": 0.842
+      "elapsed_ms": 0.849
     },
     {
       "token": 65536,
       "ids": [
         "65536"
       ],
-      "elapsed_ms": 0.826
+      "elapsed_ms": 0.794
     },
     {
       "token": 105878,
       "ids": [
         "105878"
       ],
-      "elapsed_ms": 0.836
+      "elapsed_ms": 0.851
     }
-  ]
+  ],
+  "verification": {
+    "recorded_at": "2026-10-15T06:12:16.689154+00:00",
+    "native_elasticsearch": "8.15.0",
+    "native_opensearch": "3.9.0",
+    "qdrant": "1.19.2",
+    "interpretation": "Deterministic correctness smoke checks on shared local container runtime; individual timings are not comparative benchmarks. No concurrent writes during queries."
+  }
 }

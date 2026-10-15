@@ -2871,9 +2871,7 @@ async fn search_with_total_format(
         return Err(GatewayError::bad("aggs", "aggregations require a filter-only query; ranked and pattern query membership cannot be aggregated exactly"));
     }
     let complete_aggregations = if let Some(plan) = aggregation_plan {
-        if state.cfg.document_projection {
-            plan.validate_projection(&mapping)?;
-        }
+        plan.validate_mapping(&mapping, state.cfg.document_projection)?;
         Some(plan.execute(&state, &coll, filter.as_ref()).await?)
     } else {
         None
@@ -3027,6 +3025,13 @@ async fn search_with_total_format(
                 };
                 for p in arr {
                     let pay = p.get("payload").cloned().unwrap_or(json!({}));
+                    let document_id = pay.get("_es_id").and_then(Value::as_str).unwrap_or("");
+                    if complete_hit_scan
+                        && state.cfg.document_projection
+                        && !sources.contains_key(document_id)
+                    {
+                        continue;
+                    }
                     let source = sources
                         .get(pay.get("_es_id").and_then(Value::as_str).unwrap_or(""))
                         .cloned()
@@ -3070,9 +3075,12 @@ async fn search_with_total_format(
                 if next.is_null() || (patterns.is_empty() && !complete_hit_scan) {
                     break;
                 }
+                if next == offset || arr.is_empty() {
+                    return Err(GatewayError::bad("search", "Qdrant scroll did not advance"));
+                }
                 offset = next;
             } else {
-                break;
+                return Err(GatewayError::bad("search", "invalid Qdrant scroll points"));
             }
         }
     }
@@ -3101,7 +3109,7 @@ async fn search_with_total_format(
         }
     }
     let mut hits: Vec<_> = unique.into_values().collect();
-    if state.cfg.document_projection {
+    if state.cfg.document_projection && !complete_hit_scan {
         let ids = hits
             .iter()
             .filter_map(|hit| {
@@ -3731,21 +3739,21 @@ async fn aliases(
     let transaction = db
         .transaction()
         .map_err(|e| GatewayError::Internal(e.to_string()))?;
-    for action in actions {
-        match action {
-            AliasAction::Add { alias, index } => transaction
+    // Apply the validated final topology, not a lossy single-target replay.
+    // A batch may temporarily add a second target and then remove it again.
+    for (alias, targets) in final_targets {
+        if let Some(index) = targets.into_iter().next() {
+            transaction
                 .execute(
                     "INSERT OR REPLACE INTO aliases(alias,index_name) VALUES (?1,?2)",
                     params![alias, index],
                 )
-                .map_err(|e| GatewayError::Internal(e.to_string()))?,
-            AliasAction::Remove { alias, index } => transaction
-                .execute(
-                    "DELETE FROM aliases WHERE alias=?1 AND index_name=?2",
-                    params![alias, index],
-                )
-                .map_err(|e| GatewayError::Internal(e.to_string()))?,
-        };
+                .map_err(|e| GatewayError::Internal(e.to_string()))?;
+        } else {
+            transaction
+                .execute("DELETE FROM aliases WHERE alias=?1", params![alias])
+                .map_err(|e| GatewayError::Internal(e.to_string()))?;
+        }
     }
     shared_catalog::validate_catalog_capacity(&state, &transaction)?;
     transaction
@@ -4672,6 +4680,41 @@ mod tests {
             )
             .unwrap();
         assert_eq!(target, "products-v2");
+
+        // Temporarily adding and then removing v1 must preserve the original
+        // v2 target. Replaying INSERT OR REPLACE followed by DELETE loses v2.
+        for (actions, expected) in [
+            (
+                json!([
+                    {"add":{"index":"products-v1","alias":"current-products"}},
+                    {"remove":{"index":"products-v1","alias":"current-products"}}
+                ]),
+                "products-v2",
+            ),
+            (
+                json!([
+                    {"add":{"index":"products-v1","alias":"current-products"}},
+                    {"add":{"index":"products-v2","alias":"current-products"}},
+                    {"remove":{"index":"products-v2","alias":"current-products"}}
+                ]),
+                "products-v1",
+            ),
+        ] {
+            aliases(State(state.clone()), Json(json!({"actions":actions})))
+                .await
+                .unwrap();
+            let target: String = state
+                .db
+                .lock()
+                .unwrap()
+                .query_row(
+                    "SELECT index_name FROM aliases WHERE alias='current-products'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(target, expected);
+        }
     }
 
     #[tokio::test]
@@ -5174,10 +5217,7 @@ mod tests {
         assert_eq!(
             *requests.lock().unwrap(),
             [
-                format!(
-                    "GET /collections/es_products/points/{}",
-                    point_id("products", "1")
-                ),
+                "POST /collections/es_products/points".to_string(),
                 "POST /collections/es_products/points/count".into(),
                 "POST /collections/es_products/points/scroll".into()
             ]

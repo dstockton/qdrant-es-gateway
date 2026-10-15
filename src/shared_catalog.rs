@@ -364,6 +364,7 @@ mod tests {
             state.clone(),
             Method::PUT,
             "/books".into(),
+            None,
             HeaderMap::new(),
             "not JSON".into(),
         )
@@ -374,6 +375,7 @@ mod tests {
             state,
             Method::PUT,
             "/books".into(),
+            None,
             HeaderMap::new(),
             "{}".into(),
         )
@@ -464,6 +466,7 @@ mod tests {
                 first.clone(),
                 method,
                 path.into(),
+                None,
                 HeaderMap::new(),
                 body.to_string(),
             )
@@ -477,6 +480,7 @@ mod tests {
                 second.clone(),
                 Method::GET,
                 "/books/_mapping".into(),
+                None,
                 HeaderMap::new(),
                 String::new(),
             )
@@ -501,6 +505,7 @@ mod tests {
             second.clone(),
             Method::GET,
             "/current".into(),
+            None,
             HeaderMap::new(),
             String::new(),
         )
@@ -539,6 +544,7 @@ mod tests {
                 first.clone(),
                 method,
                 path.into(),
+                None,
                 HeaderMap::new(),
                 body.to_string(),
             )
