@@ -1,0 +1,152 @@
+{
+  "experiment": "atomic-cache-catalog-snapshot-v1",
+  "measured_http_responses": 93600,
+  "all_measured_responses_correct": true,
+  "smoke_operations_excluded_from_count": 15,
+  "raw_measurement_files": 12,
+  "resource_files": 8,
+  "summary_rows_independently_verified": 42,
+  "baseline": {
+    "code_revision": "49da1cb22279d22761e18cb38480c36d0bea943b",
+    "built_source": "c4208725b240289a3c0890e576904b80bdf7a0e7",
+    "image_id": "sha256:220649fc71be02210342fef90f9b8d2426cfb8013ee8285ce44cc8c41aa61fc4"
+  },
+  "candidate": {
+    "source": "2deda5e43b72de9b2c2ad6f9043df2a01217fd55",
+    "image_id": "sha256:1faf2724e09951316f7bd7699b9fb3199b302675627ce8683505156f3eb8139c"
+  },
+  "order": "on-main old1,new1,new2,old2 (cold then warm each round); off-control old1,new1,new2,old2 (cold only)",
+  "aggregation": "median of six trial quantiles per image, profile, engine, workload, concurrency",
+  "sanitization": "Removed ephemeral container_id fields only; original hashes retained; timings and observations unchanged.",
+  "limitations": [
+    "No pooling with prior experiments.",
+    "Resource snapshots span profile setup/priming and native-engine phases; counters do not attribute latency.",
+    "AOF rewrites advanced 0 to 1 during first baseline warm profile; remaining profiles stable at 1; delayed fsync remained zero.",
+    "Native controls also drifted; no isolated latency gain or causal diagnosis established."
+  ],
+  "files": [
+    {
+      "file": "atomic-snapshot-cold-resources-summary.json",
+      "sha256": "6c6f86bda230e7536ac203961179390765ced3692b207300b6c5bf535615ae0d",
+      "original_sha256": "20fc9cd3b69d5915ccf109cf476754a96d21059224ff4eb382bf1e48fbb06ed8"
+    },
+    {
+      "file": "atomic-snapshot-off-control-new-1-cold.json",
+      "sha256": "628280dc207032e6fd5567856a4525666bbe0f49cb52bc2aec5843fe80c1bc85",
+      "original_sha256": "628280dc207032e6fd5567856a4525666bbe0f49cb52bc2aec5843fe80c1bc85"
+    },
+    {
+      "file": "atomic-snapshot-off-control-new-1-resources.json",
+      "sha256": "758ac6f0d69df470be61426b2a8f4dc555c8edae56bf27cb619ef95ffe9c549d",
+      "original_sha256": "5f4e912b7605b11d96c71c7e2610c872df2cbf73a80293d38a1342bde871862b"
+    },
+    {
+      "file": "atomic-snapshot-off-control-new-2-cold.json",
+      "sha256": "44670e189dd09bbf221d60c27763ce8b59ebd72c8c9836a9ad784d6d66b9e3dc",
+      "original_sha256": "44670e189dd09bbf221d60c27763ce8b59ebd72c8c9836a9ad784d6d66b9e3dc"
+    },
+    {
+      "file": "atomic-snapshot-off-control-new-2-resources.json",
+      "sha256": "ecca30c8e5d19497525f890ee68173861786a628a7d1587391d6b9b77c1516c7",
+      "original_sha256": "fc62a7655ac983bd953c397606cd5f28518448df62f5791e06103dfb634f8cfe"
+    },
+    {
+      "file": "atomic-snapshot-off-control-old-1-cold.json",
+      "sha256": "a81797eea9da33931ea19f6738867883c878ea4264c397062b48273ef04f5f19",
+      "original_sha256": "a81797eea9da33931ea19f6738867883c878ea4264c397062b48273ef04f5f19"
+    },
+    {
+      "file": "atomic-snapshot-off-control-old-1-resources.json",
+      "sha256": "1f446b341775889e1d9550e2ca9273f6b45b9e088d6b5b1a75d5c613f7cc6779",
+      "original_sha256": "808f483112df6830b48b4c1cc1620738103307ecfd6732799c729a0495d39d68"
+    },
+    {
+      "file": "atomic-snapshot-off-control-old-2-cold.json",
+      "sha256": "d7efed64365187e8c6576a6b2c22c326dcd2b860795aa7a6b17d1351aef10859",
+      "original_sha256": "d7efed64365187e8c6576a6b2c22c326dcd2b860795aa7a6b17d1351aef10859"
+    },
+    {
+      "file": "atomic-snapshot-off-control-old-2-resources.json",
+      "sha256": "2f95daae7425b814821166717535c175bab641937afabd1b2ed220990b7827b3",
+      "original_sha256": "e74209a711b1c67a092ee88ef1d6cb87eedde644b547348da92e912ebb3a21cc"
+    },
+    {
+      "file": "atomic-snapshot-on-main-new-1-cold.json",
+      "sha256": "e1253611de8312ae514b10b0b7cbaa7c27b822140d78c9e364546d474c4b358e",
+      "original_sha256": "e1253611de8312ae514b10b0b7cbaa7c27b822140d78c9e364546d474c4b358e"
+    },
+    {
+      "file": "atomic-snapshot-on-main-new-1-resources.json",
+      "sha256": "c64801fa425b3487d148b5966cffb9e565575af86667e2cdc36437e62e28c0b5",
+      "original_sha256": "3f7781ea231a5eba77cd2251c6dad469013365a75f69902ea825177bbb151e04"
+    },
+    {
+      "file": "atomic-snapshot-on-main-new-1-warm.json",
+      "sha256": "24f42eed4809291774f0ad25ce939bedfc8149f55e2f99b677477840b665de66",
+      "original_sha256": "24f42eed4809291774f0ad25ce939bedfc8149f55e2f99b677477840b665de66"
+    },
+    {
+      "file": "atomic-snapshot-on-main-new-2-cold.json",
+      "sha256": "f65793cf80f19593ca6ac3a1c09a739f2e81f5affaa6836a4b65ddb52734910e",
+      "original_sha256": "f65793cf80f19593ca6ac3a1c09a739f2e81f5affaa6836a4b65ddb52734910e"
+    },
+    {
+      "file": "atomic-snapshot-on-main-new-2-resources.json",
+      "sha256": "af47924cbeeade75af4cd9a802d450c563159815885bdfe6f128ae0669ef24e7",
+      "original_sha256": "1910a3c37d8a0cbfdfbfa1b181b120ecdeea4293a1198dd8e859f6da9bcd4d0c"
+    },
+    {
+      "file": "atomic-snapshot-on-main-new-2-warm.json",
+      "sha256": "9876de65693e7130c4d4e6d83288310f44a44daea021f33a3501561ea2781fc3",
+      "original_sha256": "9876de65693e7130c4d4e6d83288310f44a44daea021f33a3501561ea2781fc3"
+    },
+    {
+      "file": "atomic-snapshot-on-main-old-1-cold.json",
+      "sha256": "d0aac04d0ea9e577c9684af55ea03bc71ef88d9000e967ac44df29578243bbfb",
+      "original_sha256": "d0aac04d0ea9e577c9684af55ea03bc71ef88d9000e967ac44df29578243bbfb"
+    },
+    {
+      "file": "atomic-snapshot-on-main-old-1-resources.json",
+      "sha256": "904bc99061de4d2b15d563d534180d325d94147a70f5d55b30f4e9e78d7444b7",
+      "original_sha256": "085cac540c45bf0a7f96f541c7b5445d04ac1bb4a70d6342c040a02d92461380"
+    },
+    {
+      "file": "atomic-snapshot-on-main-old-1-warm.json",
+      "sha256": "63e413567988eac6731781c7f0a55a009a883756633249864912d5f6183884ae",
+      "original_sha256": "63e413567988eac6731781c7f0a55a009a883756633249864912d5f6183884ae"
+    },
+    {
+      "file": "atomic-snapshot-on-main-old-2-cold.json",
+      "sha256": "d469e8c4beb7ea4eef64878c7d2105c391db88d7739856b3d8a25107e634f016",
+      "original_sha256": "d469e8c4beb7ea4eef64878c7d2105c391db88d7739856b3d8a25107e634f016"
+    },
+    {
+      "file": "atomic-snapshot-on-main-old-2-resources.json",
+      "sha256": "9d1979770aec4b2d33ca5b64d700d4aebc1fdc27b18565a21d3c0e0d2372dde1",
+      "original_sha256": "37764842156a43070751f9fba4ae29eb2e0f49b40bc9c6ad5a6208f2b224e956"
+    },
+    {
+      "file": "atomic-snapshot-on-main-old-2-warm.json",
+      "sha256": "be4aeb59c9a41ac44c539c155efc40fa7273b9e4efc64652f2d1b4719c985993",
+      "original_sha256": "be4aeb59c9a41ac44c539c155efc40fa7273b9e4efc64652f2d1b4719c985993"
+    },
+    {
+      "file": "atomic-snapshot-smoke.json",
+      "sha256": "7475ff7fec9264b9b93e9446b2dbb736cbac3b6bc66352a2608b1f0c488b1551",
+      "original_sha256": "9118d569aa075cc55b3071a9a60800ac6de08131962fc59a94fdb6f171fc7375"
+    },
+    {
+      "file": "atomic-snapshot-summary.json",
+      "sha256": "dfe2bd0bb438d99f8938f350e1f5163c045648456725fb5312d6388bfeb21b6c",
+      "original_sha256": "c9b615c79b9bca6e8b633c567dad26e8d0b6a8e7b02831d49965c88512022bb9"
+    },
+    {
+      "file": "snapshot_round.py",
+      "sha256": "3104ee2f51fadcb8c76c8ebb931fd6c5f83ce1045fd800b013713dc164306d52"
+    },
+    {
+      "file": "snapshot-image.yml",
+      "sha256": "078136ab0e22fd8ee87efacbb4d088e45cfc95615c9988daf10e5468828105f6"
+    }
+  ]
+}

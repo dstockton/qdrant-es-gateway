@@ -1,0 +1,721 @@
+{
+  "status": "passed",
+  "measured_http_responses": 93600,
+  "aggregation": "median of six trial quantiles per image; no pooling with previous experiments",
+  "comparisons": [
+    {
+      "kind": "off-control",
+      "profile": "cold",
+      "engine": "elasticsearch",
+      "workload": "unique_sorted_filter",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 1.0084063978865743,
+        "new": 1.096531399525702,
+        "change_percent": 8.739036347232698
+      },
+      "p95_ms": {
+        "old": 1.556749688461423,
+        "new": 1.521417172625661,
+        "change_percent": -2.2696337181015935
+      }
+    },
+    {
+      "kind": "off-control",
+      "profile": "cold",
+      "engine": "elasticsearch",
+      "workload": "unique_sorted_filter",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 2.9703020118176937,
+        "new": 3.0128543730825186,
+        "change_percent": 1.4325937596757932
+      },
+      "p95_ms": {
+        "old": 5.5732703767716885,
+        "new": 7.252353942021728,
+        "change_percent": 30.12743778317546
+      }
+    },
+    {
+      "kind": "off-control",
+      "profile": "cold",
+      "engine": "gateway",
+      "workload": "unique_sorted_filter",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 2.677166718058288,
+        "new": 2.706614206545055,
+        "change_percent": 1.0999497449349915
+      },
+      "p95_ms": {
+        "old": 3.810125170275569,
+        "new": 3.1277083326131105,
+        "change_percent": -17.910614669205273
+      }
+    },
+    {
+      "kind": "off-control",
+      "profile": "cold",
+      "engine": "gateway",
+      "workload": "unique_sorted_filter",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 10.851031285710633,
+        "new": 10.581082897260785,
+        "change_percent": -2.4877671194749373
+      },
+      "p95_ms": {
+        "old": 75.47743734903634,
+        "new": 75.25416696444154,
+        "change_percent": -0.2958107646955588
+      }
+    },
+    {
+      "kind": "off-control",
+      "profile": "cold",
+      "engine": "opensearch",
+      "workload": "unique_sorted_filter",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.7678854744881392,
+        "new": 1.0312603553757071,
+        "change_percent": 34.29871896758168
+      },
+      "p95_ms": {
+        "old": 1.01710413582623,
+        "new": 1.3719373382627964,
+        "change_percent": 34.88661484483324
+      }
+    },
+    {
+      "kind": "off-control",
+      "profile": "cold",
+      "engine": "opensearch",
+      "workload": "unique_sorted_filter",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 2.9089375166222453,
+        "new": 2.51527049113065,
+        "change_percent": -13.533017579171226
+      },
+      "p95_ms": {
+        "old": 6.522791925817728,
+        "new": 5.602729041129351,
+        "change_percent": -14.105353890665985
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "cold",
+      "engine": "elasticsearch",
+      "workload": "unique_sorted_filter",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 1.3745729811489582,
+        "new": 1.516416436061263,
+        "change_percent": 10.319092318673606
+      },
+      "p95_ms": {
+        "old": 1.908270874992013,
+        "new": 2.1626243833452463,
+        "change_percent": 13.329004371787523
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "cold",
+      "engine": "elasticsearch",
+      "workload": "unique_sorted_filter",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 3.342969110235572,
+        "new": 3.0870934715494514,
+        "change_percent": -7.654143076065978
+      },
+      "p95_ms": {
+        "old": 9.398999391123652,
+        "new": 7.661187089979649,
+        "change_percent": -18.489333053741674
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "cold",
+      "engine": "gateway",
+      "workload": "unique_sorted_filter",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 4.267583251930773,
+        "new": 4.139260156080127,
+        "change_percent": -3.006926596981785
+      },
+      "p95_ms": {
+        "old": 5.098895402625203,
+        "new": 5.122438073158264,
+        "change_percent": 0.46172099394194976
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "cold",
+      "engine": "gateway",
+      "workload": "unique_sorted_filter",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 16.06669812463224,
+        "new": 14.799958444200456,
+        "change_percent": -7.884256432811876
+      },
+      "p95_ms": {
+        "old": 70.19247929565609,
+        "new": 68.66293749772012,
+        "change_percent": -2.1790679190763718
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "cold",
+      "engine": "opensearch",
+      "workload": "unique_sorted_filter",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 1.2022290611639619,
+        "new": 1.1171457590535283,
+        "change_percent": -7.077129047941866
+      },
+      "p95_ms": {
+        "old": 1.7310420516878366,
+        "new": 1.7054586205631495,
+        "change_percent": -1.4779208338550953
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "cold",
+      "engine": "opensearch",
+      "workload": "unique_sorted_filter",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 3.3241247292608023,
+        "new": 2.9459790093824267,
+        "change_percent": -11.375798162738171
+      },
+      "p95_ms": {
+        "old": 9.473562706261873,
+        "new": 6.611604010686278,
+        "change_percent": -30.20995146507962
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "elasticsearch",
+      "workload": "filter_aggregation",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.6685212720185518,
+        "new": 0.6159376353025436,
+        "change_percent": -7.865663953704227
+      },
+      "p95_ms": {
+        "old": 1.2198123149573803,
+        "new": 1.0761460289359093,
+        "change_percent": -11.777736973125297
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "elasticsearch",
+      "workload": "filter_aggregation",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 1.8660936038941145,
+        "new": 1.9881875487044454,
+        "change_percent": 6.542755655747845
+      },
+      "p95_ms": {
+        "old": 2.787250094115734,
+        "new": 2.9733125120401382,
+        "change_percent": 6.6754834206376845
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "elasticsearch",
+      "workload": "filtered_search",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 1.0798854054883122,
+        "new": 1.0821456089615822,
+        "change_percent": 0.20930030740140548
+      },
+      "p95_ms": {
+        "old": 1.5384999569505453,
+        "new": 1.543104648590088,
+        "change_percent": 0.29929748250818733
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "elasticsearch",
+      "workload": "filtered_search",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 2.877385006286204,
+        "new": 2.7257498586550355,
+        "change_percent": -5.2698942720523
+      },
+      "p95_ms": {
+        "old": 4.5861664693802595,
+        "new": 4.448833176866174,
+        "change_percent": -2.9945117219577044
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "elasticsearch",
+      "workload": "point_read",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.5244581261649728,
+        "new": 0.5077504320070148,
+        "change_percent": -3.185706031505453
+      },
+      "p95_ms": {
+        "old": 0.6537709850817919,
+        "new": 0.694645568728447,
+        "change_percent": 6.252125679995024
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "elasticsearch",
+      "workload": "point_read",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 1.349958241917193,
+        "new": 1.2265312252566218,
+        "change_percent": -9.143024786106102
+      },
+      "p95_ms": {
+        "old": 1.963791437447071,
+        "new": 2.0556459203362465,
+        "change_percent": 4.677405203914442
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "elasticsearch",
+      "workload": "sorted_pagination",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 1.2410212075337768,
+        "new": 1.2664060341194272,
+        "change_percent": 2.04547887107398
+      },
+      "p95_ms": {
+        "old": 1.979499589651823,
+        "new": 1.8686249386519194,
+        "change_percent": -5.601145439964728
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "elasticsearch",
+      "workload": "sorted_pagination",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 3.396250191144645,
+        "new": 2.9847396072000265,
+        "change_percent": -12.116615702152567
+      },
+      "p95_ms": {
+        "old": 9.278458543121815,
+        "new": 4.711416782811284,
+        "change_percent": -49.22198810379026
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "elasticsearch",
+      "workload": "terms_aggregation",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.6420733407139778,
+        "new": 0.6294170161709189,
+        "change_percent": -1.97116493405336
+      },
+      "p95_ms": {
+        "old": 1.310396008193493,
+        "new": 1.1569170746952295,
+        "change_percent": -11.712408503887984
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "elasticsearch",
+      "workload": "terms_aggregation",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 2.0838333293795586,
+        "new": 2.005781279876828,
+        "change_percent": -3.7455994393740477
+      },
+      "p95_ms": {
+        "old": 3.585499944165349,
+        "new": 3.0005413573235273,
+        "change_percent": -16.314561315046717
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "gateway",
+      "workload": "filter_aggregation",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.5271666450425982,
+        "new": 0.506094191223383,
+        "change_percent": -3.9973040816177807
+      },
+      "p95_ms": {
+        "old": 0.8850626181811094,
+        "new": 0.8996669203042984,
+        "change_percent": 1.6500868778304367
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "gateway",
+      "workload": "filter_aggregation",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 1.724562724120915,
+        "new": 1.6636042855679989,
+        "change_percent": -3.5347185521471425
+      },
+      "p95_ms": {
+        "old": 2.922770334407687,
+        "new": 2.4270624853670597,
+        "change_percent": -16.960205295811758
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "gateway",
+      "workload": "filtered_search",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.7592085748910904,
+        "new": 0.6430414505302906,
+        "change_percent": -15.301081705704412
+      },
+      "p95_ms": {
+        "old": 1.4206038322299719,
+        "new": 1.1068955063819885,
+        "change_percent": -22.082745289764873
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "gateway",
+      "workload": "filtered_search",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 2.426270628347993,
+        "new": 2.2508229594677687,
+        "change_percent": -7.231166500155983
+      },
+      "p95_ms": {
+        "old": 4.559750435873866,
+        "new": 4.108124878257513,
+        "change_percent": -9.904611315197997
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "gateway",
+      "workload": "point_read",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.5192914977669716,
+        "new": 0.5691559053957462,
+        "change_percent": 9.60239246034238
+      },
+      "p95_ms": {
+        "old": 0.7304165046662092,
+        "new": 1.0203332640230656,
+        "change_percent": 39.69197813915015
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "gateway",
+      "workload": "point_read",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 1.3921773061156273,
+        "new": 1.2295726919546723,
+        "change_percent": -11.679878234378416
+      },
+      "p95_ms": {
+        "old": 1.9719793926924467,
+        "new": 1.835936913266778,
+        "change_percent": -6.898777945134748
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "gateway",
+      "workload": "sorted_pagination",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.7001662161201239,
+        "new": 0.6944793276488781,
+        "change_percent": -0.8122197758639205
+      },
+      "p95_ms": {
+        "old": 1.2100208550691605,
+        "new": 1.0933743324130774,
+        "change_percent": -9.640042332114685
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "gateway",
+      "workload": "sorted_pagination",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 2.649197936989367,
+        "new": 2.164885518141091,
+        "change_percent": -18.281473501321845
+      },
+      "p95_ms": {
+        "old": 6.583020556718111,
+        "new": 3.77724994905293,
+        "change_percent": -42.62132532461612
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "gateway",
+      "workload": "terms_aggregation",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.5362814990803599,
+        "new": 0.5455624777823687,
+        "change_percent": 1.7306169834171437
+      },
+      "p95_ms": {
+        "old": 0.9804789442569017,
+        "new": 1.085270894691348,
+        "change_percent": 10.687832823770371
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "gateway",
+      "workload": "terms_aggregation",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 1.799270510673523,
+        "new": 1.7359378980472684,
+        "change_percent": -3.519904997639689
+      },
+      "p95_ms": {
+        "old": 2.7192914858460426,
+        "new": 2.9202920850366354,
+        "change_percent": 7.391653312519253
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "opensearch",
+      "workload": "filter_aggregation",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.6580729968845844,
+        "new": 0.6113332929089665,
+        "change_percent": -7.102510541671004
+      },
+      "p95_ms": {
+        "old": 1.1101039126515388,
+        "new": 1.0820215102285147,
+        "change_percent": -2.5297093454925257
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "opensearch",
+      "workload": "filter_aggregation",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 1.8374478677287698,
+        "new": 1.8671873258426785,
+        "change_percent": 1.6185198304792703
+      },
+      "p95_ms": {
+        "old": 2.7702709194272757,
+        "new": 2.6200003921985626,
+        "change_percent": -5.424398248377093
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "opensearch",
+      "workload": "filtered_search",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.8864897536113858,
+        "new": 0.9590518893674016,
+        "change_percent": 8.185332708067051
+      },
+      "p95_ms": {
+        "old": 1.3318960554897785,
+        "new": 1.5989788807928562,
+        "change_percent": 20.052828011782296
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "opensearch",
+      "workload": "filtered_search",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 2.964333281852305,
+        "new": 2.6080626994371414,
+        "change_percent": -12.018573774961727
+      },
+      "p95_ms": {
+        "old": 5.5612914729863405,
+        "new": 5.819916957989335,
+        "change_percent": 4.650457295023158
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "opensearch",
+      "workload": "point_read",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.5398541688919067,
+        "new": 0.5650209495797753,
+        "change_percent": 4.661773889701615
+      },
+      "p95_ms": {
+        "old": 0.7443544454872608,
+        "new": 1.1660836171358824,
+        "change_percent": 56.657036739070456
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "opensearch",
+      "workload": "point_read",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 1.3257188256829977,
+        "new": 1.1603748425841331,
+        "change_percent": -12.47202497963178
+      },
+      "p95_ms": {
+        "old": 1.9284789450466633,
+        "new": 1.5924999024719,
+        "change_percent": -17.421971001432613
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "opensearch",
+      "workload": "sorted_pagination",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 1.0056872852146626,
+        "new": 1.0216665687039495,
+        "change_percent": 1.5888918677018138
+      },
+      "p95_ms": {
+        "old": 1.5589583199471235,
+        "new": 1.4541465789079666,
+        "change_percent": -6.723190716395289
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "opensearch",
+      "workload": "sorted_pagination",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 2.6701351162046194,
+        "new": 2.66173982527107,
+        "change_percent": -0.31441446099861325
+      },
+      "p95_ms": {
+        "old": 6.91812508739531,
+        "new": 5.058896029368043,
+        "change_percent": -26.87475341281046
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "opensearch",
+      "workload": "terms_aggregation",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.6373331416398287,
+        "new": 0.6243335083127022,
+        "change_percent": -2.0396920351072656
+      },
+      "p95_ms": {
+        "old": 1.078687608242035,
+        "new": 1.0412703268229961,
+        "change_percent": -3.4687782758549224
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "opensearch",
+      "workload": "terms_aggregation",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 2.035885932855308,
+        "new": 2.0220938604325056,
+        "change_percent": -0.6774481909926688
+      },
+      "p95_ms": {
+        "old": 3.9143955800682306,
+        "new": 2.988728927448392,
+        "change_percent": -23.647754389802977
+      }
+    }
+  ]
+}
