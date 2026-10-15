@@ -3078,7 +3078,10 @@ async fn search_with_total_format(
     let approximate_text = contains_approx_text_query(&query);
     let complete_aggregations = if let Some(plan) = aggregation_plan {
         plan.validate_mapping(&mapping, state.cfg.document_projection)?;
-        Some(plan.execute(&state, &coll, filter.as_ref()).await?)
+        Some(
+            plan.execute(&state, &coll, filter.as_ref(), &mapping)
+                .await?,
+        )
     } else {
         None
     };
