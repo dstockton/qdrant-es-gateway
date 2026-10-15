@@ -1,0 +1,58 @@
+{
+  "recorded_at": "2026-10-15T21:08:39+01:00",
+  "purpose": "Compare missing alias removal and mixed-batch behavior before correcting false-success responses",
+  "environment": "Separate ephemeral single-node containers with security disabled",
+  "limitations": [
+    "This is a request and response compatibility probe, not a performance benchmark.",
+    "The gateway supports only one literal alias and index per action, so native alias arrays, patterns, and multi-index final states are outside this comparison."
+  ],
+  "requests": {
+    "missing_single": {
+      "actions": [
+        {"remove": {"index": "products-v1", "alias": "missing"}}
+      ]
+    },
+    "missing_then_add": {
+      "actions": [
+        {"remove": {"index": "products-v1", "alias": "batch-alias"}},
+        {"add": {"index": "products-v2", "alias": "batch-alias"}}
+      ]
+    },
+    "wrong_index_remove": {
+      "precondition": "current points to products-v2",
+      "actions": [
+        {"remove": {"index": "products-v1", "alias": "current"}}
+      ]
+    }
+  },
+  "targets": [
+    {
+      "engine": "Elasticsearch",
+      "version": "9.5.5",
+      "image": "docker.elastic.co/elasticsearch/elasticsearch:9.5.5",
+      "missing_single": {"status": 404, "error_type": "aliases_not_found_exception"},
+      "missing_then_add": {
+        "status": 200,
+        "acknowledged": true,
+        "errors": true,
+        "action_statuses": [404, 200],
+        "final_target": "products-v2"
+      },
+      "wrong_index_remove": {"status": 404, "error_type": "aliases_not_found_exception"}
+    },
+    {
+      "engine": "OpenSearch",
+      "version": "3.9.0",
+      "image": "opensearchproject/opensearch:3.9.0",
+      "missing_single": {"status": 404, "error_type": "aliases_not_found_exception"},
+      "missing_then_add": {
+        "status": 200,
+        "acknowledged": true,
+        "errors_field_present": false,
+        "action_results_field_present": false,
+        "final_target": "products-v2"
+      },
+      "wrong_index_remove": {"status": 404, "error_type": "aliases_not_found_exception"}
+    }
+  ]
+}

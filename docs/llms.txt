@@ -31,6 +31,7 @@
 - [Removing request-local SQLite reconstruction: modest gains, one worse tail](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-request-local-catalog-read-views.md)
 - [Reading Reddit with an honest coverage report](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-reading-reddit-with-an-honest-coverage-report.md)
 - [One Qdrant search thread improves tails, but hurts typical cold queries](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-qdrant-search-thread-tradeoff.md)
+- [Missing alias removals are not success](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-missing-alias-removals-are-not-success.md)
 - [Fewer requests did not make this query faster](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-measuring-small-read-path-changes.md)
 - [Sorting twenty records should not fetch ten thousand](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-indexed-query-performance.md)
 - [Keep your sparse token IDs intact](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-explicit-sparse-vectors-without-token-folding.md)

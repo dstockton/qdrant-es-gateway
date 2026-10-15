@@ -317,6 +317,8 @@ enum GatewayError {
     Bad { feature: String, message: String },
     #[error("{0}")]
     NotFound(String),
+    #[error("aliases missing")]
+    AliasesNotFound { aliases: Vec<String> },
     #[error("document [{index}]/[{id}] is missing")]
     DocumentNotFound { index: String, id: String },
     #[error("document [{index}]/[{id}] already exists")]
@@ -348,7 +350,9 @@ impl GatewayError {
     }
     fn status(&self) -> StatusCode {
         match self {
-            Self::NotFound(_) | Self::DocumentNotFound { .. } => StatusCode::NOT_FOUND,
+            Self::NotFound(_) | Self::AliasesNotFound { .. } | Self::DocumentNotFound { .. } => {
+                StatusCode::NOT_FOUND
+            }
             Self::VersionConflict { .. } => StatusCode::CONFLICT,
             Self::IndexAlreadyExists { .. } | Self::InvalidIndexName { .. } => {
                 StatusCode::BAD_REQUEST
@@ -366,6 +370,15 @@ impl GatewayError {
             }
             Self::NotFound(message) => {
                 json!({"error":{"type":"index_not_found_exception","reason":message},"status":404})
+            }
+            Self::AliasesNotFound { aliases } => {
+                let reason = format!("aliases [{}] missing", aliases.join(", "));
+                let resource_id = if aliases.len() == 1 {
+                    json!(aliases[0])
+                } else {
+                    json!(aliases)
+                };
+                json!({"error":{"root_cause":[{"type":"aliases_not_found_exception","reason":reason,"resource.type":"aliases","resource.id":resource_id}],"type":"aliases_not_found_exception","reason":reason,"resource.type":"aliases","resource.id":resource_id},"status":404})
             }
             Self::DocumentNotFound { index, id } => {
                 json!({"error":{"type":"document_missing_exception","reason":format!("[{id}]: document missing"),"index":index,"shard":"0"},"status":404})
@@ -4072,6 +4085,8 @@ async fn aliases(
         }
         targets
     };
+    let mut successful_action = false;
+    let mut missing_aliases = HashSet::new();
     for action in &actions {
         match action {
             AliasAction::Add { alias, index } => {
@@ -4079,10 +4094,18 @@ async fn aliases(
                     .entry(alias.clone())
                     .or_default()
                     .insert(index.clone());
+                // Native add actions are successful even when the exact alias
+                // association already exists.
+                successful_action = true;
             }
             AliasAction::Remove { alias, index } => {
-                if let Some(targets) = final_targets.get_mut(alias) {
-                    targets.remove(index);
+                let removed = final_targets
+                    .get_mut(alias)
+                    .is_some_and(|targets| targets.remove(index));
+                if removed {
+                    successful_action = true;
+                } else {
+                    missing_aliases.insert(alias.clone());
                 }
             }
         }
@@ -4094,6 +4117,11 @@ async fn aliases(
                 "multi-index alias [{alias}] is unsupported; remove its current index and add the replacement in the same request"
             ),
         ));
+    }
+    if !actions.is_empty() && !successful_action {
+        let mut aliases = missing_aliases.into_iter().collect::<Vec<_>>();
+        aliases.sort();
+        return Err(GatewayError::AliasesNotFound { aliases });
     }
 
     let mut db = state
@@ -5395,6 +5423,83 @@ mod tests {
             })
             .unwrap();
         assert_eq!(aliases, 1);
+    }
+
+    #[tokio::test]
+    async fn alias_removal_reports_when_no_action_can_succeed() {
+        let cfg = Config::from_env();
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); \
+             CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); \
+             INSERT INTO indices VALUES ('products-v1', '{}', '[]'); \
+             INSERT INTO indices VALUES ('products-v2', '{}', '[]'); \
+             INSERT INTO aliases VALUES ('current-products', 'products-v1');",
+        )
+        .unwrap();
+        let state = AppState {
+            shared_catalog: None,
+            qdrant: Qdrant {
+                admin_mutation_started: None,
+                client: Client::new(),
+                base: "http://127.0.0.1:1".into(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        for (index, alias) in [
+            ("products-v1", "missing-products"),
+            ("products-v2", "current-products"),
+        ] {
+            let error = aliases(
+                State(state.clone()),
+                Json(json!({"actions":[{"remove":{"index":index,"alias":alias}}]})),
+            )
+            .await
+            .unwrap_err();
+
+            assert_eq!(error.status(), StatusCode::NOT_FOUND);
+            assert_eq!(error.body()["error"]["type"], "aliases_not_found_exception");
+            assert_eq!(error.body()["error"]["resource.id"], alias);
+        }
+
+        let target: String = state
+            .db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT index_name FROM aliases WHERE alias='current-products'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(target, "products-v1");
+
+        aliases(
+            State(state.clone()),
+            Json(json!({"actions":[
+                {"remove":{"index":"products-v1","alias":"preview-products"}},
+                {"add":{"index":"products-v2","alias":"preview-products"}}
+            ]})),
+        )
+        .await
+        .unwrap();
+        let target: String = state
+            .db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT index_name FROM aliases WHERE alias='preview-products'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(target, "products-v2");
     }
 
     #[tokio::test]
