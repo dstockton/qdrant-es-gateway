@@ -1,3 +1,4 @@
+mod aggregations;
 mod shared_catalog;
 mod sparse;
 
@@ -2757,6 +2758,34 @@ fn hit_sort_value(hit: &Value, field: &str) -> Value {
     }
 }
 
+fn compare_sorted_hits(a: &Value, b: &Value, sorts: &[(String, String)]) -> std::cmp::Ordering {
+    for (field, direction) in sorts {
+        let order = value_cmp(&hit_sort_value(a, field), &hit_sort_value(b, field));
+        if order != std::cmp::Ordering::Equal {
+            return if direction == "desc" {
+                order.reverse()
+            } else {
+                order
+            };
+        }
+    }
+    value_cmp(&hit_sort_value(a, "_id"), &hit_sort_value(b, "_id"))
+}
+
+fn hit_is_after(hit: &Value, cursor: &[Value], sorts: &[(String, String)]) -> bool {
+    for ((field, direction), value) in sorts.iter().zip(cursor) {
+        let order = value_cmp(&hit_sort_value(hit, field), value);
+        if order != std::cmp::Ordering::Equal {
+            return if direction == "desc" {
+                order.is_lt()
+            } else {
+                order.is_gt()
+            };
+        }
+    }
+    false
+}
+
 async fn search(
     State(state): State<AppState>,
     Path(index): Path<String>,
@@ -2833,6 +2862,19 @@ async fn search_with_total_format(
     let text = pick_text(&query);
     let has_text = text.is_some() || sparse_query.is_some();
     let approximate_text = contains_approx_text_query(&query);
+    let aggregation_plan =
+        aggregations::Plan::parse(body.get("aggs").or_else(|| body.get("aggregations")))?;
+    if aggregation_plan.is_some() && (has_text || !patterns.is_empty()) {
+        return Err(GatewayError::bad("aggs", "aggregations require a filter-only query; ranked and pattern query membership cannot be aggregated exactly"));
+    }
+    let complete_aggregations = if let Some(plan) = aggregation_plan {
+        if state.cfg.document_projection {
+            plan.validate_projection(&mapping)?;
+        }
+        Some(plan.execute(&state, &coll, filter.as_ref()).await?)
+    } else {
+        None
+    };
     let exact_total = if track_total_hits != TrackTotalHits::Disabled
         && !has_text
         && patterns.is_empty()
@@ -2842,6 +2884,11 @@ async fn search_with_total_format(
     } else {
         None
     };
+    // Global field ordering and post-filter membership require every page.
+    let complete_hit_scan = !has_text
+        && patterns.is_empty()
+        && (!sort_specs.is_empty() || body.get("post_filter").is_some());
+    let mut scanned_total = 0_u64;
     let mut hits: Vec<Value> = Vec::new();
     if let Some((using, vector)) = sparse_query {
         let response = state.qdrant.request(Method::POST, &format!("/collections/{coll}/points/query"), Some(json!({"query":vector,"using":using,"limit":(from+size).max(1),"with_payload":{"include":["_es_id","_source"]}}))).await?;
@@ -2932,17 +2979,18 @@ async fn search_with_total_format(
             }
         }
     } else {
-        let payload_fields = if state.cfg.document_projection && patterns.is_empty() {
-            json!(["_es_id"])
-        } else {
-            json!(["_es_id", "_source"])
-        };
+        let payload_fields =
+            if state.cfg.document_projection && patterns.is_empty() && !complete_hit_scan {
+                json!(["_es_id"])
+            } else {
+                json!(["_es_id", "_source"])
+            };
         let mut offset = Value::Null;
         loop {
             // Qdrant requires a positive scroll limit, while Elasticsearch
             // commonly uses size: 0 for aggregation-only searches. Fetch one
             // candidate for bookkeeping and keep the requested page empty.
-            let mut req = json!({"limit":if patterns.is_empty() { candidate_limit } else { state.cfg.max_page_size },"with_payload":{"include":payload_fields}});
+            let mut req = json!({"limit":if patterns.is_empty() && !complete_hit_scan { candidate_limit } else { state.cfg.max_page_size.max(1) },"with_payload":{"include":payload_fields}});
             if let Some(f) = &filter {
                 req["filter"] = f.clone();
             }
@@ -2962,22 +3010,61 @@ async fn search_with_total_format(
                 .and_then(|x| x.get("points"))
                 .and_then(Value::as_array)
             {
+                let sources = if complete_hit_scan && state.cfg.document_projection {
+                    let ids = arr
+                        .iter()
+                        .filter_map(|point| {
+                            point.pointer("/payload/_es_id").and_then(Value::as_str)
+                        })
+                        .map(|id| point_id(&index, id))
+                        .collect::<Vec<_>>();
+                    retrieve_sources(&state, &index, &ids).await?
+                } else {
+                    HashMap::new()
+                };
                 for p in arr {
                     let pay = p.get("payload").cloned().unwrap_or(json!({}));
-                    let source = pay.get("_source").cloned().unwrap_or(json!({}));
+                    let source = sources
+                        .get(pay.get("_es_id").and_then(Value::as_str).unwrap_or(""))
+                        .cloned()
+                        .or_else(|| pay.get("_source").cloned())
+                        .unwrap_or(json!({}));
+                    if complete_hit_scan {
+                        if body
+                            .get("post_filter")
+                            .is_some_and(|filter| !source_matches_query(&source, filter))
+                        {
+                            continue;
+                        }
+                        scanned_total += 1;
+                    }
                     if patterns
                         .iter()
                         .all(|pattern| pattern_matches(&source, pattern))
                     {
-                        hits.push(json!({"_index":index,"_id":pay.get("_es_id").cloned().unwrap_or(json!("")),"_score":Value::Null,"_source":source}));
+                        let hit = json!({"_index":index,"_id":pay.get("_es_id").cloned().unwrap_or(json!("")),"_score":Value::Null,"_source":source});
+                        if complete_hit_scan
+                            && collapse_spec.is_none()
+                            && body
+                                .get("search_after")
+                                .and_then(Value::as_array)
+                                .is_some_and(|cursor| !hit_is_after(&hit, cursor, &sort_specs))
+                        {
+                            continue;
+                        }
+                        hits.push(hit);
                     }
+                }
+                if complete_hit_scan && collapse_spec.is_none() {
+                    hits.sort_by(|a, b| compare_sorted_hits(a, b, &sort_specs));
+                    hits.truncate((from + size) as usize);
                 }
                 let next = r
                     .get("result")
                     .and_then(|x| x.get("next_page_offset"))
                     .cloned()
                     .unwrap_or(Value::Null);
-                if next.is_null() || patterns.is_empty() {
+                if next.is_null() || (patterns.is_empty() && !complete_hit_scan) {
                     break;
                 }
                 offset = next;
@@ -3039,27 +3126,18 @@ async fn search_with_total_format(
                 .all(|pattern| pattern_matches(&source, pattern))
         });
     }
-    // Elasticsearch applies post_filter, collapse, and search_after only to
-    // hits. Preserve the query-matched candidate window for gateway-computed
-    // aggregations before those hit-only transformations run.
-    let aggregation_hits = body
-        .get("aggs")
-        .or_else(|| body.get("aggregations"))
-        .and_then(Value::as_object)
-        .filter(|aggregations| {
-            aggregations
-                .values()
-                .any(|aggregation| aggregation.get("terms").is_none())
-        })
-        .map(|_| hits.clone());
     if let Some(post_filter) = body.get("post_filter") {
         hits.retain(|hit| {
             hit.get("_source")
                 .is_some_and(|source| source_matches_query(source, post_filter))
         });
     }
-    let total = exact_total.unwrap_or(hits.len() as u64);
-    let total_is_exact = exact_total.is_some() || approximate_text || !patterns.is_empty();
+    let total = if complete_hit_scan {
+        scanned_total
+    } else {
+        exact_total.unwrap_or(hits.len() as u64)
+    };
+    let total_is_exact = complete_hit_scan || exact_total.is_some() || approximate_text || !patterns.is_empty();
     if !sort_specs.is_empty() {
         for (field, dir) in sort_specs.iter().rev() {
             hits.sort_by(|a, b| {
@@ -3158,114 +3236,9 @@ async fn search_with_total_format(
             h
         })
         .collect::<Vec<_>>();
-    let mut response = json!({"took":started.elapsed().as_millis(),"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},"hits":{"max_score":page.iter().filter_map(|h|h.get("_score").and_then(Value::as_f64)).fold(0.0,f64::max),"hits":page}});
-    if let Some(total) = total_hits_value(
-        track_total_hits,
-        total,
-        total_is_exact,
-        rest_total_hits_as_int,
-    ) {
-        response["hits"]["total"] = total;
-    }
-    if let Some(aggs) = body.get("aggs").or_else(|| body.get("aggregations")) {
-        let output = response.as_object_mut().unwrap();
-        let mut agg_result = Map::new();
-        for (name, spec) in aggs
-            .as_object()
-            .ok_or_else(|| GatewayError::bad("aggs", "aggregations must be an object"))?
-        {
-            if let Some(terms) = spec.get("terms") {
-                let requested = terms.get("field").and_then(Value::as_str).ok_or_else(|| {
-                    GatewayError::bad(
-                        format!("aggs.{name}.terms.field"),
-                        "terms aggregation requires field",
-                    )
-                })?;
-                let field = requested.strip_suffix(".keyword").unwrap_or(requested);
-                let limit = terms
-                    .get("size")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(10)
-                    .min(1000);
-                let mut req = json!({"key":field,"limit":limit});
-                if let Some(f) = query_filter(&query)?.0 {
-                    req["filter"] = f;
-                }
-                let facet = state
-                    .qdrant
-                    .request(
-                        Method::POST,
-                        &format!("/collections/{coll}/facet"),
-                        Some(req),
-                    )
-                    .await?;
-                let buckets = facet.get("result").and_then(|r| r.get("hits")).and_then(Value::as_array).cloned().unwrap_or_default().into_iter().map(|h| json!({"key":h.get("value").cloned().unwrap_or(Value::Null),"doc_count":h.get("count").cloned().unwrap_or(json!(0))})).collect::<Vec<_>>();
-                agg_result.insert(name.clone(), json!({"doc_count_error_upper_bound":0,"sum_other_doc_count":0,"buckets":buckets}));
-            } else if let Some(metric) = spec.get("min").or_else(|| spec.get("max")) {
-                let aggregation_hits = aggregation_hits
-                    .as_ref()
-                    .expect("gateway-computed aggregations retain candidates");
-                let field = metric.get("field").and_then(Value::as_str).ok_or_else(|| {
-                    GatewayError::bad(
-                        format!("aggs.{name}.metric.field"),
-                        "metric aggregation requires field",
-                    )
-                })?;
-                let mut values = aggregation_hits
-                    .iter()
-                    .filter_map(|hit| {
-                        hit.get("_source")
-                            .and_then(|source| source_field(source, field))
-                            .and_then(Value::as_f64)
-                    })
-                    .collect::<Vec<_>>();
-                values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                let value = if spec.get("min").is_some() {
-                    values.first().copied()
-                } else {
-                    values.last().copied()
-                };
-                agg_result.insert(name.clone(), json!({"value":value}));
-            } else if let Some(filters) = spec
-                .get("filters")
-                .and_then(|v| v.get("filters"))
-                .and_then(Value::as_object)
-            {
-                let aggregation_hits = aggregation_hits
-                    .as_ref()
-                    .expect("gateway-computed aggregations retain candidates");
-                let mut buckets = Map::new();
-                for (key, filter_query) in filters {
-                    let count = aggregation_hits
-                        .iter()
-                        .filter(|hit| {
-                            hit.get("_source")
-                                .is_some_and(|source| source_matches_query(source, filter_query))
-                        })
-                        .count();
-                    buckets.insert(key.clone(), json!({"doc_count":count}));
-                }
-                agg_result.insert(name.clone(), json!({"buckets":buckets}));
-            } else if let Some(filter_query) = spec.get("filter") {
-                let aggregation_hits = aggregation_hits
-                    .as_ref()
-                    .expect("gateway-computed aggregations retain candidates");
-                let count = aggregation_hits
-                    .iter()
-                    .filter(|hit| {
-                        hit.get("_source")
-                            .is_some_and(|source| source_matches_query(source, filter_query))
-                    })
-                    .count();
-                agg_result.insert(name.clone(), json!({"doc_count":count}));
-            } else {
-                return Err(GatewayError::bad(
-                    format!("aggs.{name}"),
-                    "supported aggregations are terms, min, max, filters, and filter",
-                ));
-            }
-        }
-        output.insert("aggregations".into(), Value::Object(agg_result));
+    let mut response = json!({"took":started.elapsed().as_millis(),"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},"hits":{"total":{"value":total,"relation":total_relation},"max_score":page.iter().filter_map(|h|h.get("_score").and_then(Value::as_f64)).fold(0.0,f64::max),"hits":page}});
+    if let Some(aggregations) = complete_aggregations {
+        response["aggregations"] = aggregations;
     }
     if state.cfg.analytics {
         if let Ok(mut a) = state.analytics.lock() {

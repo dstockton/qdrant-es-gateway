@@ -9,6 +9,7 @@ description = "A deliberately useful Elasticsearch-compatible application-search
 anyhow = "1"
 axum = "0.8"
 futures-util = "0.3"
+chrono-tz = "0.10"
 chrono = { version = "0.4", features = ["serde"] }
 dotenvy = "0.15"
 http = "1"
