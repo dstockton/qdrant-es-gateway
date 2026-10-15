@@ -5,6 +5,8 @@ date: 2026-10-15
 categories: [performance]
 ---
 
+> Measurement note: these historical filter-aggregation trials recomputed the expected count in each client worker. The calculation was outside that request's timer, but affected throughput and could delay concurrent requests. Later trials tagged `precomputed-filter-count-v2` compute it once before timing. The figures here are preserved without adjustment; do not combine them with the corrected trials.
+
 We tried to speed up gateway aggregations by combining their safety checks.
 Two filter counts would need four Qdrant calls instead of five, including the
 exact total. That sounded promising. After measuring the final implementation,

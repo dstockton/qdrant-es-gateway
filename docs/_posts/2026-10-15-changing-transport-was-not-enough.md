@@ -5,6 +5,8 @@ date: 2026-10-15
 categories: [performance]
 ---
 
+> Measurement note: these historical filter-aggregation trials recomputed the expected count in each client worker. The calculation was outside that request's timer, but affected throughput and could delay concurrent requests. Later trials tagged `precomputed-filter-count-v2` compute it once before timing. The figures here are preserved without adjustment; do not combine them with the corrected trials.
+
 After removing unnecessary scans, we tested another plausible optimization:
 send gateway reads to Qdrant over gRPC instead of REST. The smaller typed
 messages and shared connection might reduce overhead. The results were mixed,

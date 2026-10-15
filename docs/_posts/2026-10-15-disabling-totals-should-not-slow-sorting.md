@@ -5,6 +5,8 @@ date: 2026-10-15
 categories: [performance]
 ---
 
+> Measurement note: these historical filter-aggregation trials recomputed the expected count in each client worker. The calculation was outside that request's timer, but affected throughput and could delay concurrent requests. Later trials tagged `precomputed-filter-count-v2` compute it once before timing. The figures here are preserved without adjustment; do not combine them with the corrected trials.
+
 A client that only needs the next page can set `track_total_hits: false` and
 avoid asking for the total number of matching documents. In the gateway, that
 apparently cheaper request had an expensive surprise: it disabled indexed

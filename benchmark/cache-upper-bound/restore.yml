@@ -1,0 +1,4 @@
+# Restore the retained production image and original Qdrant resource limits.
+services:
+  gateway:
+    image: qdrant-es-gateway:verified-no-total

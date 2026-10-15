@@ -15,6 +15,10 @@ import urllib.parse
 from pathlib import Path
 
 N = int(os.getenv('DOCS', '10000'))
+# Compute fixture expectations before any timed workers run. Repeating this
+# scan in a worker contends for the GIL while other HTTP timers are active.
+EXPECTED_CHEAP_COUNT = sum((j * 17) % 1000 < 250 for j in range(N))
+VALIDATION_PROFILE = 'precomputed-filter-count-v2'
 BATCH = int(os.getenv('BATCH', '500'))
 REQUESTS = int(os.getenv('REQUESTS', '100'))
 TRIALS = int(os.getenv('TRIALS', '5'))
@@ -111,7 +115,7 @@ def operation(base, workload, i):
         value, elapsed, size = request(base, f'/{INDEX}/_search', body={'size': 0, 'aggs': {
             'cheap': {'filter': {'range': {'price': {'lt': 250}}}},
             'group': {'filter': {'term': {'group': 'g03'}}}}})
-        assert value['aggregations']['cheap']['doc_count'] == sum((j * 17) % 1000 < 250 for j in range(N))
+        assert value['aggregations']['cheap']['doc_count'] == EXPECTED_CHEAP_COUNT
         assert value['aggregations']['group']['doc_count'] == len(range(3, N, 20))
         assert value['hits']['hits'] == []
         check_total(value, N)
@@ -171,7 +175,7 @@ def main():
               'config': {'documents': N, 'batch': BATCH, 'requests_per_trial': REQUESTS,
                          'trials': TRIALS, 'concurrency': CONCURRENCY, 'settle_seconds': SETTLE,
                          'seed': 20261015, 'mapping': MAPPING, 'persistent_http': True,
-                         'track_total_hits': TRACK_TOTAL_HITS},
+                         'track_total_hits': TRACK_TOTAL_HITS, 'validation_profile': VALIDATION_PROFILE},
               'versions': {}, 'ingest': [], 'measurements': [], 'resources': []}
     try:
         for name, base in ENDPOINTS.items():

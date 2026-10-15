@@ -1,5 +1,7 @@
 # Sorting twenty records should not fetch ten thousand
 
+> Measurement note: these historical filter-aggregation trials recomputed the expected count in each client worker. The calculation was outside that request's timer, but affected throughput and could delay concurrent requests. Later trials tagged `precomputed-filter-count-v2` compute it once before timing. The figures here are preserved without adjustment; do not combine them with the corrected trials.
+
 Our first three-engine benchmark exposed a straightforward problem. To return
 20 sorted products, the gateway fetched all 10,000 matching documents from
 Qdrant. It also fetched those documents to count a handful of categories.

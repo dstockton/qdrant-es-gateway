@@ -125,3 +125,9 @@ medians per engine/workload/concurrency:
 python3 summarize_reads.py results/baseline-a.json results/baseline-d.json
 python3 summarize_reads.py results/candidate-b.json results/candidate-c.json
 ```
+
+### Client validation revision
+
+Current results record `validation_profile: precomputed-filter-count-v2`. The deterministic expected cheap-product count is computed once when the harness loads; every response still compares its count against that exact value. Requests and expected results are unchanged.
+
+Older rounds recalculated the count over all documents after each filter-aggregation response. This was outside that request's HTTP timer, but inside trial wall time and able to contend for Python's GIL while other requests were timed. Historical filter-aggregation throughput and concurrent latency therefore include client validation interference. Preserve those rounds, compare only matching validation profiles, and rerun all engines before drawing updated latency conclusions. No estimated overhead is subtracted from old results.
