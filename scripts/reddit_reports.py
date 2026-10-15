@@ -12,17 +12,23 @@ import sys
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
 class AccessError(Exception):
     pass
 
 
+class NoRedirects(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # A bearer token must never follow a redirect to another origin.
+        raise AccessError("Reddit redirect refused; verify the approved API endpoint")
+
+
 class Reddit:
-    def __init__(self, token, user_agent, opener=urlopen, sleep=time.sleep):
+    def __init__(self, token, user_agent, opener=None, sleep=time.sleep):
         self.token, self.user_agent = token, user_agent
-        self.opener, self.sleep = opener, sleep
+        self.opener, self.sleep = opener or build_opener(NoRedirects()).open, sleep
         self.next_request = 0.0
 
     def get(self, path, params):
@@ -53,13 +59,25 @@ def collect(client, subreddit, start, end, max_pages=100):
     after = None
     status = "page_limit"
     pages = 0
+    error = None
     for _ in range(max_pages):
         params = {"limit": 100, "raw_json": 1}
         if after:
             params["after"] = after
-        listing = client.get(f"/r/{subreddit}/new", params)["data"]
+        try:
+            listing = client.get(f"/r/{subreddit}/new", params)["data"]
+            children = listing["children"]
+            # Validate the complete page before admitting it to the result.
+            for child in children:
+                post = child["data"]
+                float(post["created_utc"])
+                if not isinstance(post["name"], str) or not post["permalink"].startswith("/r/"):
+                    raise ValueError("Invalid post identity")
+        except (AccessError, KeyError, TypeError, ValueError, AttributeError) as failure:
+            status = "inaccessible"
+            error = str(failure) if isinstance(failure, AccessError) else "Invalid Reddit listing"
+            break
         pages += 1
-        children = listing["children"]
         reached_start = False
         for child in children:
             post = child["data"]
@@ -90,7 +108,10 @@ def collect(client, subreddit, start, end, max_pages=100):
             status = "repeated_cursor"
             break
         cursors.add(after)
-    return {"subreddit": subreddit, "pages": pages, "status": status, "reports": reports}
+    result = {"subreddit": subreddit, "pages": pages, "status": status, "reports": reports}
+    if error:
+        result["error"] = error
+    return result
 
 
 def parse_utc(text):

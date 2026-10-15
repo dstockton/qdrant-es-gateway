@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from reddit_reports import collect, parse_utc
+from reddit_reports import AccessError, NoRedirects, collect, parse_utc
 
 
 def post(identifier, timestamp, **extra):
@@ -49,6 +49,23 @@ class CollectionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_utc("2026-10-15T12:00:00")
         self.assertEqual(parse_utc("2026-10-15T12:00:00+01:00").hour, 11)
+
+    def test_later_page_failure_preserves_reviewable_reports(self):
+        class FailingPages(Pages):
+            def get(self, path, params):
+                if self.calls:
+                    raise AccessError("Reddit returned HTTP 429")
+                return super().get(path, params)
+        result = self.collect(FailingPages([{"children": [post("a", 150)], "after": "p1"}]))
+        self.assertEqual(result["status"], "inaccessible")
+        self.assertEqual(result["pages"], 1)
+        self.assertEqual(result["reports"][0]["id"], "a")
+
+    def test_malformed_listing_is_source_specific_and_redirects_refused(self):
+        result = self.collect(Pages([{"children": [{}], "after": None}]))
+        self.assertEqual(result["status"], "inaccessible")
+        with self.assertRaises(AccessError):
+            NoRedirects().redirect_request(None, None, 302, "", {}, "https://example.org")
 
 
 if __name__ == "__main__":

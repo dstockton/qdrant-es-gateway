@@ -50,8 +50,9 @@ def outputs(root=ROOT):
     index = "# Qdrant ES Gateway\n\n> Elasticsearch-compatible application search backed by Qdrant. Compatibility is intentionally scoped.\n\n"
     index += "## Start here\n\n"
     full = index
-    for name in ("compatibility", "architecture", "production", "migration"):
-        path = docs / (name + ".md")
+    primary = [docs / (name + ".md") for name in ("compatibility", "architecture", "production", "migration")]
+    guides = primary + [p for p in sorted(docs.glob("*.md")) if p not in primary and p.name not in ("blog.md", "index.md")]
+    for path in guides:
         title, content = render(path)
         generated[docs / "markdown" / path.name] = content
         index += f"- [{title}]({BASE}/markdown/{path.name})\n"
