@@ -2,6 +2,7 @@ mod aggregations;
 mod cache_deployment;
 mod cache_request;
 mod cache_runtime;
+mod diagnostic_timing;
 mod mutation_completion;
 mod read_cache;
 mod shared_catalog;
@@ -179,6 +180,22 @@ impl Qdrant {
         path: &str,
         body: Option<Value>,
     ) -> Result<(StatusCode, Value), GatewayError> {
+        #[cfg(feature = "diagnostic-timing")]
+        let kind = if path.ends_with("/points/count") {
+            "qdrant.count"
+        } else if path.ends_with("/points/scroll")
+            && body.as_ref().is_some_and(|b| b.get("order_by").is_some())
+        {
+            "qdrant.ordered"
+        } else if path.ends_with("/points/scroll") {
+            "qdrant.scroll"
+        } else {
+            "qdrant.other"
+        };
+        #[cfg(not(feature = "diagnostic-timing"))]
+        let kind = "qdrant.other";
+        let rpc = diagnostic_timing::span(kind);
+        let serialize = diagnostic_timing::child("qdrant.request_encode", rpc.id());
         let url = format!("{}{}", self.base, path);
         let mut req = self.client.request(method.clone(), url);
         if let Some(key) = &self.key {
@@ -199,17 +216,26 @@ impl Qdrant {
                 started.store(true, std::sync::atomic::Ordering::SeqCst);
             }
         }
+        drop(serialize);
+        let send = diagnostic_timing::child("qdrant.send_headers", rpc.id());
         let response = req
             .send()
             .await
             .map_err(|e| GatewayError::upstream(e.without_url().to_string()))?;
+        drop(send);
         let status = response.status();
+        let receive = diagnostic_timing::child("qdrant.receive_body", rpc.id());
         let bytes = response
             .bytes()
             .await
             .map_err(|e| GatewayError::upstream(e.to_string()))?;
+        drop(receive);
+        let parse = diagnostic_timing::child("qdrant.response_parse", rpc.id());
         let value: Value = serde_json::from_slice(&bytes)
             .unwrap_or_else(|_| json!({"status": String::from_utf8_lossy(&bytes)}));
+        drop(parse);
+        #[cfg(feature = "diagnostic-timing")]
+        rpc.metadata(bytes.len(), value.get("time").and_then(Value::as_f64));
         Ok((status, value))
     }
 
@@ -423,6 +449,7 @@ fn es_response(status: StatusCode, body: Value) -> Response {
 }
 
 fn es_ok(body: Value) -> Response {
+    let _encode = diagnostic_timing::span("response.json_encode");
     es_response(StatusCode::OK, body)
 }
 
@@ -3139,6 +3166,7 @@ async fn search_with_total_format(
     rest_total_hits_as_int: bool,
 ) -> Result<Response, GatewayError> {
     let started = Instant::now();
+    let planning = diagnostic_timing::span("search.plan");
     if body.get("pit").is_some() {
         return Err(GatewayError::bad(
             "pit",
@@ -3214,6 +3242,8 @@ async fn search_with_total_format(
     // supplies a snapshot, and serial execution cannot add that guarantee.
     let filter_only_scope = !has_text && patterns.is_empty() && body.get("post_filter").is_none();
     let compute_total = track_total_hits != TrackTotalHits::Disabled && filter_only_scope;
+    drop(planning);
+    let backend_join = diagnostic_timing::span("search.backend_join");
     let (complete_aggregations, exact_total, ordered_hits) = tokio::try_join!(
         async {
             match aggregation_plan {
@@ -3249,6 +3279,8 @@ async fn search_with_total_format(
             }
         }
     )?;
+    drop(backend_join);
+    let _render = diagnostic_timing::span("search.after_join");
     let count_only = size == 0
         && (!state.cfg.document_projection || sort_specs.is_empty())
         && !has_text
@@ -4339,6 +4371,20 @@ async fn dispatch(
     headers: HeaderMap,
     body: String,
 ) -> Response {
+    diagnostic_timing::run(dispatch_uninstrumented(
+        state, method, path, query, headers, body,
+    ))
+    .await
+}
+
+async fn dispatch_uninstrumented(
+    state: AppState,
+    method: Method,
+    path: String,
+    query: Option<String>,
+    headers: HeaderMap,
+    body: String,
+) -> Response {
     if let Some(cache) = state.cache_runtime.clone() {
         return cache
             .dispatch(state, method, path, query, headers, body)
@@ -4380,6 +4426,7 @@ async fn dispatch_catalog(
         }
     };
     if shared_catalog::uses_read_view(&method, &path) {
+        let metadata = diagnostic_timing::span("catalog.read_view");
         state.read_catalog = match catalog.read_view().await {
             Ok(view) => Some(Arc::new(view)),
             Err(error) => {
@@ -4389,6 +4436,7 @@ async fn dispatch_catalog(
                 }
             }
         };
+        drop(metadata);
         return CatalogOutcome {
             response: dispatch_inner(state, method, path, query, headers, body).await,
             publication_complete: true,

@@ -82,6 +82,7 @@ impl CacheRuntime {
         let eligible = self.serve_reads
             && cache_request::eligible(&state.cfg, &method, &path, query.as_deref(), &body);
         if !eligible {
+            let _bypass = diagnostic_timing::span("cache.bypass");
             return dispatch_catalog(state, method, path, query, headers, body)
                 .await
                 .response;
@@ -95,7 +96,9 @@ impl CacheRuntime {
             .request_key(method.as_str(), &uri, body.as_bytes());
         // This is before dispatch_catalog loads aliases/mappings. Never move the
         // ticket acquisition after that snapshot boundary.
+        let lookup_span = diagnostic_timing::span("cache.lookup");
         let lookup = self.cache.lookup(&key).await.ok();
+        drop(lookup_span);
         if let Some(bytes) = lookup.as_ref().and_then(|v| v.response.as_deref()) {
             if let Some(response) = decode(bytes, self.max_entry_bytes, &path, started) {
                 if search_route(&path) && state.cfg.analytics {
@@ -104,14 +107,17 @@ impl CacheRuntime {
                         analytics.supported += 1;
                     }
                 }
+                drop(diagnostic_timing::span("cache.hit"));
                 return response;
             }
         }
+        drop(diagnostic_timing::span("cache.miss"));
         let response =
             if let Some(snapshot) = lookup.as_ref().and_then(|v| v.catalog_snapshot.as_deref()) {
                 // The Lua miss returned this snapshot with its quiet epoch. Do not
                 // issue a second catalog read, or acquire a replacement epoch later.
                 if shared_catalog::uses_read_view(&method, &path) {
+                    let _metadata = diagnostic_timing::span("catalog.parse_read_view");
                     state.read_catalog = match shared_catalog::snapshot_read_view(snapshot) {
                         Ok(view) => Some(Arc::new(view)),
                         Err(error) => return error.into_response(),
@@ -144,11 +150,17 @@ impl CacheRuntime {
             return response;
         }
         let (parts, body) = response.into_parts();
+        let collect = diagnostic_timing::span("cache.collect_body");
         let bytes = match body.collect().await {
             Ok(body) => body.to_bytes(),
             Err(_) => return GatewayError::upstream("response body unavailable").into_response(),
         };
-        if let Ok(value) = serde_json::from_slice::<Value>(&bytes) {
+        drop(collect);
+        let envelope_parse = diagnostic_timing::span("cache.envelope_parse");
+        let parsed = serde_json::from_slice::<Value>(&bytes);
+        drop(envelope_parse);
+        if let Ok(value) = parsed {
+            let envelope_encode = diagnostic_timing::span("cache.envelope_encode");
             let envelope = Envelope {
                 version: 1,
                 status: parts.status.as_u16(),
@@ -159,9 +171,12 @@ impl CacheRuntime {
                     .collect(),
                 body: value,
             };
-            if let Ok(encoded) = serde_json::to_vec(&envelope) {
+            let encoded = serde_json::to_vec(&envelope);
+            drop(envelope_encode);
+            if let Ok(encoded) = encoded {
                 if encoded.len() <= self.max_entry_bytes {
                     // Failed/colliding publication is only a missed cache fill.
+                    let _publish = diagnostic_timing::span("cache.publish");
                     let _ = self.cache.publish(&ticket, &key, &encoded).await;
                 }
             }
@@ -171,6 +186,7 @@ impl CacheRuntime {
 }
 
 fn decode(bytes: &[u8], limit: usize, path: &str, started: Instant) -> Option<Response> {
+    let _decode = diagnostic_timing::span("cache.hit_decode");
     if bytes.len() > limit {
         return None;
     }
@@ -291,6 +307,55 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
         let cache = &state.cache_runtime.as_ref().unwrap().cache;
+        let filled_key = cache.request_key("GET", "/items/_doc/a", b"");
+        let filled = cache.lookup(&filled_key).await.unwrap().response.unwrap();
+        let envelope: Envelope = serde_json::from_slice(&filled).unwrap();
+        assert!(!envelope
+            .headers
+            .iter()
+            .any(|(name, _)| name == "x-qeg-diagnostic-timing"));
+        let hit = dispatch(
+            state.clone(),
+            Method::GET,
+            "/items/_doc/a".into(),
+            None,
+            HeaderMap::new(),
+            String::new(),
+        )
+        .await;
+        assert_eq!(hit.status(), StatusCode::OK);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        #[cfg(feature = "diagnostic-timing")]
+        {
+            let miss_trace: Value = serde_json::from_str(
+                response.headers()["x-qeg-diagnostic-timing"]
+                    .to_str()
+                    .unwrap(),
+            )
+            .unwrap();
+            let hit_trace: Value =
+                serde_json::from_str(hit.headers()["x-qeg-diagnostic-timing"].to_str().unwrap())
+                    .unwrap();
+            let names = |value: &Value| {
+                value["events"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|e| e["name"].as_str().unwrap().to_owned())
+                    .collect::<Vec<_>>()
+            };
+            assert!(names(&miss_trace).contains(&"cache.publish".to_owned()));
+            assert!(names(&hit_trace).contains(&"cache.hit".to_owned()));
+            assert!(!names(&hit_trace).contains(&"cache.publish".to_owned()));
+            assert!(!names(&hit_trace)
+                .iter()
+                .any(|name| name.starts_with("qdrant.")));
+        }
+        #[cfg(not(feature = "diagnostic-timing"))]
+        {
+            assert!(!response.headers().contains_key("x-qeg-diagnostic-timing"));
+            assert!(!hit.headers().contains_key("x-qeg-diagnostic-timing"));
+        }
         let cachekey = cache.request_key("GET", "/items/_doc/b", b"");
         let lookup = cache.lookup(&cachekey).await.unwrap();
         assert!(lookup.response.is_none() && lookup.catalog_snapshot.is_some());

@@ -5,6 +5,10 @@ edition = "2021"
 license = "Apache-2.0"
 description = "A deliberately useful Elasticsearch-compatible application-search gateway backed by Qdrant"
 
+[features]
+default = []
+diagnostic-timing = []
+
 [dependencies]
 anyhow = "1"
 axum = "0.8"
