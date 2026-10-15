@@ -1,0 +1,52 @@
+{
+  "diagnostic": "actual-gateway-phase-timeline-not-performance-comparison",
+  "measured_responses": 600,
+  "all_responses_correct": true,
+  "diagnostic_source": "68add4dc8aecd8b01ad501ee30ab4d94518f03b6",
+  "diagnostic_image": "sha256:df2e437c21348500f1b33cbd906cd54d0f0bc918d4c9ed6b24ca10bad80239ec",
+  "runner_source": "536d3a353606a0dc9fcd335865015a1f3478c5e5",
+  "aggregation": "Medians and nearest-rank p95 per profile; repeated RPC phases pool events. Join fraction is median of per-request join/dispatch, not ratio of medians.",
+  "sanitization": "Removed ephemeral container_id fields only; original hashes retained. No phase samples modified.",
+  "limitations": [
+    "Diagnostic instrumentation and headers add overhead; not a production latency benchmark.",
+    "total_us is dispatch scope: excludes HTTP body ingress, final diagnostic-header serialization and network delivery.",
+    "search.backend_join includes local response handling as well as overlapping backend RPCs.",
+    "Per-profile resource snapshots include untimed worker connection primers.",
+    "Count selectivity follows recorded start range; compare it explicitly before interpreting other experiments.",
+    "qdrant.send_headers includes pool/socket wait, backend execution and scheduling; receive_body is remaining response delivery.",
+    "response.json_encode covers es_ok serialization only; response Value construction is inside search.after_join.",
+    "Phase durations are wall intervals, not CPU cost; preserve per-request relationships instead of summing categories.",
+    "Intervals overlap; do not sum backend durations or subtract independently measured percentiles.",
+    "search.after_join includes fallback work on other request shapes; here the ordered fast path is required."
+  ],
+  "files": [
+    {
+      "file": "gateway-phases-relationships.json",
+      "sha256": "8ad5e834b2859a959220539fe19891e9ea369aeda2bab5c547c919302e60d682",
+      "original_sha256": "c1309165ceeaacbc4d4b73095fe1afe7a71ed19aa4788fd6c8c839eeddbc7d3a"
+    },
+    {
+      "file": "gateway-phases-restoration.json",
+      "sha256": "5cb068f798403089214866cc2fe37462ee03c9a32f5125db35ad3f5ea75aed36",
+      "original_sha256": "0eb18602db710d88ccfa28ca2a30c5ff43e175924cbb72dbd376541bb28d61e1"
+    },
+    {
+      "file": "gateway-phases-summary.json",
+      "sha256": "3f21623224901a8b78990a794528c1ecaefc4b57bd0d0ea325c429da211d35ff",
+      "original_sha256": "f22c56f038d232928c5522de0f94194bb46ce6e170dab9f6d30bbdaa23987baf"
+    },
+    {
+      "file": "gateway-phases.json",
+      "sha256": "f4336f3ae08b4f0d50b055ccf571860437c00842c01e24852e8ba63265e50e9b",
+      "original_sha256": "4b6e6fc917da1dc1e0c3af89132236eb3a074c3ae41d4424cd5590c3f3e3eae4"
+    },
+    {
+      "file": "gateway_phases.py",
+      "sha256": "aada50787e84e12a17685166708f15f3a2943b4a2a83a9c58a4d2a220e6e8252"
+    },
+    {
+      "file": "phase-image.yml",
+      "sha256": "d99a439789de3f111e6357952f4f0592b24a0e410a511781762002c3c67ae6da"
+    }
+  ]
+}
