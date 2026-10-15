@@ -28,6 +28,7 @@
 - [Sorting twenty records should not fetch ten thousand](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-indexed-query-performance.md)
 - [Keep your sparse token IDs intact](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-explicit-sparse-vectors-without-token-folding.md)
 - [Documentation you can read as text](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-documentation-you-can-read-as-text.md)
+- [Asking for less should not make sorting slower](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-disabling-totals-should-not-slow-sorting.md)
 - [A reporting day is not always 24 hours](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-calendar-days-follow-local-time.md)
 - [The cheapest item may be on the next page](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-aggregations-beyond-the-first-page.md)
 - [A shared catalog is not a snapshot](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-a-shared-catalog-is-not-a-snapshot.md)

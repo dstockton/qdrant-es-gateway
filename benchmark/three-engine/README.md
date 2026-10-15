@@ -31,9 +31,13 @@ Every ingest trial deletes and recreates the benchmark index. Bulk requests use
 `refresh=false` identically. The runner reports both accepted-ingest duration and
 duration through explicit refresh plus exact count verification. If data is not
 yet visible, every engine gets the same bounded polling loop (50 ms interval,
-120-second timeout); poll counts and refresh-to-visible duration are retained. Qdrant's
-synchronous write acknowledgment differs from Lucene refresh visibility; these
-are stated endpoint-visible measurements, not claims of identical durability.
+120-second timeout); poll counts and refresh-to-visible duration are retained. Current gateway builds send Qdrant's `wait` option as a query parameter, so
+synchronous writes request completion acknowledgment. Earlier benchmark images
+incorrectly placed that option in the JSON body; their accepted-ingest timings
+must not be described as synchronous completion. The retained visibility checks
+still establish that all documents became searchable. Qdrant completion and
+Lucene refresh visibility are different guarantees; these are endpoint-visible
+measurements, not claims of identical durability.
 After the final ingest, the runner waits 15 seconds, then warms every engine
 before each measurement. It does not force-merge any engine or change index
 settings for a favorable result.
