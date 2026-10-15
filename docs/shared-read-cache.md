@@ -6,7 +6,7 @@ permalink: /shared-read-cache/
 
 The optional shared read cache keeps gateway replicas stateless while reusing successful point reads and filter searches. Qdrant remains the document store. Valkey holds the authoritative catalog, cache entries, and persistent write coordination. Caching is off by default.
 
-This feature is under verification. No production performance advantage is established yet. Measure cold reads, repeated reads, writes, and your actual hit rate before adopting it.
+The [measured three-engine comparison]({% post_url 2026-10-15-shared-cache-warm-search-results %}) found 12–30% lower warm-search median latency than the faster native engine in a 10,000-document catalogue profile. Fresh queries and write-followed-by-point-read cycles were slower than native engines; point-read warm gains were small. These results do not establish a general production advantage. Measure cold reads, repeated reads, writes, and your actual hit rate before adopting it.
 
 ## Supported deployment
 
