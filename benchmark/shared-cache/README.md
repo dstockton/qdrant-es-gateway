@@ -1,7 +1,9 @@
 # Actual shared-cache comparison
 
-This exercises the real gateway cache, not the synthetic ceiling probe. It has
-no recorded performance result until the integration checks and runs finish.
+This exercises the real gateway cache, not the synthetic ceiling probe. The
+[first measured results](../../docs/_posts/2026-10-15-shared-cache-warm-search-results.md)
+include warm searches, cold queries and write/read cycles, with raw evidence.
+They pin the measured revision; subsequent optimizations need separate runs.
 
 Use a separate disposable Compose project, `qeg-shared-cache`, retaining the
 original three-engine mapping, deterministic corpus and strict v3 assertions.
