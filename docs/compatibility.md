@@ -75,3 +75,16 @@ mappings cannot define this reserved field. No reindex is required for correctne
 Neither ordered scroll nor the fallback is a point-in-time snapshot during
 concurrent writes. Qdrant's [ordered-scroll API](https://qdrant.tech/documentation/concepts/points/#order-points-by-payload-key)
 provides the backend ordering; the gateway checks compatibility before using it.
+
+Exact keyword `terms` and simple keyword `term` / numeric `range` filter
+aggregations can also use Qdrant facet/count indexes after checking the matching
+payloads' eligibility markers. Facets request exact counts and up to 10,001
+values, preserving the existing 10,000-bucket error and `sum_other_doc_count`.
+Other reducers and unsafe or legacy values retain streaming evaluation.
+The [facet API](https://qdrant.tech/documentation/concepts/payload/#facet-counts)
+counts each distinct value once per document, including multivalued keywords.
+
+An older mapping that already owns `_qeg_fast_fields` is treated as user data:
+its values and index type are preserved, and fast paths are disabled for that
+index. New mappings cannot introduce that name. These optimizations add no
+cursor sessions, result cache, or Redis/Valkey dependency.

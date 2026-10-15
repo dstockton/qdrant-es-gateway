@@ -62,6 +62,7 @@ def hits_expected(ids):
 def check_hits(value, ids, total=None):
     actual = [(hit['_id'], hit['_source']) for hit in value['hits']['hits']]
     assert actual == hits_expected(ids), f'incorrect hits: {actual[:2]}, expected {ids[:2]}'
+    assert [hit.get('sort') for hit in value['hits']['hits']] == [[i] for i in ids]
     if total is not None:
         assert value['hits']['total'] == {'value': total, 'relation': 'eq'}, value['hits']['total']
 
@@ -86,13 +87,22 @@ def operation(base, workload, i):
         value, elapsed, size = request(base, f'/{INDEX}/_search', body={
             'size': 0, 'aggs': {'groups': {'terms': {'field': 'group', 'size': 20}}}})
         actual = {bucket['key']: bucket['doc_count'] for bucket in value['aggregations']['groups']['buckets']}
-        assert actual == {f'g{k:02d}': len(range(k, N, 20)) for k in range(20)}, actual
+        expected = {f'g{k:02d}': len(range(k, N, 20)) for k in range(20)}
+        assert actual == expected, actual
+        buckets = value['aggregations']['groups']['buckets']
+        assert buckets == [{'key': key, 'doc_count': count} for key, count in sorted(expected.items(), key=lambda item: (-item[1], item[0]))]
+        assert value['aggregations']['groups']['sum_other_doc_count'] == 0
+        assert value['aggregations']['groups']['doc_count_error_upper_bound'] == 0
+        assert value['hits']['hits'] == []
+        assert value['hits']['total'] == {'value': N, 'relation': 'eq'}
     elif workload == 'filter_aggregation':
         value, elapsed, size = request(base, f'/{INDEX}/_search', body={'size': 0, 'aggs': {
             'cheap': {'filter': {'range': {'price': {'lt': 250}}}},
             'group': {'filter': {'term': {'group': 'g03'}}}}})
         assert value['aggregations']['cheap']['doc_count'] == sum((j * 17) % 1000 < 250 for j in range(N))
         assert value['aggregations']['group']['doc_count'] == len(range(3, N, 20))
+        assert value['hits']['hits'] == []
+        assert value['hits']['total'] == {'value': N, 'relation': 'eq'}
     else:
         raise ValueError(workload)
     return elapsed, size

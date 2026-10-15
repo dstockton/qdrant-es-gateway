@@ -3097,24 +3097,35 @@ async fn search_with_total_format(
     let text = pick_text(&query);
     let has_text = text.is_some() || sparse_query.is_some();
     let approximate_text = contains_approx_text_query(&query);
-    let complete_aggregations = if let Some(plan) = aggregation_plan {
+    if let Some(plan) = &aggregation_plan {
         plan.validate_mapping(&mapping, state.cfg.document_projection)?;
-        Some(
-            plan.execute(&state, &coll, filter.as_ref(), &mapping)
-                .await?,
-        )
-    } else {
-        None
-    };
-    let exact_total = if track_total_hits != TrackTotalHits::Disabled
-        && !has_text
-        && patterns.is_empty()
-        && body.get("post_filter").is_none()
-    {
-        Some(qdrant_exact_count(&state, &coll, filter.as_ref()).await?)
-    } else {
-        None
-    };
+    }
+    // These are independent reads of the same query scope. Neither operation
+    // supplies a snapshot, and serial execution cannot add that guarantee.
+    let (complete_aggregations, exact_total) = tokio::try_join!(
+        async {
+            match aggregation_plan {
+                Some(plan) => plan
+                    .execute(&state, &coll, filter.as_ref(), &mapping)
+                    .await
+                    .map(Some),
+                None => Ok(None),
+            }
+        },
+        async {
+            if track_total_hits != TrackTotalHits::Disabled
+                && !has_text
+                && patterns.is_empty()
+                && body.get("post_filter").is_none()
+            {
+                qdrant_exact_count(&state, &coll, filter.as_ref())
+                    .await
+                    .map(Some)
+            } else {
+                Ok(None)
+            }
+        }
+    )?;
     let ordered_hits = if !has_text && patterns.is_empty() && size > 0 {
         if let Some(total) = exact_total {
             ordered_numeric_hits(
