@@ -10,6 +10,8 @@ const SCHEMA: &str = "CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT N
 pub(crate) struct SharedCatalog {
     client: redis::Client,
     key: String,
+    connection: Arc<Mutex<Option<Arc<redis::aio::MultiplexedConnection>>>>,
+    connect_gate: Arc<AsyncMutex<()>>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -27,7 +29,12 @@ fn unavailable() -> GatewayError {
 impl SharedCatalog {
     #[cfg(test)]
     pub(crate) fn test_handle(client: redis::Client, key: String) -> Self {
-        Self { client, key }
+        Self {
+            client,
+            key,
+            connection: Default::default(),
+            connect_gate: Default::default(),
+        }
     }
     pub(crate) async fn from_env() -> anyhow::Result<Option<Self>> {
         let Ok(url) = env::var("CATALOG_REDIS_URL") else {
@@ -38,26 +45,69 @@ impl SharedCatalog {
         let catalog = Self {
             client,
             key: env::var("CATALOG_REDIS_KEY").unwrap_or_else(|_| "qeg:{catalog}:v1".into()),
+            connection: Default::default(),
+            connect_gate: Default::default(),
         };
         if env::var("CATALOG_INITIALIZE").as_deref() == Ok("true") {
             let empty = serde_json::to_string(&Snapshot::default())?;
-            tokio::time::timeout(TIMEOUT, async {
-                let mut connection = catalog.client.get_multiplexed_async_connection().await?;
-                redis::cmd("SET")
-                    .arg(&catalog.key)
-                    .arg(empty)
-                    .arg("NX")
-                    .query_async::<Option<String>>(&mut connection)
-                    .await
-            })
-            .await
-            .map_err(|_| anyhow::anyhow!("shared catalog initialization timed out"))?
-            .map_err(|_| anyhow::anyhow!("shared catalog initialization failed"))?;
+            catalog
+                .run::<Option<String>>(
+                    redis::Script::new("return redis.call('SET', KEYS[1], ARGV[1], 'NX')")
+                        .key(&catalog.key)
+                        .arg(empty),
+                )
+                .await
+                .map_err(|_| anyhow::anyhow!("shared catalog initialization failed"))?;
         }
         catalog.begin(false).await.map_err(|_| {
             anyhow::anyhow!("shared catalog missing, unavailable, or awaiting recovery")
         })?;
         Ok(Some(catalog))
+    }
+
+    // Share transport only: every operation still reads the authoritative catalog.
+    // Never retry a failed command: an administrative claim may already exist.
+    async fn run<T: redis::FromRedisValue>(
+        &self,
+        invocation: &redis::ScriptInvocation<'_>,
+    ) -> Result<T, GatewayError> {
+        let deadline = tokio::time::Instant::now() + TIMEOUT;
+        let shared = tokio::time::timeout_at(deadline, async {
+            if let Some(connection) = self.connection.lock().map_err(|_| unavailable())?.as_ref() {
+                return Ok(connection.clone());
+            }
+            let _gate = self.connect_gate.lock().await;
+            // Another caller may have established transport while we waited.
+            if let Some(connection) = self.connection.lock().map_err(|_| unavailable())?.as_ref() {
+                return Ok(connection.clone());
+            }
+            let connection = Arc::new(
+                self.client
+                    .get_multiplexed_async_connection()
+                    .await
+                    .map_err(|_| unavailable())?,
+            );
+            *self.connection.lock().map_err(|_| unavailable())? = Some(connection.clone());
+            Ok::<_, GatewayError>(connection)
+        })
+        .await
+        .map_err(|_| unavailable())??;
+        let mut connection = (*shared).clone();
+        match tokio::time::timeout_at(deadline, invocation.invoke_async(&mut connection)).await {
+            Ok(Ok(value)) => Ok(value),
+            _ => {
+                // A delayed failure from an old connection must not discard a
+                // replacement established by another request.
+                let mut slot = self.connection.lock().map_err(|_| unavailable())?;
+                if slot
+                    .as_ref()
+                    .is_some_and(|current| Arc::ptr_eq(current, &shared))
+                {
+                    *slot = None;
+                }
+                Err(unavailable())
+            }
+        }
     }
 
     pub(crate) async fn begin(
@@ -74,10 +124,10 @@ impl SharedCatalog {
         admin: bool,
     ) -> Result<(Connection, Option<String>), (GatewayError, bool)> {
         let claim = admin.then(|| uuid::Uuid::new_v4().to_string());
-        let result: Vec<String> = tokio::time::timeout(TIMEOUT, async {
-            let mut connection = self.client.get_multiplexed_async_connection().await?;
-            redis::Script::new(
-                r#"
+        let result: Vec<String> = self
+            .run(
+                redis::Script::new(
+                    r#"
                 if redis.call('EXISTS', KEYS[2]) == 1 then return {'rejected',''} end
                 if redis.call('EXISTS', KEYS[1]) == 0 then return {'rejected',''} end
                 if redis.call('STRLEN', KEYS[1]) > tonumber(ARGV[2]) then return {'rejected',''} end
@@ -85,17 +135,14 @@ impl SharedCatalog {
                 if ARGV[1] ~= '' then redis.call('SET', KEYS[2], ARGV[1]) end
                 return {'ok',snapshot}
             "#,
+                )
+                .key(&self.key)
+                .key(format!("{}:admin", self.key))
+                .arg(claim.as_deref().unwrap_or(""))
+                .arg(MAX_BYTES),
             )
-            .key(&self.key)
-            .key(format!("{}:admin", self.key))
-            .arg(claim.as_deref().unwrap_or(""))
-            .arg(MAX_BYTES)
-            .invoke_async(&mut connection)
             .await
-        })
-        .await
-        .map_err(|_| (unavailable(), !admin))?
-        .map_err(|_| (unavailable(), !admin))?;
+            .map_err(|error| (error, !admin))?;
         if result.first().map(String::as_str) == Some("rejected") {
             return Err((unavailable(), true));
         }
@@ -118,12 +165,10 @@ impl SharedCatalog {
     }
 
     pub(crate) async fn release(&self, claim: &str) -> Result<(), GatewayError> {
-        let result: i32 = tokio::time::timeout(TIMEOUT, async {
-            let mut connection = self.client.get_multiplexed_async_connection().await?;
+        let result: i32 = self.run(
             redis::Script::new("if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end; return redis.call('DEL', KEYS[1])")
                 .key(format!("{}:admin", self.key)).arg(claim)
-                .invoke_async(&mut connection).await
-        }).await.map_err(|_| unavailable())?.map_err(|_| unavailable())?;
+        ).await?;
         if result == 1 {
             Ok(())
         } else {
@@ -135,26 +180,22 @@ impl SharedCatalog {
         if payload.len() > MAX_BYTES {
             return Err(unavailable());
         }
-        let result: i32 = tokio::time::timeout(TIMEOUT, async {
-            let mut connection = self.client.get_multiplexed_async_connection().await?;
-            redis::Script::new(
-                r#"
+        let result: i32 = self
+            .run(
+                redis::Script::new(
+                    r#"
                 if redis.call('GET', KEYS[2]) ~= ARGV[1] then return 0 end
                 redis.call('SET', KEYS[1], ARGV[2])
                 redis.call('DEL', KEYS[2])
                 return 1
             "#,
+                )
+                .key(&self.key)
+                .key(format!("{}:admin", self.key))
+                .arg(claim)
+                .arg(payload),
             )
-            .key(&self.key)
-            .key(format!("{}:admin", self.key))
-            .arg(claim)
-            .arg(payload)
-            .invoke_async(&mut connection)
-            .await
-        })
-        .await
-        .map_err(|_| unavailable())?
-        .map_err(|_| unavailable())?;
+            .await?;
         if result == 1 {
             Ok(())
         } else {
@@ -263,6 +304,82 @@ pub(crate) fn is_admin(method: &Method, path: &str) -> Result<bool, GatewayError
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    #[ignore = "requires CATALOG_TEST_REDIS_URL"]
+    async fn transport_reuse_keeps_fresh_snapshots_and_never_replays_failed_admin() {
+        let client = redis::Client::open(env::var("CATALOG_TEST_REDIS_URL").unwrap()).unwrap();
+        let key = format!("qeg:{{transport-{}}}:v1", uuid::Uuid::new_v4());
+        let catalog = SharedCatalog::test_handle(client.clone(), key.clone());
+        let mut observer = client.get_multiplexed_async_connection().await.unwrap();
+        redis::cmd("SET")
+            .arg(&key)
+            .arg(r#"{"indices":[],"aliases":[]}"#)
+            .query_async::<()>(&mut observer)
+            .await
+            .unwrap();
+        catalog.begin(false).await.unwrap();
+        let original = catalog.connection.lock().unwrap().as_ref().unwrap().clone();
+        let mut transport = (*original).clone();
+        let id: i64 = redis::cmd("CLIENT")
+            .arg("ID")
+            .query_async(&mut transport)
+            .await
+            .unwrap();
+        redis::cmd("SET")
+            .arg(&key)
+            .arg(r#"{"indices":[],"aliases":[["fresh","target"]]}"#)
+            .query_async::<()>(&mut observer)
+            .await
+            .unwrap();
+        let replica = catalog.clone();
+        let (db, _) = replica.begin(false).await.unwrap();
+        assert_eq!(
+            Snapshot::read(&db).unwrap().aliases,
+            vec![("fresh".into(), "target".into())]
+        );
+        assert!(Arc::ptr_eq(
+            catalog.connection.lock().unwrap().as_ref().unwrap(),
+            &original
+        ));
+        let killed: i64 = redis::cmd("CLIENT")
+            .arg("KILL")
+            .arg("ID")
+            .arg(id)
+            .query_async(&mut observer)
+            .await
+            .unwrap();
+        assert_eq!(killed, 1);
+        let failure = catalog.begin_tracked(true).await;
+        assert!(
+            matches!(failure, Err((_, false))),
+            "failed admin operation must remain ambiguous"
+        );
+        let claim: Option<String> = redis::cmd("GET")
+            .arg(format!("{key}:admin"))
+            .query_async(&mut observer)
+            .await
+            .unwrap();
+        assert!(
+            claim.is_none(),
+            "failed call must not reconnect and replay its claim"
+        );
+        assert!(catalog.connection.lock().unwrap().is_none());
+        let (db, _) = replica.begin(false).await.unwrap();
+        assert_eq!(
+            Snapshot::read(&db).unwrap().aliases,
+            vec![("fresh".into(), "target".into())]
+        );
+        assert!(!Arc::ptr_eq(
+            catalog.connection.lock().unwrap().as_ref().unwrap(),
+            &original
+        ));
+        redis::cmd("DEL")
+            .arg(&key)
+            .query_async::<()>(&mut observer)
+            .await
+            .unwrap();
+    }
+
     /// Run against an isolated local Redis/Valkey instance, never a production catalog.
     #[tokio::test]
     #[ignore = "requires CATALOG_TEST_REDIS_URL"]
@@ -273,10 +390,14 @@ mod tests {
         let first = SharedCatalog {
             client: client.clone(),
             key: key.clone(),
+            connection: Default::default(),
+            connect_gate: Default::default(),
         };
         let second = SharedCatalog {
             client,
             key: key.clone(),
+            connection: Default::default(),
+            connect_gate: Default::default(),
         };
         let mut connection = first
             .client
@@ -353,6 +474,8 @@ mod tests {
         let catalog = SharedCatalog {
             client,
             key: key.clone(),
+            connection: Default::default(),
+            connect_gate: Default::default(),
         };
         let mut connection = catalog
             .client
@@ -430,6 +553,8 @@ mod tests {
         let catalog = SharedCatalog {
             client,
             key: key.clone(),
+            connection: Default::default(),
+            connect_gate: Default::default(),
         };
         let mut connection = catalog
             .client
