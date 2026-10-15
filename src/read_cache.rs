@@ -597,10 +597,10 @@ fn validate_server(
     if expected
         .iter()
         .any(|(k, v)| config.get(*k).map(String::as_str) != Some(*v))
-        || !config
+        || config
             .get("maxmemory")
             .and_then(|v| v.parse::<u64>().ok())
-            .is_some_and(|v| v > 0)
+            .is_none_or(|v| v == 0)
         || !config.get("maxmemory-policy").is_some_and(|v| {
             matches!(
                 v.as_str(),
