@@ -610,6 +610,7 @@ async fn create_index(
     ensure_collection_namespace_available(&state, &index)?;
     let (mapping, vectors) = mapping_vectors(&body);
     sparse::validate_mapping(&mapping)?;
+    validate_fast_field_namespace(&mapping)?;
     shared_catalog::validate_index_capacity(&state, &index, &mapping, &vectors)?;
     let mut sparse = Map::new();
     for v in &vectors {
@@ -669,6 +670,18 @@ async fn create_index(
                 }
             }
         }
+    }
+    if let Err(error) = state
+        .qdrant
+        .request(
+            Method::PUT,
+            &format!("/collections/{}/index", collection(&index)),
+            Some(json!({"field_name":"_qeg_fast_fields","field_schema":"keyword","wait":true})),
+        )
+        .await
+    {
+        cleanup_failed_index_creation(&state, &index, state.cfg.document_projection).await;
+        return Err(error);
     }
     let metadata_result = state
         .db
@@ -819,7 +832,75 @@ fn projected_search_payload(source: &Value, id: &str, index: &str, mapping: &Val
             }
         }
     }
+    // An eligibility marker permits ordered-scroll only when every matching
+    // document has the same scalar numeric ordering as the gateway. Old points,
+    // missing values and arrays deliberately remain on the complete-scan path.
+    let scalar_fields = mapping
+        .get("properties")
+        .and_then(Value::as_object)
+        .map(|properties| {
+            properties
+                .iter()
+                .filter_map(|(field, spec)| {
+                    let kind = spec.get("type").and_then(Value::as_str);
+                    let numeric = matches!(
+                        kind,
+                        Some("integer" | "long" | "short" | "byte" | "float" | "double")
+                    );
+                    let integer = matches!(kind, Some("integer" | "long" | "short" | "byte"));
+                    if field.contains(['.', '[', ']']) || field.starts_with('_') {
+                        return None;
+                    }
+                    if numeric
+                        && source.get(field).is_some_and(|value| {
+                            sort_safe_number(value)
+                                && (!integer || value.is_i64() || value.is_u64())
+                        })
+                    {
+                        Some(Value::String(format!("v1:number:{field}")))
+                    } else if spec.get("type").and_then(Value::as_str) == Some("keyword")
+                        && keyword_facet_safe(source.get(field))
+                    {
+                        Some(Value::String(format!("v1:keyword:{field}")))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    p.insert("_qeg_fast_fields".into(), Value::Array(scalar_fields));
     Value::Object(p)
+}
+
+fn validate_fast_field_namespace(mapping: &Value) -> Result<(), GatewayError> {
+    if mapping
+        .get("properties")
+        .and_then(|properties| properties.get("_qeg_fast_fields"))
+        .is_some()
+    {
+        return Err(GatewayError::bad(
+            "_mapping.properties._qeg_fast_fields",
+            "field name is reserved for gateway execution metadata",
+        ));
+    }
+    Ok(())
+}
+
+fn keyword_facet_safe(value: Option<&Value>) -> bool {
+    match value {
+        None | Some(Value::Null | Value::String(_)) => true,
+        Some(Value::Array(values)) => values
+            .iter()
+            .all(|value| value.is_null() || value.is_string()),
+        _ => false,
+    }
+}
+
+fn sort_safe_number(value: &Value) -> bool {
+    value
+        .as_f64()
+        .is_some_and(|number| number.is_finite() && number.abs() <= 9_007_199_254_740_991.0)
 }
 
 fn source_payload(source: &Value, id: &str, index: &str) -> Value {
@@ -2810,6 +2891,108 @@ fn hit_is_after(hit: &Value, cursor: &[Value], sorts: &[(String, String)]) -> bo
     false
 }
 
+/// Qdrant ordered scrolling excludes missing values and handles arrays differently
+/// from the compatibility comparator. Only a fully covered scalar-number subset
+/// can use this path. Boundary ties fall back rather than losing a smaller _id.
+async fn ordered_numeric_hits(
+    state: &AppState,
+    (index, coll, mapping): (&str, &str, &Value),
+    body: &Value,
+    sorts: &[(String, String)],
+    filter: Option<&Value>,
+    total: u64,
+    window: usize,
+) -> Result<Option<Vec<Value>>, GatewayError> {
+    if state.cfg.document_projection
+        || sorts.len() != 1
+        || window == 0
+        || body.get("post_filter").is_some()
+        || body.get("collapse").is_some()
+    {
+        return Ok(None);
+    }
+    let (field, direction) = &sorts[0];
+    if field.contains(['.', '[', ']'])
+        || !mapping
+            .get("properties")
+            .and_then(|p| p.get(field))
+            .and_then(|p| p.get("type"))
+            .and_then(Value::as_str)
+            .is_some_and(|kind| {
+                matches!(
+                    kind,
+                    "integer" | "long" | "short" | "byte" | "float" | "double"
+                )
+            })
+    {
+        return Ok(None);
+    }
+    let cursor = body
+        .get("search_after")
+        .and_then(Value::as_array)
+        .and_then(|c| c.first());
+    if cursor.is_some_and(|value| !sort_safe_number(value)) {
+        return Ok(None);
+    }
+    if total == 0 {
+        return Ok(Some(Vec::new()));
+    }
+    let mut clauses = filter.cloned().into_iter().collect::<Vec<_>>();
+    clauses.push(json!({"key":"_qeg_fast_fields","match":{"value":format!("v1:number:{field}")}}));
+    let eligible = qdrant_exact_count(state, coll, Some(&json!({"must":clauses}))).await?;
+    if eligible != total {
+        return Ok(None);
+    }
+    let mut clauses = filter.cloned().into_iter().collect::<Vec<_>>();
+    if let Some(cursor) = cursor {
+        let bound = if direction == "desc" { "lt" } else { "gt" };
+        let mut range = Map::new();
+        range.insert(bound.into(), cursor.clone());
+        clauses.push(json!({"key":field,"range":range}));
+    }
+    let mut request = json!({"limit":window + 1,"order_by":{"key":field,"direction":direction},
+        "with_payload":{"include":["_es_id","_source"]},"with_vector":false});
+    if !clauses.is_empty() {
+        request["filter"] = json!({"must":clauses});
+    }
+    let response = state
+        .qdrant
+        .request(
+            Method::POST,
+            &format!("/collections/{coll}/points/scroll"),
+            Some(request),
+        )
+        .await?;
+    let points = response
+        .pointer("/result/points")
+        .and_then(Value::as_array)
+        .ok_or_else(|| GatewayError::bad("search", "invalid ordered Qdrant scroll points"))?;
+    let mut hits = points.iter().map(|point| {
+        let payload = &point["payload"];
+        json!({"_index":index,"_id":payload["_es_id"],"_score":Value::Null,"_source":payload["_source"]})
+    }).collect::<Vec<_>>();
+    // Coverage can change between count and scroll. Never accept an unexpected
+    // non-scalar source from an in-flight write as an ordered numeric hit.
+    if hits
+        .iter()
+        .any(|hit| !sort_safe_number(&hit_sort_value(hit, field)))
+    {
+        return Ok(None);
+    }
+    hits.sort_by(|a, b| compare_sorted_hits(a, b, sorts));
+    if hits.len() > window
+        && value_cmp(
+            &hit_sort_value(&hits[window - 1], field),
+            &hit_sort_value(&hits[window], field),
+        )
+        .is_eq()
+    {
+        return Ok(None);
+    }
+    hits.truncate(window);
+    Ok(Some(hits))
+}
+
 async fn search(
     State(state): State<AppState>,
     Path(index): Path<String>,
@@ -2908,13 +3091,44 @@ async fn search_with_total_format(
     } else {
         None
     };
-    // Global field ordering and post-filter membership require every page.
-    let complete_hit_scan = !has_text
+    let ordered_hits = if !has_text && patterns.is_empty() && size > 0 {
+        if let Some(total) = exact_total {
+            ordered_numeric_hits(
+                &state,
+                (&index, &coll, &mapping),
+                &body,
+                &sort_specs,
+                filter.as_ref(),
+                total,
+                (from + size) as usize,
+            )
+            .await?
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let count_only = size == 0
+        && !has_text
+        && patterns.is_empty()
+        && body.get("post_filter").is_none()
+        && collapse_spec.is_none()
+        && exact_total.is_some();
+    // Global field ordering and post-filter membership require every page unless
+    // a scalar numeric ordering has been proven safe for backend pushdown.
+    let complete_hit_scan = !count_only
+        && ordered_hits.is_none()
+        && !has_text
         && patterns.is_empty()
         && (!sort_specs.is_empty() || body.get("post_filter").is_some());
     let mut scanned_total = 0_u64;
     let mut hits: Vec<Value> = Vec::new();
-    if let Some((using, vector)) = sparse_query {
+    if count_only {
+        // Aggregations and exact total are already complete; no hits are requested.
+    } else if let Some(ordered_hits) = ordered_hits {
+        hits = ordered_hits;
+    } else if let Some((using, vector)) = sparse_query {
         let response = state.qdrant.request(Method::POST, &format!("/collections/{coll}/points/query"), Some(json!({"query":vector,"using":using,"limit":(from+size).max(1),"with_payload":{"include":["_es_id","_source"]}}))).await?;
         if let Some(points) = response.pointer("/result/points").and_then(Value::as_array) {
             for point in points {
@@ -3829,6 +4043,7 @@ async fn mapping(
     if method == Method::PUT {
         let body = body.map(|j| j.0).unwrap_or_else(|| json!({}));
         let update = body.get("mappings").unwrap_or(&body);
+        validate_fast_field_namespace(update)?;
         let update = update.as_object().ok_or_else(|| {
             GatewayError::bad("_mapping", "mapping update body must be an object")
         })?;
@@ -3892,6 +4107,14 @@ async fn mapping(
                 )
                 .await?;
         }
+        state
+            .qdrant
+            .request(
+                Method::PUT,
+                &format!("/collections/{coll}/index"),
+                Some(json!({"field_name":"_qeg_fast_fields","field_schema":"keyword","wait":true})),
+            )
+            .await?;
         let db = state
             .db
             .lock()
@@ -6343,7 +6566,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn zero_size_search_uses_a_positive_qdrant_scroll_limit() {
+    async fn zero_size_search_avoids_scroll_when_exact_count_is_known() {
         let observed_requests = Arc::new(Mutex::new(Vec::new()));
         let captured_requests = observed_requests.clone();
         let mock = Router::new().fallback(any(move |uri: axum::http::Uri, body: Body| {
@@ -6402,7 +6625,7 @@ mod tests {
         assert_eq!(body["hits"]["total"], json!({"value":37,"relation":"eq"}));
         {
             let requests = observed_requests.lock().unwrap();
-            assert_eq!(requests.len(), 2);
+            assert_eq!(requests.len(), 1);
             assert_eq!(
                 requests[0],
                 (
@@ -6410,7 +6633,6 @@ mod tests {
                     json!({"exact":true})
                 )
             );
-            assert_eq!(requests[1].1["limit"], 1);
         }
 
         observed_requests.lock().unwrap().clear();
@@ -6433,7 +6655,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(body["hits"]["total"], 37);
-        assert_eq!(observed_requests.lock().unwrap().len(), 2);
+        assert_eq!(observed_requests.lock().unwrap().len(), 1);
 
         observed_requests.lock().unwrap().clear();
         let response = search_with_total_format(
@@ -7030,11 +7252,23 @@ mod tests {
         .unwrap();
         assert_eq!(
             *requests.lock().unwrap(),
-            [(
-                Method::PUT,
-                "/collections/es_products/index".into(),
-                json!({"field_name":"brand","field_schema":"keyword","wait":true})
-            )]
+            [
+                (
+                    Method::PUT,
+                    "/collections/es_products/index".into(),
+                    json!({"field_name":"brand","field_schema":"keyword","wait":true})
+                ),
+                (
+                    Method::PUT,
+                    "/collections/es_products/index".into(),
+                    json!({"field_name":"_qeg_fast_fields","field_schema":"keyword","wait":true})
+                ),
+                (
+                    Method::PUT,
+                    "/collections/es_products/index".into(),
+                    json!({"field_name":"_qeg_fast_fields","field_schema":"keyword","wait":true})
+                )
+            ]
         );
 
         for (update, feature) in [
@@ -7057,7 +7291,7 @@ mod tests {
             .unwrap_err();
             assert_eq!(error.body()["error"]["feature"], feature);
         }
-        assert_eq!(requests.lock().unwrap().len(), 1);
+        assert_eq!(requests.lock().unwrap().len(), 3);
         server.abort();
     }
 
@@ -7979,5 +8213,144 @@ mod tests {
                 {"range":{"price.keyword":{"gte":10}}}
             ]}})
         ));
+    }
+    #[test]
+    fn fast_field_markers_exclude_incompatible_values_and_cannot_be_spoofed() {
+        let mapping = json!({"properties":{"price":{"type":"integer"},"category":{"type":"keyword"},"_qeg_fast_fields":{"type":"keyword"}}});
+        for value in [
+            json!(null),
+            json!([1]),
+            json!("1"),
+            json!(9007199254740992_u64),
+            json!(1.5),
+        ] {
+            let payload = projected_search_payload(
+                &json!({"price":value,"category":["a",null],"_qeg_fast_fields":["v1:number:price"]}),
+                "1",
+                "items",
+                &mapping,
+            );
+            assert_eq!(payload["_qeg_fast_fields"], json!(["v1:keyword:category"]));
+        }
+        let payload = projected_search_payload(
+            &json!({"price":42,"category":["a",2]}),
+            "1",
+            "items",
+            &mapping,
+        );
+        assert_eq!(payload["_qeg_fast_fields"], json!(["v1:number:price"]));
+        assert!(validate_fast_field_namespace(&mapping).is_err());
+        assert!(
+            validate_fast_field_namespace(&json!({"properties":{"rank":{"type":"integer"}}}))
+                .is_ok()
+        );
+        assert!(keyword_facet_safe(None));
+        assert!(keyword_facet_safe(Some(&json!([]))));
+        assert!(!keyword_facet_safe(Some(&json!([["nested"]]))));
+    }
+
+    #[tokio::test]
+    async fn ordered_numeric_scroll_guards_coverage_ties_and_cursor() {
+        for (eligible, points, expected_ids) in [
+            (
+                2,
+                vec![
+                    json!({"payload":{"_es_id":"b","_source":{"price":20}}}),
+                    json!({"payload":{"_es_id":"a","_source":{"price":30}}}),
+                ],
+                Some(vec!["b"]),
+            ),
+            (
+                2,
+                vec![
+                    json!({"payload":{"_es_id":"b","_source":{"price":20}}}),
+                    json!({"payload":{"_es_id":"a","_source":{"price":20}}}),
+                ],
+                None,
+            ),
+            (1, vec![], None),
+        ] {
+            let observed = Arc::new(Mutex::new(Vec::<Value>::new()));
+            let requests = observed.clone();
+            let mock = Router::new().fallback(any(move |request: axum::http::Request<Body>| {
+                let points = points.clone();
+                let requests = requests.clone();
+                async move {
+                    let path = request.uri().path().to_owned();
+                    let body: Value = serde_json::from_slice(
+                        &axum::body::to_bytes(request.into_body(), usize::MAX)
+                            .await
+                            .unwrap(),
+                    )
+                    .unwrap();
+                    requests.lock().unwrap().push(body);
+                    Json(if path.ends_with("/count") {
+                        json!({"result":{"count":eligible}})
+                    } else {
+                        json!({"result":{"points":points,"next_page_offset":null}})
+                    })
+                }
+            }));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+            let mut cfg = Config::from_env();
+            cfg.document_projection = false;
+            let state = AppState {
+                qdrant: Qdrant {
+                    client: Client::new(),
+                    base: format!("http://{address}"),
+                    key: None,
+                    admin_mutation_started: None,
+                    async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+                },
+                db: Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
+                analytics: Arc::new(Mutex::new(Analytics::default())),
+                shared_catalog: None,
+                index_admin: Arc::new(AsyncMutex::new(())),
+                cfg,
+            };
+            let result = ordered_numeric_hits(
+                &state,
+                (
+                    "items",
+                    "es_items",
+                    &json!({"properties":{"price":{"type":"integer"}}}),
+                ),
+                &json!({"search_after":[10]}),
+                &[("price".into(), "asc".into())],
+                None,
+                2,
+                1,
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                result.map(|hits| hits
+                    .iter()
+                    .map(|hit| hit["_id"].as_str().unwrap().to_owned())
+                    .collect::<Vec<_>>()),
+                expected_ids.map(|ids| ids.into_iter().map(str::to_owned).collect::<Vec<_>>())
+            );
+            let requests = observed.lock().unwrap();
+            assert_eq!(
+                requests[0]["filter"]["must"][0]["match"]["value"],
+                "v1:number:price"
+            );
+            if eligible == 2 {
+                assert_eq!(
+                    requests[1]["order_by"],
+                    json!({"key":"price","direction":"asc"})
+                );
+                assert_eq!(
+                    requests[1]["filter"]["must"][0],
+                    json!({"key":"price","range":{"gt":10}})
+                );
+                assert_eq!(requests[1]["limit"], 2);
+            } else {
+                assert_eq!(requests.len(), 1);
+            }
+            server.abort();
+        }
     }
 }

@@ -57,3 +57,21 @@ verifies full-width token IDs; it does not reproduce SEISMIC approximation bugs.
 ## Shared metadata and consistency
 
 SQLite remains the default single-replica catalog. The optional [Redis/Valkey catalog](shared-catalog.md) shares mappings and single-index aliases across replicas, with explicit recovery after uncertain administrative writes. It does not supply atomic document updates or snapshot pagination. Unsupported `pit` search bodies and URL parameters `if_seq_no`, `if_primary_term`, `version`, `version_type`, `retry_on_conflict`, `op_type`, `routing`, and `scroll` return a structured 400 rather than being ignored.
+
+### Ordered numeric searches
+
+Single-field numeric sorts can use Qdrant's ordered scroll when every matching
+point carries a gateway-generated scalar-type marker. This avoids downloading
+all matching documents to return one page. Multiple sort fields, missing or
+array values, integers outside the exact floating-point comparison range,
+separate document projections, and ties crossing the requested page boundary
+retain the complete scan. The `search_after` predicate excludes the cursor value;
+exact totals still describe all query matches before pagination.
+
+New writes carry versioned eligibility metadata in the reserved
+`_qeg_fast_fields` payload field. New collections and mapping updates index that
+field; old points without markers safely use the existing scan. Application
+mappings cannot define this reserved field. No reindex is required for correctness.
+Neither ordered scroll nor the fallback is a point-in-time snapshot during
+concurrent writes. Qdrant's [ordered-scroll API](https://qdrant.tech/documentation/concepts/points/#order-points-by-payload-key)
+provides the backend ordering; the gateway checks compatibility before using it.
