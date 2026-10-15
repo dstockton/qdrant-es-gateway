@@ -25,6 +25,7 @@
 - [Two gateways need one view of their mappings](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-sharing-mappings-between-gateway-replicas.md)
 - [Rustls security fixes landed](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-rustls-security-fixes-landed.md)
 - [Reading Reddit with an honest coverage report](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-reading-reddit-with-an-honest-coverage-report.md)
+- [Missing alias removals are not success](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-missing-alias-removals-are-not-success.md)
 - [Keep your sparse token IDs intact](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-explicit-sparse-vectors-without-token-folding.md)
 - [Documentation you can read as text](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-documentation-you-can-read-as-text.md)
 - [A reporting day is not always 24 hours](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-calendar-days-follow-local-time.md)
