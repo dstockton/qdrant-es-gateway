@@ -293,21 +293,25 @@ impl Plan {
             };
             let (marker, condition) = count_condition(query, mapping)?;
             Some(async move {
-                if !marker_covered(state, collection, filter, &marker).await? {
-                    return Ok::<_, GatewayError>(None);
-                }
                 let mut conditions = vec![condition];
                 if let Some(filter) = filter {
                     conditions.push(filter.clone());
                 }
-                let response = state
-                    .qdrant
-                    .request(
+                let path = format!("/collections/{collection}/points/count");
+                let (covered, response) = tokio::join!(
+                    marker_covered(state, collection, filter, &marker),
+                    state.qdrant.request(
                         Method::POST,
-                        &format!("/collections/{collection}/points/count"),
-                        Some(json!({"exact":true,"filter":{"must":conditions}})),
+                        &path,
+                        Some(json!({"exact":true,"filter":{"must":conditions}}))
                     )
-                    .await?;
+                );
+                // The speculative read is never authoritative without coverage;
+                // even an index error is discarded for legacy/malformed payloads.
+                if !covered? {
+                    return Ok::<_, GatewayError>(None);
+                }
+                let response = response?;
                 let count = response
                     .pointer("/result/count")
                     .and_then(Value::as_u64)
@@ -341,21 +345,20 @@ impl Plan {
             }
             // Old or malformed documents never carry this versioned proof. Check
             // coverage in the same query scope before trusting the indexed facet.
-            if !marker_covered(state, collection, filter, &format!("v1:keyword:{field}")).await? {
-                continue;
-            }
             let mut request = json!({"key":field,"exact":true,"limit":MAX_BUCKETS + 1});
             if let Some(filter) = filter {
                 request["filter"] = filter.clone();
             }
-            let response = state
-                .qdrant
-                .request(
-                    Method::POST,
-                    &format!("/collections/{collection}/facet"),
-                    Some(request),
-                )
-                .await?;
+            let marker = format!("v1:keyword:{field}");
+            let path = format!("/collections/{collection}/facet");
+            let (covered, response) = tokio::join!(
+                marker_covered(state, collection, filter, &marker),
+                state.qdrant.request(Method::POST, &path, Some(request))
+            );
+            if !covered? {
+                continue;
+            }
+            let response = response?;
             let counts = facet_counts(&response)?;
             let Reduction::Terms { counts: target, .. } = self.0.get_mut(&name).unwrap() else {
                 unreachable!()
@@ -688,6 +691,66 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    async fn speculative_aggregation_reads_overlap_and_obey_the_coverage_result() {
+        for facet in [false, true] {
+            for (covered, guard_error, read_error) in [
+                (true, false, false),
+                (false, false, true),
+                (true, true, false),
+                (true, false, true),
+            ] {
+                let barrier = Arc::new(tokio::sync::Barrier::new(2));
+                let mock = Router::new().fallback(any(move |uri: axum::http::Uri, Json(request): Json<Value>| {
+                    let barrier = barrier.clone();
+                    async move {
+                        if request["with_payload"] == true {
+                            return Json(json!({"result":{"points":[{"payload":{"_source":{"brand":"A"}}}],"next_page_offset":null}})).into_response();
+                        }
+                        // Neither request can finish until both have started.
+                        barrier.wait().await;
+                        if uri.path().ends_with("/scroll") {
+                            if guard_error { return (StatusCode::INTERNAL_SERVER_ERROR,Json(json!({"error":"coverage failed"}))).into_response(); }
+                            return Json(json!({"result":{"points":if covered { json!([]) } else { json!([{"id":1}]) }}})).into_response();
+                        }
+                        if read_error { return (StatusCode::INTERNAL_SERVER_ERROR,Json(json!({"error":"index unavailable"}))).into_response(); }
+                        Json(if facet { json!({"result":{"hits":[{"value":"A","count":1}]}}) }
+                            else { json!({"result":{"count":1}}) }).into_response()
+                    }
+                }));
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let address = listener.local_addr().unwrap();
+                let server =
+                    tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+                let state = search_test_state(format!("http://{address}"), false);
+                let spec = if facet {
+                    json!({"a":{"terms":{"field":"brand"}}})
+                } else {
+                    json!({"a":{"filter":{"term":{"brand":"A"}}}})
+                };
+                let plan = Plan::parse(Some(&spec)).unwrap().unwrap();
+                let mapping = json!({"properties":{"brand":{"type":"keyword"}}});
+                let result = tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    plan.execute(&state, "es_products", None, &mapping),
+                )
+                .await
+                .expect("coverage and speculative read must overlap");
+                if guard_error || (covered && read_error) {
+                    assert!(result.is_err());
+                } else {
+                    let result = result.unwrap();
+                    if facet {
+                        assert_eq!(result["a"]["buckets"], json!([{"key":"A","doc_count":1}]));
+                    } else {
+                        assert_eq!(result["a"]["doc_count"], 1);
+                    }
+                }
+                server.abort();
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn simple_filter_counts_push_down_exactly_with_common_scope() {
         let observed = Arc::new(Mutex::new(Vec::new()));
         let requests = observed.clone();
@@ -737,7 +800,7 @@ mod tests {
     #[tokio::test]
     async fn unmarked_filter_values_fall_back_to_source_predicate() {
         let mock = Router::new().fallback(any(|uri: axum::http::Uri, Json(request): Json<Value>| async move {
-            assert!(!uri.path().ends_with("/count"));
+            if uri.path().ends_with("/count") { return Json(json!({"error":"unsupported legacy index"})); }
             let points = if request["with_payload"] == false { json!([{"id":1}]) }
                 else { json!([{"payload":{"_source":{"price":["1",2,null]}}},{"payload":{"_source":{"price":"3"}}}]) };
             Json(json!({"result":{"points":points,"next_page_offset":null}}))
@@ -823,19 +886,27 @@ mod tests {
                 json!({"doc_count_error_upper_bound":0,"sum_other_doc_count":1,"buckets":[{"key":"A","doc_count":1}]})
             );
             let requests = observed.lock().unwrap();
-            assert_eq!(requests.len(), 2);
-            assert_eq!(requests[0].1["filter"]["must"], json!([filter]));
+            assert_eq!(requests.len(), if legacy { 3 } else { 2 });
+            let coverage = &requests
+                .iter()
+                .find(|(_, req)| req["with_payload"] == false)
+                .unwrap()
+                .1;
+            let facet = &requests
+                .iter()
+                .find(|(path, _)| path.ends_with("/facet"))
+                .unwrap()
+                .1;
+            assert_eq!(coverage["filter"]["must"], json!([filter]));
             assert_eq!(
-                requests[0].1["filter"]["must_not"][0]["match"]["value"],
+                coverage["filter"]["must_not"][0]["match"]["value"],
                 "v1:keyword:brand"
             );
-            assert_eq!(requests[1].1["filter"], filter);
+            assert_eq!(facet["filter"], filter);
+            assert_eq!(facet["exact"], true);
+            assert_eq!(facet["limit"], MAX_BUCKETS + 1);
             if legacy {
-                assert!(requests[1].0.ends_with("/scroll"));
-            } else {
-                assert!(requests[1].0.ends_with("/facet"));
-                assert_eq!(requests[1].1["exact"], true);
-                assert_eq!(requests[1].1["limit"], MAX_BUCKETS + 1);
+                assert_eq!(requests[2].1["with_payload"], true);
             }
             server.abort();
         }
