@@ -37,6 +37,14 @@ The command requires an existing catalog and no unresolved administrative claim.
 
 Deployment identity is separate from response compatibility: cache keys also include a digest of the actual executable, response-affecting configuration, method, URI, and request body. Different builds do not reuse each other's responses. Keys do not contain plaintext credentials.
 
+## Response entries and persistence
+
+Response-cache fills are disposable. Their publication script suppresses incremental AOF propagation only for the bounded, expiring response entry, then restores normal propagation. Catalog updates, deployment lineage, generation changes and writer admission/release remain durable under the required `appendfsync always` configuration. This does not weaken the persistence requirements for the authoritative state.
+
+AOF rewrites or snapshots may still retain response entries that exist in memory. Restored entries must therefore pass the same deployment identity, build/configuration, generation, expiry and quiet-writer checks before use. Do not assume a restart empties the response cache, or that every cache-fill request avoids all fsync activity: other writes and persistence work can still occur. This change alone establishes no performance benefit.
+
+The isolated [AOF crash/rewrite proof](https://github.com/dstockton/qdrant-es-gateway/blob/main/tests/cache_ephemeral_aof.py) exercises the production Lua scripts against disposable durable Valkey storage. See the [test instructions](https://github.com/dstockton/qdrant-es-gateway/blob/main/tests/cache-live.md) for its scope and invocation.
+
 ## What happens around a write
 
 Before the gateway starts a mutation, it advances the shared generation and records a persistent writer token. A cached response is usable only in the same quiet generation with no writer or catalog administrative claim. A cold read captures its generation before loading catalog metadata; publication fails if a writer intervenes.

@@ -128,7 +128,14 @@ const PUBLISH: &str = r#"
 if count ~= 4 or redis.call('EXISTS',KEYS[3]) ~= 0 or epoch ~= ARGV[4] then return {'skip'} end
 if #ARGV[5] == 0 or #ARGV[5] > tonumber(ARGV[6]) then return {'skip'} end
 local value = ARGV[2] .. '\n' .. ARGV[3] .. '\n' .. epoch .. '\n' .. ARGV[5]
+-- Older Redis uses verbatim scripts unless effects replication is enabled.
+-- On current Valkey this compatibility call is a successful no-op.
+if not redis.replicate_commands() then return fail() end
+-- Only the disposable response write skips incremental AOF/replica propagation.
+-- Rewrites may still snapshot it; the durable generation always gates reuse.
+redis.set_repl(redis.REPL_NONE)
 redis.call('SET',KEYS[4],value,'EX',ARGV[7])
+redis.set_repl(redis.REPL_ALL)
 return {'ok'}
 "#;
 
@@ -771,6 +778,82 @@ mod tests {
         assert!(!catalog_has_tag("qeg:{}:{later}"));
         assert!(catalog_has_tag("qeg:{catalog}:v1"));
         assert!(!valid_identity("bad\nidentity"));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires CATALOG_TEST_REDIS_URL"]
+    async fn cache_publication_failure_leaves_coordination_and_later_writes_intact() {
+        let cache = fixture().await;
+        let key = cache.request_key("GET", "/items/_doc/1", b"");
+        let entry = format!("{}{key}", cache.entries);
+        let mut connection = cache.connection.clone();
+        let catalog_before: Vec<u8> = redis::cmd("GET")
+            .arg(&cache.catalog)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        for (next_epoch, invalid_ttl) in [("1", true), ("2", false)] {
+            let ticket = cache.lookup(&key).await.unwrap().ticket.unwrap();
+            let control_before: std::collections::HashMap<String, String> = redis::cmd("HGETALL")
+                .arg(&cache.control)
+                .query_async(&mut connection)
+                .await
+                .unwrap();
+            let mut publisher = cache.clone();
+            if invalid_ttl {
+                // Bypass configuration validation only in this test to make
+                // SET fail after REPL_NONE, before the explicit restore.
+                publisher.ttl_seconds = 0;
+                assert!(publisher.publish(&ticket, &key, b"rejected").await.is_err());
+                let exists: bool = redis::cmd("EXISTS")
+                    .arg(&entry)
+                    .query_async(&mut connection)
+                    .await
+                    .unwrap();
+                assert!(!exists);
+            } else {
+                assert!(publisher.publish(&ticket, &key, b"valid").await.unwrap());
+                assert_eq!(
+                    cache.lookup(&key).await.unwrap().response.as_deref(),
+                    Some(b"valid".as_slice())
+                );
+                let ttl: i64 = redis::cmd("PTTL")
+                    .arg(&entry)
+                    .query_async(&mut connection)
+                    .await
+                    .unwrap();
+                assert!((1..=60_000).contains(&ttl));
+            }
+            let catalog_after: Vec<u8> = redis::cmd("GET")
+                .arg(&cache.catalog)
+                .query_async(&mut connection)
+                .await
+                .unwrap();
+            let control_after: std::collections::HashMap<String, String> = redis::cmd("HGETALL")
+                .arg(&cache.control)
+                .query_async(&mut connection)
+                .await
+                .unwrap();
+            assert_eq!(catalog_after, catalog_before);
+            assert_eq!(control_after, control_before);
+
+            // The next mutation after either outcome must still advance and
+            // fence the shared epoch. Persistence is checked by the AOF test.
+            let writer = cache.admit_writer().await.unwrap();
+            assert_eq!(writer.epoch, next_epoch);
+            assert!(cache.lookup(&key).await.unwrap().ticket.is_none());
+            cache.release_writer(&writer).await.unwrap();
+            let miss = cache.lookup(&key).await.unwrap();
+            assert!(miss.response.is_none());
+            assert_eq!(miss.ticket.unwrap().epoch, next_epoch);
+        }
+        let control_ttl: i64 = redis::cmd("PTTL")
+            .arg(&cache.control)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(control_ttl, -1);
+        cleanup(&cache).await;
     }
 
     #[tokio::test]

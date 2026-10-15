@@ -68,3 +68,31 @@ the writer survives and old responses remain fenced. Qdrant is unpaused in a
 gateways and either reconcile it using the documented operator recovery process,
 or discard this entire disposable stack with `down -v`. Never clear its token
 just because a timeout elapsed.
+
+## Disposable response-entry persistence proof
+
+The standalone [cache_ephemeral_aof.py](cache_ephemeral_aof.py) test reads the
+production Lua scripts and creates its own isolated Valkey container and durable
+volume. It uses no host ports or existing stack data, so it does not require the
+Compose services above. Run it against the candidate source containing response-only
+propagation suppression:
+
+```sh
+python3 tests/cache_ephemeral_aof.py --output /tmp/cache-ephemeral-aof-proof.json
+```
+
+Choose a fresh output filename; the test refuses to overwrite evidence. It checks
+that response fills skip incremental AOF persistence while catalog changes,
+generation advances and persistent writer tokens survive an abrupt restart.
+It also exercises a rewrite that retains an entry with its original expiry,
+rejection of that restored entry after a durable generation change, and a
+publication error followed by a durable writer admission. This is a correctness
+proof for the production scripts, not a performance benchmark or a substitute for
+the two-gateway runtime tests above.
+
+Rewrites and snapshots may include response entries even though ordinary fills
+skip incremental AOF propagation. Identity and generation validation remain
+mandatory, and this does not promise that all fsync work disappears. Successful
+runs remove only the container and volume they created. Failed runs retain their
+own stopped container and volume for inspection, recording their names in the
+JSON output.

@@ -55,6 +55,8 @@ jobs:
           CATALOG_TEST_REDIS_URL: redis://127.0.0.1:6379
         run: cargo test --bin qdrant-es-gateway -- --include-ignored
       - run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Verify disposable cache publication across crashes and AOF rewrites
+        run: python3 tests/cache_ephemeral_aof.py --output "$RUNNER_TEMP/cache-ephemeral-aof.json"
 
   helm:
     runs-on: ubuntu-24.04
