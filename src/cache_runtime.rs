@@ -107,9 +107,23 @@ impl CacheRuntime {
                 return response;
             }
         }
-        let response = dispatch_catalog(state, method, path, query, headers, body)
-            .await
-            .response;
+        let response =
+            if let Some(snapshot) = lookup.as_ref().and_then(|v| v.catalog_snapshot.as_deref()) {
+                // The Lua miss returned this snapshot with its quiet epoch. Do not
+                // issue a second catalog read, or acquire a replacement epoch later.
+                let db = match shared_catalog::snapshot_db(snapshot) {
+                    Ok(db) => db,
+                    Err(error) => return error.into_response(),
+                };
+                state.db = Arc::new(Mutex::new(db));
+                dispatch_inner(state, method, path, query, headers, body).await
+            } else {
+                // Busy/unavailable lookup or an invalid hit envelope retains the
+                // ordinary authoritative-catalog path and any original read ticket.
+                dispatch_catalog(state, method, path, query, headers, body)
+                    .await
+                    .response
+            };
         let Some(ticket) = lookup.and_then(|v| v.ticket) else {
             return response;
         };
@@ -224,6 +238,128 @@ mod tests {
             assert!(!mutating(&Method::POST, path));
         }
     }
+    #[tokio::test]
+    #[ignore = "requires CATALOG_TEST_REDIS_URL"]
+    async fn atomic_miss_uses_snapshot_without_second_catalog_transport() {
+        let (mut state, mut redis, key) = fixture().await;
+        state.cfg.document_projection = false;
+        redis::cmd("SET")
+            .arg(&key)
+            .arg(json!({"indices":[["items","{}","[]"]],"aliases":[]}).to_string())
+            .query_async::<()>(&mut redis)
+            .await
+            .unwrap();
+        // Any second catalog begin fails; the cache owns a separate live connection.
+        state.shared_catalog = Some(shared_catalog::SharedCatalog::test_handle(
+            redis::Client::open("redis://127.0.0.1:1").unwrap(),
+            key.clone(),
+        ));
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let seen = calls.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        state.qdrant.base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                Router::new().fallback(any(move || {
+                    seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    async {
+                        Json(json!({"status":"ok","result":[{"payload":{"_source":{"n":1}}}]}))
+                    }
+                })),
+            )
+            .await
+            .unwrap();
+        });
+        let response = dispatch(
+            state.clone(),
+            Method::GET,
+            "/items/_doc/a".into(),
+            None,
+            HeaderMap::new(),
+            String::new(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        let cache = &state.cache_runtime.as_ref().unwrap().cache;
+        let cachekey = cache.request_key("GET", "/items/_doc/b", b"");
+        let lookup = cache.lookup(&cachekey).await.unwrap();
+        assert!(lookup.response.is_none() && lookup.catalog_snapshot.is_some());
+        cache
+            .publish(&lookup.ticket.unwrap(), &cachekey, b"invalid envelope")
+            .await
+            .unwrap();
+        let corrupt = dispatch(
+            state.clone(),
+            Method::GET,
+            "/items/_doc/b".into(),
+            None,
+            HeaderMap::new(),
+            String::new(),
+        )
+        .await;
+        assert_eq!(
+            corrupt.status(),
+            StatusCode::BAD_GATEWAY,
+            "invalid hit must use ordinary catalog path"
+        );
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        server.abort();
+        cleanup(&mut redis, &key).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires CATALOG_TEST_REDIS_URL"]
+    async fn atomic_miss_rejects_malformed_oversized_and_duplicate_catalogs_before_backend() {
+        let (mut state, mut redis, key) = fixture().await;
+        state.cfg.document_projection = false;
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let seen = calls.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        state.qdrant.base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                Router::new().fallback(any(move || {
+                    seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    async { Json(json!({"result":[]})) }
+                })),
+            )
+            .await
+            .unwrap();
+        });
+        let snapshots = [
+            "invalid json".to_owned(),
+            json!({"indices":[["items","{}","[]"],["items","{}","[]"]],"aliases":[]}).to_string(),
+            json!({"indices":[["items","invalid mapping","[]"]],"aliases":[]}).to_string(),
+            json!({"indices":[["items","{}","{}"]],"aliases":[]}).to_string(),
+            json!({"indices":[["items","{}","[]"]],"aliases":[["alias","items"],["alias","items"]]}).to_string(),
+            " ".repeat(shared_catalog::MAX_BYTES+1),
+        ];
+        for (i, snapshot) in snapshots.into_iter().enumerate() {
+            redis::cmd("SET")
+                .arg(&key)
+                .arg(snapshot)
+                .query_async::<()>(&mut redis)
+                .await
+                .unwrap();
+            let response = dispatch(
+                state.clone(),
+                Method::GET,
+                format!("/items/_doc/{i}"),
+                None,
+                HeaderMap::new(),
+                String::new(),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        }
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        server.abort();
+        cleanup(&mut redis, &key).await;
+    }
+
     #[tokio::test]
     async fn envelopes_preserve_big_integers_headers_and_reject_corruption() {
         let body = json!({"found":true,"_id":"one","_source":{"large":u64::MAX,"small":i64::MIN}});

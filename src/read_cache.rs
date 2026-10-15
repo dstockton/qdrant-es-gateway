@@ -59,6 +59,8 @@ pub(crate) struct Lookup {
     /// Opaque bytes of the caller's versioned response envelope. The caller must
     /// validate its status, headers and body before serving it.
     pub(crate) response: Option<Vec<u8>>,
+    /// Authoritative catalog captured atomically with a quiet miss ticket.
+    pub(crate) catalog_snapshot: Option<Vec<u8>>,
 }
 
 #[derive(Debug)]
@@ -105,16 +107,20 @@ end
 
 const LOOKUP: &str = r#"
 if count ~= 4 or redis.call('EXISTS',KEYS[3]) ~= 0 then return {'busy'} end
+local function miss()
+    if redis.call('STRLEN',KEYS[2]) > tonumber(ARGV[5]) then return fail() end
+    return {'miss',epoch,redis.call('GET',KEYS[2])}
+end
 local header = ARGV[2] .. '\n' .. ARGV[3] .. '\n' .. epoch .. '\n'
 local t = typ(KEYS[4])
-if t == 'none' then return {'miss',epoch} end
+if t == 'none' then return miss() end
 -- Wrong-type/oversized/immortal/corrupt entries are misses, never control errors.
 if t ~= 'string' or redis.call('PTTL',KEYS[4]) < 0
-    or redis.call('STRLEN',KEYS[4]) > tonumber(ARGV[4]) + #header then return {'miss',epoch} end
+    or redis.call('STRLEN',KEYS[4]) > tonumber(ARGV[4]) + #header then return miss() end
 local value = redis.call('GET',KEYS[4])
-if string.sub(value,1,#header) ~= header then return {'miss',epoch} end
+if string.sub(value,1,#header) ~= header then return miss() end
 local response = string.sub(value,#header+1)
-if #response == 0 then return {'miss',epoch} end
+if #response == 0 then return miss() end
 return {'hit',epoch,response}
 "#;
 
@@ -281,28 +287,41 @@ impl ReadCache {
 
     pub(crate) async fn lookup(&self, key: &str) -> Result<Lookup, CacheError> {
         let max = self.max_bytes.to_string();
+        let catalog_max = crate::shared_catalog::MAX_BYTES.to_string();
         let result = self
             .run(
                 LOOKUP,
                 Some(key),
-                &[self.semantic.as_bytes(), max.as_bytes()],
+                &[
+                    self.semantic.as_bytes(),
+                    max.as_bytes(),
+                    catalog_max.as_bytes(),
+                ],
             )
             .await?;
-        match result.first().map(Vec::as_slice) {
-            Some(b"busy") if result.len() == 1 => Ok(Lookup {
+        self.parse_lookup(result)
+    }
+
+    fn parse_lookup(&self, result: Vec<Vec<u8>>) -> Result<Lookup, CacheError> {
+        match result.as_slice() {
+            [tag] if tag == b"busy" => Ok(Lookup {
                 ticket: None,
                 response: None,
+                catalog_snapshot: None,
             }),
-            Some(b"miss" | b"hit") if (2..=3).contains(&result.len()) => {
+            [tag, epoch, value] if tag == b"miss" || tag == b"hit" => {
                 let epoch =
-                    String::from_utf8(result[1].clone()).map_err(|_| CacheError::Unavailable)?;
+                    String::from_utf8(epoch.clone()).map_err(|_| CacheError::Unavailable)?;
+                // Protocol tags are distinct: catalog bytes must never be decoded
+                // as a cached response, nor a hit envelope used as a catalog.
                 Ok(Lookup {
                     ticket: Some(ReadTicket {
                         epoch,
                         deployment: self.deployment.clone(),
                         semantic: self.semantic.clone(),
                     }),
-                    response: result.get(2).cloned(),
+                    response: (tag == b"hit").then(|| value.clone()),
+                    catalog_snapshot: (tag == b"miss").then(|| value.clone()),
                 })
             }
             _ => Err(CacheError::Unavailable),
@@ -758,6 +777,20 @@ mod tests {
     #[ignore = "requires CATALOG_TEST_REDIS_URL"]
     async fn cache_epoch_fences_racing_reads_and_owned_persistent_writers() {
         let cache = fixture().await;
+        for malformed in [
+            vec![b"miss".to_vec(), b"0".to_vec()],
+            vec![b"hit".to_vec(), b"0".to_vec()],
+            vec![b"busy".to_vec(), b"0".to_vec(), b"{}".to_vec()],
+            vec![b"other".to_vec(), b"0".to_vec(), b"{}".to_vec()],
+            vec![
+                b"miss".to_vec(),
+                b"0".to_vec(),
+                b"{}".to_vec(),
+                b"extra".to_vec(),
+            ],
+        ] {
+            assert!(cache.parse_lookup(malformed).is_err());
+        }
         let peer = cache.clone();
         let key = cache.request_key("POST", "/items/_search", b"{}");
         let ticket = cache.lookup(&key).await.unwrap().ticket.unwrap();

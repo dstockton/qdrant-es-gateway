@@ -2,7 +2,7 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 
-const MAX_BYTES: usize = 8 * 1024 * 1024;
+pub(crate) const MAX_BYTES: usize = 8 * 1024 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(5);
 const SCHEMA: &str = "CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL);";
 
@@ -149,9 +149,7 @@ impl SharedCatalog {
         if result.len() != 2 || result[0] != "ok" {
             return Err((unavailable(), !admin));
         }
-        let snapshot: Snapshot =
-            serde_json::from_str(&result[1]).map_err(|_| (unavailable(), !admin))?;
-        let db = snapshot.into_db().map_err(|error| (error, !admin))?;
+        let db = snapshot_db(result[1].as_bytes()).map_err(|error| (error, !admin))?;
         Ok((db, claim))
     }
 
@@ -202,6 +200,15 @@ impl SharedCatalog {
             Err(unavailable())
         }
     }
+}
+
+/// Materialize the same validated request-local catalog for either transport path.
+pub(crate) fn snapshot_db(bytes: &[u8]) -> Result<Connection, GatewayError> {
+    if bytes.len() > MAX_BYTES {
+        return Err(unavailable());
+    }
+    let snapshot: Snapshot = serde_json::from_slice(bytes).map_err(|_| unavailable())?;
+    snapshot.into_db()
 }
 
 impl Snapshot {
