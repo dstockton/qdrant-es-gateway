@@ -124,7 +124,7 @@ def load(base):
         value, _, _ = request(base, f'/{INDEX}/_bulk?refresh=false', body='\n'.join(lines) + '\n', ndjson=True)
         assert not value.get('errors', True), str(value)[:2000]
     accepted = time.perf_counter() - started
-    request(base, f'/{INDEX}/_refresh', body={})
+    request(base, f'/{INDEX}/_refresh')
     polls = 0
     while True:
         count, _, _ = request(base, f'/{INDEX}/_count', body={'query': {'match_all': {}}})
