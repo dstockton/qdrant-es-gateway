@@ -2749,6 +2749,12 @@ async fn search_with_total_format(
     rest_total_hits_as_int: bool,
 ) -> Result<Response, GatewayError> {
     let started = Instant::now();
+    if body.get("pit").is_some() {
+        return Err(GatewayError::bad(
+            "pit",
+            "point-in-time snapshots are unsupported; a cursor does not freeze the dataset",
+        ));
+    }
     if let Some(post_filter) = body.get("post_filter") {
         validate_post_filter(post_filter)?;
     }
@@ -4077,6 +4083,32 @@ async fn dispatch(
     GatewayError::bad("endpoint", format!("unsupported endpoint {method} {path}")).into_response()
 }
 
+fn validate_request_parameters(query: Option<&str>) -> Result<(), GatewayError> {
+    for pair in query.unwrap_or_default().split('&') {
+        let name = pair.split('=').next().unwrap_or_default();
+        let name = percent_decode_str(name).decode_utf8().map_err(|_| {
+            GatewayError::bad("request.query", "query parameter is not valid UTF-8")
+        })?;
+        if matches!(
+            name.as_ref(),
+            "if_seq_no"
+                | "if_primary_term"
+                | "version"
+                | "version_type"
+                | "retry_on_conflict"
+                | "op_type"
+                | "routing"
+                | "scroll"
+        ) {
+            return Err(GatewayError::bad(
+                "request.query",
+                format!("unsupported query parameter {name}; the requested consistency or routing guarantee cannot be honored"),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn gateway_router(state: AppState) -> Router {
     Router::new()
         .fallback(any(
@@ -4085,6 +4117,9 @@ fn gateway_router(state: AppState) -> Router {
              uri: axum::http::Uri,
              headers: HeaderMap,
              body: Body| async move {
+                if let Err(error) = validate_request_parameters(uri.query()) {
+                    return error.into_response();
+                }
                 let body_limit = request_body_limit(&state.cfg, &method, uri.path());
                 let bytes = match axum::body::to_bytes(body, body_limit).await {
                     Ok(b) => b,
@@ -4175,6 +4210,53 @@ async fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unsupported_consistency_parameters_are_not_silently_ignored() {
+        for query in [
+            "if_seq_no=0&if_primary_term=1",
+            "%69f_seq_no=0",
+            "refresh=wait_for&version_type=external",
+            "routing=tenant-a",
+            "op_type=create",
+            "scroll=1m",
+            "retry_on_conflict=3",
+        ] {
+            assert_eq!(
+                validate_request_parameters(Some(query))
+                    .unwrap_err()
+                    .status(),
+                StatusCode::BAD_REQUEST
+            );
+        }
+        assert!(validate_request_parameters(Some("refresh=wait_for&pretty=true")).is_ok());
+        assert!(validate_request_parameters(None).is_ok());
+    }
+
+    #[tokio::test]
+    async fn pit_is_rejected_before_catalog_or_upstream_access() {
+        let cfg = Config::from_env();
+        let state = AppState {
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: "http://127.0.0.1:1".into(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+        let error = search(
+            State(state),
+            Path("absent".into()),
+            Json(json!({"pit":{"id":"opaque"}})),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.body()["error"]["feature"], "pit");
+    }
     use tower::ServiceExt;
 
     #[test]
