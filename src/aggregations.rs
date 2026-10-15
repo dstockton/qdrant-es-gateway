@@ -60,6 +60,31 @@ fn values(value: Option<&Value>) -> Vec<&Value> {
     }
 }
 
+// Preserve integer precision while treating integral JSON floats as the same
+// numeric value. Converting every key to f64 would merge adjacent large longs.
+fn terms_key(value: &Value) -> String {
+    if let Some(number) = value.as_number() {
+        if let Some(integer) = number.as_i64() {
+            return format!("number:{integer}");
+        }
+        if let Some(integer) = number.as_u64() {
+            return format!("number:{integer}");
+        }
+        if let Some(float) = number.as_f64() {
+            if float.fract() == 0.0 {
+                if float >= i64::MIN as f64 && float < i64::MAX as f64 {
+                    return format!("number:{}", float as i64);
+                }
+                if float >= 0.0 && float < u64::MAX as f64 {
+                    return format!("number:{}", float as u64);
+                }
+            }
+            return format!("number:{float}");
+        }
+    }
+    value.to_string()
+}
+
 impl Plan {
     pub(super) fn parse(value: Option<&Value>) -> Result<Option<Self>, GatewayError> {
         let Some(value) = value else { return Ok(None) };
@@ -388,7 +413,7 @@ impl Reduction {
                     if !value.is_string() && !value.is_number() && !value.is_boolean() {
                         return Err(bad("terms field must contain scalar values"));
                     }
-                    let key = value.to_string();
+                    let key = terms_key(value);
                     if seen.insert(key.clone()) {
                         counts.entry(key).or_insert_with(|| (value.clone(), 0)).1 += 1;
                     }
@@ -493,6 +518,75 @@ mod tests {
             plan.0.remove("brands").unwrap().finish(),
             json!({"doc_count_error_upper_bound":0,"sum_other_doc_count":1,"buckets":[{"key":"A","doc_count":2}]})
         );
+    }
+
+    #[test]
+    fn numeric_terms_merge_equivalent_json_values_without_losing_integer_precision() {
+        let mut plan = Plan::parse(Some(&json!({"numbers":{"terms":{"field":"n"}}})))
+            .unwrap()
+            .unwrap();
+        let reducer = plan.0.get_mut("numbers").unwrap();
+        for source in [
+            json!({"n":[1,1.0]}),
+            json!({"n":1.0}),
+            json!({"n":[0,-0.0]}),
+            json!({"n":[9007199254740992_u64,9007199254740993_u64]}),
+        ] {
+            reducer.observe(&source).unwrap();
+        }
+        let result = plan.0.remove("numbers").unwrap().finish();
+        let buckets = result["buckets"].as_array().unwrap();
+        assert_eq!(buckets.len(), 4);
+        assert_eq!(buckets[0]["doc_count"], 2);
+        assert_eq!(buckets[0]["key"], 1);
+        assert_eq!(terms_key(&json!(-0.0)), terms_key(&json!(0)));
+        assert_ne!(terms_key(&json!(u64::MAX)), terms_key(&json!(u64::MAX - 1)));
+    }
+
+    #[test]
+    fn tied_integer_terms_keep_exact_order_beyond_float_precision() {
+        let mut plan = Plan::parse(Some(&json!({"numbers":{"terms":{"field":"n","size":1}}})))
+            .unwrap()
+            .unwrap();
+        let reducer = plan.0.get_mut("numbers").unwrap();
+        reducer
+            .observe(&json!({"n":-9007199254740992_i64}))
+            .unwrap();
+        reducer
+            .observe(&json!({"n":-9007199254740993_i64}))
+            .unwrap();
+        assert_eq!(
+            plan.0.remove("numbers").unwrap().finish()["buckets"],
+            json!([{"key":-9007199254740993_i64,"doc_count":1}])
+        );
+        assert!(value_cmp(&json!(-1), &json!(u64::MAX)).is_lt());
+        assert!(value_cmp(&json!(-9007199254740993_i64), &json!(-9007199254740992.0)).is_lt());
+        assert!(value_cmp(&json!(-9007199254740992.0), &json!(-9007199254740993_i64)).is_gt());
+        assert!(value_cmp(&json!(1), &json!(1.5)).is_lt());
+        assert!(value_cmp(&json!(-1), &json!(-1.5)).is_gt());
+        assert!(value_cmp(&json!(u64::MAX), &json!(1e99)).is_lt());
+        assert!(value_cmp(&json!(i64::MIN), &json!(-1e99)).is_gt());
+        assert!(value_cmp(&json!(u64::MAX), &json!(i64::MAX)).is_gt());
+    }
+
+    #[tokio::test]
+    async fn ranked_aggregation_queries_are_rejected_before_backend_access() {
+        for query in [
+            json!({"multi_match":{"query":"shoes"}}),
+            json!({"bool":{"should":[{"match":{"title":"shoes"}}]}}),
+            json!({"bool":{"must_not":{"match":{"title":"shoes"}}}}),
+            json!({"bool":{"filter":{"multi_match":{"query":"shoes"}}}}),
+        ] {
+            let state = search_test_state("http://127.0.0.1:1".into(), false);
+            let error = search(
+                State(state),
+                Path("products".into()),
+                Json(json!({"size":0,"query":query,"aggs":{"brands":{"terms":{"field":"brand"}}}})),
+            )
+            .await
+            .unwrap_err();
+            assert!(error.to_string().contains("filter-only query"), "{error}");
+        }
     }
 
     #[test]

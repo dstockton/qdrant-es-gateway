@@ -24,3 +24,9 @@ Omit `--metadata-only` for immediate technical review of titles and bodies. Trea
 The collector enumerates `/new`, follows `after`, deduplicates IDs, filters exact UTC creation timestamps, skips removed content and old sticky entries, and honors rate-budget response headers. It reports a boundary, exhausted listing, page cap, repeated cursor, or inaccessible source. A partial result exits nonzero. It never silently falls back to anonymous scraping or claims complete Reddit coverage. Submission comments and reports outside the accessible listing are outside this collector's coverage; inspect selected public threads separately under the approved access conditions.
 
 Run offline checks with `python3 -m unittest discover -s scripts/tests`. Live access remains unverified until credentials and approval are supplied.
+
+## Browser-assisted review
+
+When the account owner authorizes it, use their existing Chrome profile to read public discussions through the normal browser interface. This can reach pages that anonymous feeds or search caches cannot. Open a separate research tab, review the public listing and thread details, and record source URLs, publication timestamps when available, and coverage boundaries. Relative timestamps alone are not precise evidence of a 24-hour boundary.
+
+Browser access is separate from the OAuth collector: it does not provide API credentials or establish approval for API use. Do not extract browser cookies or tokens. Record inaccessible communities individually; for example, on October 15, 2026 the Elasticsearch new-post listing was readable in Chrome, while `/r/opensearch/new/` displayed a banned-community notice. An authenticated session cannot recover a banned community.

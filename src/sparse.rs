@@ -109,7 +109,7 @@ fn check_scalar_field(field: &str, mapping: &Value) -> Result<(), GatewayError> 
             })
         })
     {
-        return Err(GatewayError::bad("sparse_vector.scalar_query", "scalar predicates and aggregations on sparse_vector fields are unsupported; use neural_sparse query_tokens"));
+        return Err(GatewayError::bad("sparse_vector.scalar_query", "scalar predicates, aggregations, sorting and collapse on sparse_vector fields are unsupported; use neural_sparse query_tokens"));
     }
     Ok(())
 }
@@ -195,6 +195,12 @@ pub fn validate_request(body: &Value, mapping: &Value) -> Result<(), GatewayErro
             }
         }
         Ok(())
+    }
+    for (field, _) in crate::parse_sort_specs(body.get("sort"))? {
+        check_scalar_field(&field, mapping)?;
+    }
+    if let Some(field) = body.pointer("/collapse/field").and_then(Value::as_str) {
+        check_scalar_field(field, mapping)?;
     }
     for key in ["query", "post_filter"] {
         if let Some(query) = body.get(key) {
@@ -313,6 +319,28 @@ mod tests {
             validate_request(&json!({"aggs":{"term":{"min":{"field":"v"}}}}), &mapping).is_err()
         );
     }
+    #[test]
+    fn sparse_sort_and_collapse_are_rejected_in_all_sort_shapes() {
+        let mapping =
+            json!({"properties":{"v":{"type":"sparse_vector"},"name":{"type":"keyword"}}});
+        for field in ["v", "v.65536"] {
+            for body in [
+                json!({"sort":field}),
+                json!({"sort":[field]}),
+                json!({"sort":{field:"asc"}}),
+                json!({"sort":[{field:{"order":"desc"}}]}),
+                json!({"collapse":{"field":field}}),
+            ] {
+                assert!(validate_request(&body, &mapping).is_err(), "{body}");
+            }
+        }
+        assert!(validate_request(
+            &json!({"sort":["name"],"collapse":{"field":"name"}}),
+            &mapping
+        )
+        .is_ok());
+    }
+
     #[test]
     fn names_are_collision_free() {
         assert_ne!(name("a.b"), name("a_b"));

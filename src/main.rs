@@ -2431,6 +2431,29 @@ fn contains_approx_text_query(query: &Value) -> bool {
 }
 
 fn value_cmp(left: &Value, right: &Value) -> std::cmp::Ordering {
+    // Avoid rounding integers through f64, including comparisons with a JSON
+    // float. Its truncated integer part fits i128 or saturates safely beyond
+    // every JSON integer; only the fractional part remains when parts tie.
+    let integer = |v: &Value| {
+        v.as_i64()
+            .map(i128::from)
+            .or_else(|| v.as_u64().map(i128::from))
+    };
+    let integer_float = |integer: i128, float: f64| {
+        integer.cmp(&(float as i128)).then_with(|| {
+            0.0_f64
+                .partial_cmp(&float.fract())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+    };
+    match (integer(left), integer(right)) {
+        (Some(a), Some(b)) => return a.cmp(&b),
+        (Some(a), None) if right.is_number() => return integer_float(a, right.as_f64().unwrap()),
+        (None, Some(b)) if left.is_number() => {
+            return integer_float(b, left.as_f64().unwrap()).reverse()
+        }
+        _ => {}
+    }
     match (left.as_f64(), right.as_f64()) {
         (Some(a), Some(b)) => a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal),
         _ => left
@@ -2857,6 +2880,11 @@ async fn search_with_total_format(
     {
         return Err(GatewayError::bad("neural_sparse", "aggregations, post_filter, collapse, sort, search_after and min_score are unsupported for explicit sparse queries"));
     }
+    let aggregation_plan =
+        aggregations::Plan::parse(body.get("aggs").or_else(|| body.get("aggregations")))?;
+    if aggregation_plan.is_some() && validate_post_filter(&query).is_err() {
+        return Err(GatewayError::bad("aggs", "aggregations require a filter-only query; ranked and pattern query membership cannot be aggregated exactly"));
+    }
     let (filter, _) = if sparse_query.is_some() {
         (None, Vec::new())
     } else {
@@ -2865,11 +2893,6 @@ async fn search_with_total_format(
     let text = pick_text(&query);
     let has_text = text.is_some() || sparse_query.is_some();
     let approximate_text = contains_approx_text_query(&query);
-    let aggregation_plan =
-        aggregations::Plan::parse(body.get("aggs").or_else(|| body.get("aggregations")))?;
-    if aggregation_plan.is_some() && (has_text || !patterns.is_empty()) {
-        return Err(GatewayError::bad("aggs", "aggregations require a filter-only query; ranked and pattern query membership cannot be aggregated exactly"));
-    }
     let complete_aggregations = if let Some(plan) = aggregation_plan {
         plan.validate_mapping(&mapping, state.cfg.document_projection)?;
         Some(plan.execute(&state, &coll, filter.as_ref()).await?)
