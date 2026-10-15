@@ -688,6 +688,104 @@ mod tests {
     }
     #[tokio::test]
     #[ignore = "requires CATALOG_TEST_REDIS_URL"]
+    async fn missing_alias_removals_release_claims_and_mixed_success_commits() {
+        let (state, mut redis, key) = fixture().await;
+        let cache = state.cache_runtime.as_ref().unwrap().cache.clone();
+        let original = json!({
+            "indices":[["old","{}","[]"],["new","{}","[]"]],
+            "aliases":[["current","old"]]
+        })
+        .to_string();
+        redis::cmd("SET")
+            .arg(&key)
+            .arg(&original)
+            .query_async::<()>(&mut redis)
+            .await
+            .unwrap();
+
+        // Neither a missing alias nor an existing alias on a different index
+        // can be removed. The 404 must release both owned claims without
+        // publishing a replacement catalog or contacting the dead backend.
+        let response = dispatch(
+            state.clone(),
+            Method::POST,
+            "/_aliases".into(),
+            None,
+            HeaderMap::new(),
+            json!({"actions":[
+                {"remove":{"index":"old","alias":"missing"}},
+                {"remove":{"index":"new","alias":"current"}}
+            ]})
+            .to_string(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body: Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), 4096)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(body["error"]["type"], "aliases_not_found_exception");
+        assert_eq!(body["error"]["resource.id"], json!(["current", "missing"]));
+        let unchanged: String = redis::cmd("GET")
+            .arg(&key)
+            .query_async(&mut redis)
+            .await
+            .unwrap();
+        assert_eq!(unchanged, original);
+        let status = cache.status().await.unwrap();
+        assert_eq!(status.epoch, "1");
+        assert!(status.writer_tokens.is_empty());
+        assert!(cache
+            .lookup(&cache.request_key("GET", "/current/_doc/a", b""))
+            .await
+            .unwrap()
+            .ticket
+            .is_some());
+        let admin_exists: bool = redis::cmd("EXISTS")
+            .arg(format!("{key}:admin"))
+            .query_async(&mut redis)
+            .await
+            .unwrap();
+        assert!(!admin_exists);
+
+        let response = dispatch(
+            state.clone(),
+            Method::POST,
+            "/_aliases".into(),
+            None,
+            HeaderMap::new(),
+            json!({"actions":[
+                {"remove":{"index":"old","alias":"missing"}},
+                {"add":{"index":"new","alias":"preview"}}
+            ]})
+            .to_string(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let persisted: Vec<u8> = redis::cmd("GET")
+            .arg(&key)
+            .query_async(&mut redis)
+            .await
+            .unwrap();
+        let view = shared_catalog::snapshot_read_view(&persisted).unwrap();
+        assert_eq!(view.resolve_index("current").unwrap().0, "old");
+        assert_eq!(view.resolve_index("preview").unwrap().0, "new");
+        let status = cache.status().await.unwrap();
+        assert_eq!(status.epoch, "2");
+        assert!(status.writer_tokens.is_empty());
+        let admin_exists: bool = redis::cmd("EXISTS")
+            .arg(format!("{key}:admin"))
+            .query_async(&mut redis)
+            .await
+            .unwrap();
+        assert!(!admin_exists);
+        cleanup(&mut redis, &key).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires CATALOG_TEST_REDIS_URL"]
     async fn valid_hits_skip_catalog_but_bypass_and_disabled_serving_do_not() {
         let (mut state, mut redis, key) = fixture().await;
         let runtime = state.cache_runtime.clone().unwrap();

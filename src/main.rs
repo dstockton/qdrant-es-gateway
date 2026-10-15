@@ -5439,8 +5439,11 @@ mod tests {
         .unwrap();
         let state = AppState {
             shared_catalog: None,
+            read_catalog: None,
+            cache_runtime: None,
             qdrant: Qdrant {
                 admin_mutation_started: None,
+                mutation_completion: None,
                 client: Client::new(),
                 base: "http://127.0.0.1:1".into(),
                 key: None,
