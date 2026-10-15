@@ -1,0 +1,33 @@
+{
+  "diagnostic": "read-only-backend-payload-schema",
+  "captured_at": "2026-10-15T21:49:38.119711+00:00",
+  "collection": "es_balanced_benchmark",
+  "qdrant_image_id": "sha256:b7b0444c4c351c970b98e90a6f89c2ee4287c65b44e52b4cb503fa5b2aa927ad",
+  "status": "green",
+  "optimizer_status": "ok",
+  "points_count": 10000,
+  "segments_count": 2,
+  "payload_schema": {
+    "price": {
+      "data_type": "integer",
+      "points": 10000
+    },
+    "group": {
+      "data_type": "keyword",
+      "points": 10000
+    },
+    "rank": {
+      "data_type": "integer",
+      "points": 10000
+    },
+    "_qeg_fast_fields": {
+      "data_type": "keyword",
+      "points": 10000
+    },
+    "description": {
+      "data_type": "keyword",
+      "points": 10000
+    }
+  },
+  "scope": "Collection info observed after backend-decomposition run; no engine mutation."
+}
