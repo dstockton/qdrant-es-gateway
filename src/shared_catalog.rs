@@ -177,7 +177,52 @@ impl Snapshot {
     }
 }
 
+/// Check the exact serialized prospective snapshot before creating/updating Qdrant state.
+pub(crate) fn validate_index_capacity(
+    state: &AppState,
+    index: &str,
+    mapping: &Value,
+    vectors: &[String],
+) -> Result<(), GatewayError> {
+    if state.shared_catalog.is_none() {
+        return Ok(());
+    }
+    let db = state.db.lock().map_err(|_| unavailable())?;
+    let mut snapshot = Snapshot::read(&db)?;
+    snapshot.indices.retain(|(name, _, _)| name != index);
+    snapshot.indices.push((
+        index.to_owned(),
+        mapping.to_string(),
+        serde_json::to_string(vectors).map_err(|_| unavailable())?,
+    ));
+    validate_snapshot_capacity(&snapshot)
+}
+
+pub(crate) fn validate_catalog_capacity(
+    state: &AppState,
+    db: &Connection,
+) -> Result<(), GatewayError> {
+    if state.shared_catalog.is_none() {
+        return Ok(());
+    }
+    validate_snapshot_capacity(&Snapshot::read(db)?)
+}
+
+fn validate_snapshot_capacity(snapshot: &Snapshot) -> Result<(), GatewayError> {
+    if serde_json::to_vec(snapshot)
+        .map_err(|_| unavailable())?
+        .len()
+        > MAX_BYTES
+    {
+        return Err(GatewayError::bad("catalog.size", "shared metadata catalog would exceed its fixed 8 MiB capacity; no upstream changes were attempted"));
+    }
+    Ok(())
+}
+
 pub(crate) fn is_admin(method: &Method, path: &str) -> Result<bool, GatewayError> {
+    if is_bulk_request(method, path) {
+        return Ok(false);
+    }
     let parts = decode_path_segments(path)?;
     Ok(
         (parts.len() == 1 && matches!(*method, Method::PUT | Method::DELETE))
@@ -344,6 +389,200 @@ mod tests {
             .unwrap();
     }
 
+    #[tokio::test]
+    #[ignore = "requires CATALOG_TEST_REDIS_URL"]
+    async fn dispatch_publishes_create_mapping_and_aliases_across_replicas() {
+        let client = redis::Client::open(env::var("CATALOG_TEST_REDIS_URL").unwrap()).unwrap();
+        let key = format!("qeg:{{test-{}}}:v1", uuid::Uuid::new_v4());
+        let catalog = SharedCatalog {
+            client,
+            key: key.clone(),
+        };
+        let mut connection = catalog
+            .client
+            .get_multiplexed_async_connection()
+            .await
+            .unwrap();
+        redis::cmd("SET")
+            .arg(&key)
+            .arg(serde_json::to_string(&Snapshot::default()).unwrap())
+            .query_async::<()>(&mut connection)
+            .await
+            .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let writes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let observed = writes.clone();
+        let server = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                Router::new().fallback(move || {
+                    let observed = observed.clone();
+                    async move {
+                        observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        Json(json!({"status":"ok","result":true}))
+                    }
+                }),
+            )
+            .await
+            .unwrap();
+        });
+        let replica = || AppState {
+            cfg: Config::from_env(),
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: base.clone(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(1)),
+                admin_mutation_started: None,
+            },
+            db: Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
+            shared_catalog: Some(catalog.clone()),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+        };
+        let first = replica();
+        let second = replica();
+        for (method, path, body) in [
+            (
+                Method::PUT,
+                "/books",
+                json!({"mappings":{"properties":{"title":{"type":"text"}}}}),
+            ),
+            (
+                Method::PUT,
+                "/books/_mapping",
+                json!({"properties":{"year":{"type":"integer"}}}),
+            ),
+            (
+                Method::POST,
+                "/_aliases",
+                json!({"actions":[{"add":{"index":"books","alias":"current"}}]}),
+            ),
+        ] {
+            let response = dispatch(
+                first.clone(),
+                method,
+                path.into(),
+                HeaderMap::new(),
+                body.to_string(),
+            )
+            .await;
+            assert!(
+                response.status().is_success(),
+                "{path}: {}",
+                response.status()
+            );
+            let response = dispatch(
+                second.clone(),
+                Method::GET,
+                "/books/_mapping".into(),
+                HeaderMap::new(),
+                String::new(),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::OK);
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let result: Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(
+                result["books"]["mappings"]["properties"]["title"]["type"],
+                "text"
+            );
+            if path != "/books" {
+                assert_eq!(
+                    result["books"]["mappings"]["properties"]["year"]["type"],
+                    "integer"
+                );
+            }
+        }
+        let response = dispatch(
+            second.clone(),
+            Method::GET,
+            "/current".into(),
+            HeaderMap::new(),
+            String::new(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(serde_json::from_slice::<Value>(&bytes)
+            .unwrap()
+            .get("books")
+            .is_some());
+        // Exact prospective-size checks must reject before any Qdrant mutation,
+        // and release the claim so the other replica remains usable.
+        for (path, body) in [
+            (
+                "/oversized",
+                json!({"mappings":{"_meta":{"padding":"x".repeat(MAX_BYTES)}}}),
+            ),
+            (
+                "/books/_mapping",
+                json!({"properties":{"large":{"type":"keyword","meta":{"padding":"x".repeat(MAX_BYTES)}}}}),
+            ),
+            (
+                "/_aliases",
+                json!({"actions":[{"add":{"index":"books","alias":"x".repeat(MAX_BYTES)}}]}),
+            ),
+        ] {
+            let before = writes.load(std::sync::atomic::Ordering::SeqCst);
+            let method = if path == "/_aliases" {
+                Method::POST
+            } else {
+                Method::PUT
+            };
+            let response = dispatch(
+                first.clone(),
+                method,
+                path.into(),
+                HeaderMap::new(),
+                body.to_string(),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{path}");
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let error: Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(error["error"]["feature"], "catalog.size", "{path}");
+            assert_eq!(
+                writes.load(std::sync::atomic::Ordering::SeqCst),
+                before,
+                "{path} must not mutate Qdrant"
+            );
+            assert!(
+                catalog.begin(false).await.is_ok(),
+                "{path} must not leave an administrative claim"
+            );
+        }
+        server.abort();
+        redis::cmd("DEL")
+            .arg(&key)
+            .arg(format!("{key}:admin"))
+            .query_async::<()>(&mut connection)
+            .await
+            .unwrap();
+    }
+
+    #[test]
+    fn catalog_capacity_counts_serialized_bytes_including_escaping() {
+        let mut snapshot = Snapshot {
+            indices: vec![],
+            aliases: vec![(String::new(), "books".into())],
+        };
+        let overhead = serde_json::to_vec(&snapshot).unwrap().len();
+        snapshot.aliases[0].0 = "x".repeat(MAX_BYTES - overhead);
+        assert!(validate_snapshot_capacity(&snapshot).is_ok());
+        snapshot.aliases[0].0.push('x');
+        assert!(validate_snapshot_capacity(&snapshot).is_err());
+        snapshot.aliases[0].0 = "\n".repeat(MAX_BYTES / 2);
+        assert!(validate_snapshot_capacity(&snapshot).is_err());
+    }
+
     #[test]
     fn snapshots_preserve_aliases_and_mapping() {
         let original = Snapshot {
@@ -390,6 +629,9 @@ mod tests {
             (Method::GET, "/books/_mapping"),
             (Method::PUT, "/books/_doc/1"),
             (Method::POST, "/_bulk"),
+            (Method::PUT, "/_bulk"),
+            (Method::POST, "/books/_bulk"),
+            (Method::PUT, "/books/_bulk"),
         ] {
             assert!(!is_admin(&method, path).unwrap());
         }

@@ -8,7 +8,7 @@ The default SQLite catalog is still the simplest choice for one gateway. No meas
 
 Set `CATALOG_REDIS_URL` to a `redis://` or TLS `rediss://` URL. All replicas serving the same Qdrant collections must use the same `CATALOG_REDIS_KEY` (default `qeg:{catalog}:v1`) and collection-related configuration. The URL may contain credentials; supply it through a secret. Redis Cluster is not a supported connection topology.
 
-The authoritative catalog contains mappings, named vector metadata, and single-index aliases. Every request loads the current committed snapshot into an ephemeral SQLite database. There is no replica metadata cache and no persistent local metadata dependency in shared mode. Snapshot size is limited to 8 MiB. Fetching and materializing the whole catalog on each request favors small catalogs and correctness; it is not a high-throughput optimization. Network operations time out after five seconds.
+The authoritative catalog contains mappings, named vector metadata, and single-index aliases. Every request loads the current committed snapshot into an ephemeral SQLite database. There is no replica metadata cache and no persistent local metadata dependency in shared mode. Snapshot size is limited to 8 MiB. Index creation and mapping changes check the exact prospective serialized size before mutating Qdrant; alias batches check it before committing local metadata. Oversized changes return a validation error and release the administrative claim. Fetching and materializing the whole catalog on each request favors small catalogs and correctness; it is not a high-throughput optimization. Network operations time out after five seconds.
 
 ## Starting a new deployment
 
@@ -55,7 +55,7 @@ Do not delete a claim while a writer may still be running. A Redis/Valkey transa
 Unit tests cover snapshot round-tripping, malformed metadata and administrative route classification. Run the real-server coordination test against a disposable Redis/Valkey instance:
 
 ```sh
-CATALOG_TEST_REDIS_URL=redis://127.0.0.1:16379 cargo test shared_catalog_serializes_replicas -- --ignored
+CATALOG_TEST_REDIS_URL=redis://127.0.0.1:16379 cargo test shared_catalog -- --include-ignored
 ```
 
-The test checks fresh cross-client reads, concurrent administration exclusion, absence of lock expiry, wrong-owner rejection and safe release before an upstream mutation and retention of a claim after its owner disappears. It creates unique temporary keys and deletes them on success.
+The tests check fresh cross-client reads, successful create/mapping/alias dispatch across independent replicas, concurrent administration exclusion, absence of lock expiry, wrong-owner rejection, safe validation-error release, capacity rejection before upstream writes and retention of a claim after its owner disappears. It creates unique temporary keys and deletes them on success.

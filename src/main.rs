@@ -610,6 +610,7 @@ async fn create_index(
     ensure_collection_namespace_available(&state, &index)?;
     let (mapping, vectors) = mapping_vectors(&body);
     sparse::validate_mapping(&mapping)?;
+    shared_catalog::validate_index_capacity(&state, &index, &mapping, &vectors)?;
     let mut sparse = Map::new();
     for v in &vectors {
         sparse.insert(v.clone(), json!({}));
@@ -3743,6 +3744,7 @@ async fn aliases(
                 .map_err(|e| GatewayError::Internal(e.to_string()))?,
         };
     }
+    shared_catalog::validate_catalog_capacity(&state, &transaction)?;
     transaction
         .commit()
         .map_err(|e| GatewayError::Internal(e.to_string()))?;
@@ -3845,6 +3847,7 @@ async fn mapping(
             }
             existing_properties.insert(field.clone(), spec.clone());
         }
+        shared_catalog::validate_index_capacity(&state, &index, &m, &vectors)?;
         for (field, schema) in payload_indexes {
             state
                 .qdrant
