@@ -1,0 +1,173 @@
+{
+  "experiment": "ephemeral-response-publish-paired-v1",
+  "measured_http_responses": 93600,
+  "all_measured_responses_correct": true,
+  "raw_measurement_files": 12,
+  "resource_files": 8,
+  "summary_rows_independently_verified": 42,
+  "baseline": {
+    "source": "04b6d7eecce6230634109ec1905509666f00b8bc",
+    "image_id": "sha256:1c79aae1383e1190f83172b46fb1a9b7b352a3b131ea7fd3d20767af5bba2e20"
+  },
+  "candidate": {
+    "source": "a778a357f677345939e61b559bf6beac234624d7",
+    "image_id": "sha256:cde451c21702a472cee155d6835cc8a889fc843d17eb2ec6c40fe553ecf15fdf"
+  },
+  "order": "on-main old1,new1,new2,old2 (cold then warm each round); off-control old1,new1,new2,old2 (cold only)",
+  "aggregation": "median of six trial quantiles per image, profile, engine, workload, concurrency",
+  "sanitization": "Removed ephemeral container_id and failed-proof retained_container/retained_volume fields only; original hashes retained; timings and observations unchanged.",
+  "limitations": [
+    "No pooling with prior experiments.",
+    "Resource snapshots span profile setup/priming and native-engine phases; counters do not attribute latency.",
+    "No AOF rewrite increments or delayed fsync recorded in sampled profiles. Incremental cache publication growth suppression does not guarantee no fsync.",
+    "Native controls also moved; resource counters do not establish causal diagnosis."
+  ],
+  "proof_history": {
+    "aof-proof-1.json": "Failed before checks: harness INFO JSON parsing caused readiness assertion; retained as failed evidence, not a production failure claim.",
+    "aof-proof-2.json": "Passed five earlier checks.",
+    "aof-proof-3.json": "Final six-check proof passed; script retained from measured source a778a35."
+  },
+  "measured_source_note": "Candidate a778a35 predates later merge; no post-merge image performance claim.",
+  "files": [
+    {
+      "file": "ephemeral-publish-off-control-new-1-cold.json",
+      "sha256": "2fc6c2032db9692e81db7ae40497920df57a0531e22cedd86c656d68cde44b8f",
+      "original_sha256": "2fc6c2032db9692e81db7ae40497920df57a0531e22cedd86c656d68cde44b8f"
+    },
+    {
+      "file": "ephemeral-publish-off-control-new-1-resources.json",
+      "sha256": "7535518305c590b0572be7231271b90ec217c447816793b7a2a60a39da03ef63",
+      "original_sha256": "ab35dc48aef924827f6928edc010d2e9e7e8d7d85cacd4ce34dd9d3b49e6d3c2"
+    },
+    {
+      "file": "ephemeral-publish-off-control-new-2-cold.json",
+      "sha256": "a136d1160089c658d5081a2e1da614b3bc985f75a500575e9991da2e264cef9c",
+      "original_sha256": "a136d1160089c658d5081a2e1da614b3bc985f75a500575e9991da2e264cef9c"
+    },
+    {
+      "file": "ephemeral-publish-off-control-new-2-resources.json",
+      "sha256": "9835398e9313fe58464488f8e549da62ffb782ba0aec8e858cee6ecfb5750546",
+      "original_sha256": "a725fbe74fe3aaaa19e28d710ef6f08e16a4299b612e6c545cbcbd4e66446078"
+    },
+    {
+      "file": "ephemeral-publish-off-control-old-1-cold.json",
+      "sha256": "5755296a948b37c723be4615e9c10a67bec72b5ad87395851ce90d11d70cf306",
+      "original_sha256": "5755296a948b37c723be4615e9c10a67bec72b5ad87395851ce90d11d70cf306"
+    },
+    {
+      "file": "ephemeral-publish-off-control-old-1-resources.json",
+      "sha256": "cc4d93d3425aa42e5ac5a6d43a5e1ba7bd9397f47270babae7a3b8b350dfa0ea",
+      "original_sha256": "1a407f3118becfeef98b0f6eb026e2b02d675b5bab588162041f8cae750c0873"
+    },
+    {
+      "file": "ephemeral-publish-off-control-old-2-cold.json",
+      "sha256": "714cf127aab7e83d65c303a0bc28195e25fcbf7dd4dd4f35a7cab8aa7ea922e9",
+      "original_sha256": "714cf127aab7e83d65c303a0bc28195e25fcbf7dd4dd4f35a7cab8aa7ea922e9"
+    },
+    {
+      "file": "ephemeral-publish-off-control-old-2-resources.json",
+      "sha256": "ab123c722b3a60cf3465720b8ee4efcb7799e6f7b7d70d952f1423c2b3a78a35",
+      "original_sha256": "dbffba4e9977950ea98753472e6fc2bdf6eea46ffd4d5b44a4c15b547bd2ec6b"
+    },
+    {
+      "file": "ephemeral-publish-on-main-new-1-cold.json",
+      "sha256": "295f0388184bcb2c904a99a389b9b0465ed79a95dd90d6a7e4656962d800a973",
+      "original_sha256": "295f0388184bcb2c904a99a389b9b0465ed79a95dd90d6a7e4656962d800a973"
+    },
+    {
+      "file": "ephemeral-publish-on-main-new-1-resources.json",
+      "sha256": "224e93d8b75e85953ad47b9e246e9e18abdb6bff62927b67f35ebe0d91bbed43",
+      "original_sha256": "4d37f54fc9d797f568399ee6c75926160fd7c4c163deac807bff0a5a6ee346b8"
+    },
+    {
+      "file": "ephemeral-publish-on-main-new-1-warm.json",
+      "sha256": "c1d7c5fa1a7ab5e115751f2671ba22944463facacc3d49fe531d60e2e671347f",
+      "original_sha256": "c1d7c5fa1a7ab5e115751f2671ba22944463facacc3d49fe531d60e2e671347f"
+    },
+    {
+      "file": "ephemeral-publish-on-main-new-2-cold.json",
+      "sha256": "a45f1d46cf347fc8468dccf827fe03bad190c9d10981692d7eb30a3a0f49055d",
+      "original_sha256": "a45f1d46cf347fc8468dccf827fe03bad190c9d10981692d7eb30a3a0f49055d"
+    },
+    {
+      "file": "ephemeral-publish-on-main-new-2-resources.json",
+      "sha256": "4f66efc96addef1648fe75d8c32764029054c08dbec664299cfd41aaea6f971b",
+      "original_sha256": "6e58a276ebd43e06f4c23beb299fda3a360f9b8df01b01c845b3ec97d5ba3a05"
+    },
+    {
+      "file": "ephemeral-publish-on-main-new-2-warm.json",
+      "sha256": "23279316680c0e3ce897633377672d57567627cc9b6bb13869c76307c02d270e",
+      "original_sha256": "23279316680c0e3ce897633377672d57567627cc9b6bb13869c76307c02d270e"
+    },
+    {
+      "file": "ephemeral-publish-on-main-old-1-cold.json",
+      "sha256": "615a489f47c6752dfa2deb694adf3c6ab288e228f9f917697f015c4d59517abf",
+      "original_sha256": "615a489f47c6752dfa2deb694adf3c6ab288e228f9f917697f015c4d59517abf"
+    },
+    {
+      "file": "ephemeral-publish-on-main-old-1-resources.json",
+      "sha256": "f187d1bb676cb3ed049b72aad8d5638d16ee741dd2a5922ec9b3e949a0309883",
+      "original_sha256": "dbb446f0b622f5c59a6f303ecc10b232fabe19feded1e3ec1f195e909d1d248e"
+    },
+    {
+      "file": "ephemeral-publish-on-main-old-1-warm.json",
+      "sha256": "fd762a30b61c06bd098e59a755358dbdaf83075650aadd47239883c1d4f65c78",
+      "original_sha256": "fd762a30b61c06bd098e59a755358dbdaf83075650aadd47239883c1d4f65c78"
+    },
+    {
+      "file": "ephemeral-publish-on-main-old-2-cold.json",
+      "sha256": "d4db3c7f5a9f9b7e38c206cbe62e8c75c6ac84b9cfb3ed351499ec338f0a60ca",
+      "original_sha256": "d4db3c7f5a9f9b7e38c206cbe62e8c75c6ac84b9cfb3ed351499ec338f0a60ca"
+    },
+    {
+      "file": "ephemeral-publish-on-main-old-2-resources.json",
+      "sha256": "0733c6dc96e233d4d2847f51a4a7225e06c74c72da74ec903c38ef6d5cf95bda",
+      "original_sha256": "a64dd05a527408fc7969eede105ee6a8d0c778777451981dfd260dc18b946e0f"
+    },
+    {
+      "file": "ephemeral-publish-on-main-old-2-warm.json",
+      "sha256": "f1c0e7db34125308a64d384e4ee9b5698ab6ecd3f73430f0e76fc818c9d938e1",
+      "original_sha256": "f1c0e7db34125308a64d384e4ee9b5698ab6ecd3f73430f0e76fc818c9d938e1"
+    },
+    {
+      "file": "ephemeral-publish-summary.json",
+      "sha256": "45c8a32dfef2f83756de621df1d748414f61fcb211946f37710c2656ce2ff70b",
+      "original_sha256": "a06fa257c3929801040378e373bd3213b83b0ae1240c6796974844ec485271ef"
+    },
+    {
+      "file": "ephemeral_round.py",
+      "sha256": "33c4830d4812437d36ef2b97c838ee7dd6e4bd099977512290ddc4a2f3b59d8e"
+    },
+    {
+      "file": "ephemeral-image.yml",
+      "sha256": "163ce86a4b405a63c9545f88f1a5016d5544bbceee7e7ba45ce16d021af7c7bf"
+    },
+    {
+      "file": "snapshot_round.py",
+      "sha256": "3104ee2f51fadcb8c76c8ebb931fd6c5f83ce1045fd800b013713dc164306d52"
+    },
+    {
+      "file": "thread_round.py",
+      "sha256": "e98e2205464c19197db04be1993f7c8832c6a5bdfd8bd08255ef823fbd66d550"
+    },
+    {
+      "file": "aof-proof-1.json",
+      "sha256": "cfd4e7e0f7205b51529f84881eff3436852d1e9df47023f83a7c0f1e1be82033",
+      "original_sha256": "a39d2aae1655b9c90183a5f94df083fc8f4cc212fc57134af8f621632ab08192"
+    },
+    {
+      "file": "aof-proof-2.json",
+      "sha256": "2b8e9a7586fc594d769ce5359a80c3425d66e1a63b6890441e38baee314f7a8c",
+      "original_sha256": "2b8e9a7586fc594d769ce5359a80c3425d66e1a63b6890441e38baee314f7a8c"
+    },
+    {
+      "file": "aof-proof-3.json",
+      "sha256": "6d69b046ca4159062d1ca5749960c88552a7b3b4fd25ba759a613d5b233271bb",
+      "original_sha256": "6d69b046ca4159062d1ca5749960c88552a7b3b4fd25ba759a613d5b233271bb"
+    },
+    {
+      "file": "cache_ephemeral_aof.py",
+      "sha256": "f0a063dff06fb94829a88df4ceb911761b425b757075875d8900c193b62949fa"
+    }
+  ]
+}

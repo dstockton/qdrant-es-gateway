@@ -1,0 +1,4 @@
+# Only the gateway build changes; preserve Qdrant automatic pools and all quotas.
+services:
+  gateway:
+    image: '${READVIEW_IMAGE:?Select the verified prebuilt image}'

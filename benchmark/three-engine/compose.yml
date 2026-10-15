@@ -1,0 +1,49 @@
+# Equal total cap per engine: 2 CPUs and 4 GiB. Only one engine receives load at a time.
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: 'false'
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    cpus: 2
+    mem_limit: 4g
+    ports: ['127.0.0.1:19200:9200']
+    volumes: [es_data:/usr/share/elasticsearch/data]
+  opensearch:
+    image: opensearchproject/opensearch:3.9.0
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: 'true'
+      DISABLE_INSTALL_DEMO_CONFIG: 'true'
+      OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+    cpus: 2
+    mem_limit: 4g
+    ports: ['127.0.0.1:19201:9200']
+    volumes: [os_data:/usr/share/opensearch/data]
+  qdrant:
+    image: qdrant/qdrant:v1.19.2
+    cpus: 1.5
+    mem_limit: 3584m
+    volumes: [qdrant_data:/qdrant/storage]
+  gateway:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    cpus: 0.5
+    mem_limit: 512m
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      METADATA_DB: /data/catalog.db
+      MAX_PAGE_SIZE: 1000
+      QDRANT_REPLICATION_FACTOR: 1
+      DOCUMENT_PROJECTION: 'false'
+      ASYNC_PAYLOAD_WRITES: 'false'
+      ASYNC_SEARCH_PROJECTION: 'false'
+    ports: ['127.0.0.1:19202:9200']
+    volumes: [gateway_data:/data]
+volumes:
+  es_data:
+  os_data:
+  qdrant_data:
+  gateway_data:

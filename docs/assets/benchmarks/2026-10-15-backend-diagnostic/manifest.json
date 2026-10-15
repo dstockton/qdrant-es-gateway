@@ -1,0 +1,48 @@
+{
+  "diagnostic": "backend-three-rpc-decomposition-not-native-equivalent",
+  "measured_groups": 3200,
+  "measured_rpcs": 4800,
+  "all_responses_correct": true,
+  "gateway_runtime_source": "47113fc5a0bc1f3ab4aad6728a480626c7aa006f",
+  "gateway_runtime_image": "sha256:1a7bed91a88b1d255ba8522f7d204feea90596183048c4fc27790c750af23b39",
+  "gateway_role": "Present but not in measured RPC path. No gateway/native-engine comparison.",
+  "runner_source_status": "Two diagnostic scripts were uncommitted at execution; their exact copies and SHA256 hashes are retained here. Existing helper dependencies are from the runtime source revision.",
+  "sanitization": "Removed ephemeral container_id fields only; original hashes retained, samples and counters unchanged.",
+  "limitations": [
+    "No gateway, catalog, cache, native engine, or public client path measured.",
+    "Parallel group wall includes dispatch, JSON parsing and correctness validation; per-call wall ends at response body receipt.",
+    "Do not sum parallel RPC timings or subtract independently measured quantiles.",
+    "Resource snapshots and container provenance must be supplied by the external harness."
+  ],
+  "files": [
+    {
+      "file": "backend-decomposition.json",
+      "sha256": "d45afe29bcce940334a680977c9b63268c7c5dbc52efa0edcee6f4b74d82fb37",
+      "original_sha256": "d45afe29bcce940334a680977c9b63268c7c5dbc52efa0edcee6f4b74d82fb37"
+    },
+    {
+      "file": "backend-decomposition-resources.json",
+      "sha256": "b03c9dabba768244314d8e910ebd42d21fc4e986474d4fcffa3476709628e90d",
+      "original_sha256": "71489eeaa31c31470dc211c42d54761b9d742bc55c1b804b01c143a6ae8ae918"
+    },
+    {
+      "file": "backend-decomposition-summary.json",
+      "sha256": "94ec921e09f266692286c9cf646fa2b2e11184e4ba0ca74b57bc92a692f5eea8",
+      "original_sha256": "6fccdef506aa97c070584c5bec7ed5bc784d367151794a94bf669015d845953d"
+    },
+    {
+      "file": "backend_diagnostic.py",
+      "sha256": "fcbf5604868542563567af6c4426dc3d0a5a241127fda84bf19072188a5441e7"
+    },
+    {
+      "file": "backend_decomposition.py",
+      "sha256": "7b5994c33ba0e56df3102fb0b45b10cb0578888866cb41884546684f56770995"
+    },
+    {
+      "file": "backend-payload-schema.json",
+      "sha256": "931089e5fd967cc330017544c4e4b5f5a972574af08fef28de36965038c71dfe",
+      "original_sha256": "931089e5fd967cc330017544c4e4b5f5a972574af08fef28de36965038c71dfe",
+      "observation_scope": "Captured after the diagnostic, not contemporaneous index proof."
+    }
+  ]
+}

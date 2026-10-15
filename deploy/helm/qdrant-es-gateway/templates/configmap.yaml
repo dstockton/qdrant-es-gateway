@@ -1,3 +1,14 @@
+{{- if .Values.readCache.deployment }}
+{{- if not .Values.catalog.existingSecret }}
+{{- fail "readCache requires catalog.existingSecret" }}
+{{- end }}
+{{- if or .Values.gateway.asyncPayloadWrites .Values.gateway.asyncSearchProjection }}
+{{- fail "readCache requires both asynchronous write modes disabled" }}
+{{- end }}
+{{- if ne (toString .Values.qdrant.replicationFactor) "1" }}
+{{- fail "readCache requires qdrant.replicationFactor=1" }}
+{{- end }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -20,3 +31,9 @@ data:
   MAX_BODY_BYTES: {{ .Values.gateway.maxBodyBytes | quote }}
   MAX_BULK_BYTES: {{ .Values.gateway.maxBulkBytes | quote }}
   MAX_PAGE_SIZE: {{ .Values.gateway.maxPageSize | quote }}
+  {{- if .Values.readCache.deployment }}
+  READ_CACHE_DEPLOYMENT: {{ .Values.readCache.deployment | quote }}
+  READ_CACHE_SERVE: {{ .Values.readCache.serve | quote }}
+  READ_CACHE_TTL_SECONDS: {{ .Values.readCache.ttlSeconds | quote }}
+  READ_CACHE_MAX_BYTES: {{ .Values.readCache.maxBytes | quote }}
+  {{- end }}

@@ -1,0 +1,417 @@
+{
+  "limitations": [
+    "Snapshots include setup/priming and native requests, not just gateway timed calls.",
+    "Throttled-period percentage is not latency percentage; cumulative throttled time is not wall-time loss.",
+    "CPU budget usage divides CPU time by whole profile duration and configured quota, not active-request duration."
+  ],
+  "rounds": [
+    {
+      "round": "atomic-snapshot-off-control-new-1-resources",
+      "snapshot_span_seconds": 3.92012,
+      "services": {
+        "gateway": {
+          "periods": 32,
+          "throttled_periods": 0,
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 470.806,
+          "cpu_limit": 0.5,
+          "approx_profile_cpu_budget_used_percent": 24.019978980235297
+        },
+        "qdrant": {
+          "periods": 33,
+          "throttled_periods": 8,
+          "throttled_periods_percent": 24.242424242424242,
+          "throttled_ms": 2050.929,
+          "cpu_usage_ms": 2139.467,
+          "cpu_limit": 1.25,
+          "approx_profile_cpu_budget_used_percent": 43.66125526769589
+        },
+        "cache-valkey": {
+          "periods": 38,
+          "throttled_periods": 1,
+          "throttled_periods_percent": 2.6315789473684212,
+          "throttled_ms": 116.27,
+          "cpu_usage_ms": 215.177,
+          "cpu_limit": 0.25,
+          "approx_profile_cpu_budget_used_percent": 21.956164607205903
+        },
+        "elasticsearch": {
+          "periods": 30,
+          "throttled_periods": 0,
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 842.562,
+          "cpu_limit": 2,
+          "approx_profile_cpu_budget_used_percent": 10.746635307082437
+        },
+        "opensearch": {
+          "periods": 30,
+          "throttled_periods": 0,
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 718.675,
+          "cpu_limit": 2,
+          "approx_profile_cpu_budget_used_percent": 9.16649235227493
+        }
+      }
+    },
+    {
+      "round": "atomic-snapshot-off-control-new-2-resources",
+      "snapshot_span_seconds": 3.90661,
+      "services": {
+        "gateway": {
+          "periods": 32,
+          "throttled_periods": 0,
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 452.259,
+          "cpu_limit": 0.5,
+          "approx_profile_cpu_budget_used_percent": 23.153526970954356
+        },
+        "qdrant": {
+          "periods": 31,
+          "throttled_periods": 6,
+          "throttled_periods_percent": 19.35483870967742,
+          "throttled_ms": 1616.303,
+          "cpu_usage_ms": 1932.263,
+          "cpu_limit": 1.25,
+          "approx_profile_cpu_budget_used_percent": 39.56909955178531
+        },
+        "cache-valkey": {
+          "periods": 35,
+          "throttled_periods": 1,
+          "throttled_periods_percent": 2.857142857142857,
+          "throttled_ms": 31.256,
+          "cpu_usage_ms": 198.907,
+          "cpu_limit": 0.25,
+          "approx_profile_cpu_budget_used_percent": 20.36619985102173
+        },
+        "elasticsearch": {
+          "periods": 28,
+          "throttled_periods": 0,
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 486.997,
+          "cpu_limit": 2,
+          "approx_profile_cpu_budget_used_percent": 6.232987167902606
+        },
+        "opensearch": {
+          "periods": 29,
+          "throttled_periods": 0,
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 433.561,
+          "cpu_limit": 2,
+          "approx_profile_cpu_budget_used_percent": 5.549069397764302
+        }
+      }
+    },
+    {
+      "round": "atomic-snapshot-off-control-old-1-resources",
+      "snapshot_span_seconds": 4.496297,
+      "services": {
+        "gateway": {
+          "periods": 34,
+          "throttled_periods": 0,
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 564.984,
+          "cpu_limit": 0.5,
+          "approx_profile_cpu_budget_used_percent": 25.13108008656901
+        },
+        "qdrant": {
+          "periods": 35,
+          "throttled_periods": 10,
+          "throttled_periods_percent": 28.571428571428573,
+          "throttled_ms": 2309.628,
+          "cpu_usage_ms": 2392.658,
+          "cpu_limit": 1.25,
+          "approx_profile_cpu_budget_used_percent": 42.57117356793824
+        },
+        "cache-valkey": {
+          "periods": 44,
+          "throttled_periods": 2,
+          "throttled_periods_percent": 4.545454545454546,
+          "throttled_ms": 28.067,
+          "cpu_usage_ms": 241.704,
+          "cpu_limit": 0.25,
+          "approx_profile_cpu_budget_used_percent": 21.502494163530567
+        },
+        "elasticsearch": {
+          "periods": 32,
+          "throttled_periods": 0,
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 596.339,
+          "cpu_limit": 2,
+          "approx_profile_cpu_budget_used_percent": 6.631445831981294
+        },
+        "opensearch": {
+          "periods": 37,
+          "throttled_periods": 0,
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 599.207,
+          "cpu_limit": 2,
+          "approx_profile_cpu_budget_used_percent": 6.663338742970048
+        }
+      }
+    },
+    {
+      "round": "atomic-snapshot-off-control-old-2-resources",
+      "snapshot_span_seconds": 3.270224,
+      "services": {
+        "gateway": {
+          "periods": 28,
+          "throttled_periods": 0,
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 401.873,
+          "cpu_limit": 0.5,
+          "approx_profile_cpu_budget_used_percent": 24.57770476884764
+        },
+        "qdrant": {
+          "periods": 28,
+          "throttled_periods": 6,
+          "throttled_periods_percent": 21.428571428571427,
+          "throttled_ms": 1482.056,
+          "cpu_usage_ms": 1803.862,
+          "cpu_limit": 1.25,
+          "approx_profile_cpu_budget_used_percent": 44.128157581865956
+        },
+        "cache-valkey": {
+          "periods": 32,
+          "throttled_periods": 0,
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 156.143,
+          "cpu_limit": 0.25,
+          "approx_profile_cpu_budget_used_percent": 19.09875286830505
+        },
+        "elasticsearch": {
+          "periods": 26,
+          "throttled_periods": 0,
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 447.099,
+          "cpu_limit": 2,
+          "approx_profile_cpu_budget_used_percent": 6.835907876646982
+        },
+        "opensearch": {
+          "periods": 26,
+          "throttled_periods": 0,
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 450.232,
+          "cpu_limit": 2,
+          "approx_profile_cpu_budget_used_percent": 6.883809794069153
+        }
+      }
+    },
+    {
+      "round": "atomic-snapshot-on-main-new-1-resources",
+      "snapshot_span_seconds": 9.127557,
+      "services": {
+        "gateway": {
+          "periods": 66,
+          "throttled_periods": 0,
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 1188.496,
+          "cpu_limit": 0.5,
+          "approx_profile_cpu_budget_used_percent": 26.041929949054275
+        },
+        "qdrant": {
+          "periods": 65,
+          "throttled_periods": 20,
+          "throttled_periods_percent": 30.76923076923077,
+          "throttled_ms": 3737.173,
+          "cpu_usage_ms": 4607.583,
+          "cpu_limit": 1.25,
+          "approx_profile_cpu_budget_used_percent": 40.38393186698259
+        },
+        "cache-valkey": {
+          "periods": 80,
+          "throttled_periods": 7,
+          "throttled_periods_percent": 8.75,
+          "throttled_ms": 331.111,
+          "cpu_usage_ms": 641.801,
+          "cpu_limit": 0.25,
+          "approx_profile_cpu_budget_used_percent": 28.125861060084315
+        },
+        "elasticsearch": {
+          "periods": 66,
+          "throttled_periods": 1,
+          "throttled_periods_percent": 1.5151515151515151,
+          "throttled_ms": 28.819,
+          "cpu_usage_ms": 1234.535,
+          "cpu_limit": 2,
+          "approx_profile_cpu_budget_used_percent": 6.762680309747724
+        },
+        "opensearch": {
+          "periods": 72,
+          "throttled_periods": 0,
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 1110.389,
+          "cpu_limit": 2,
+          "approx_profile_cpu_budget_used_percent": 6.082618821224562
+        }
+      }
+    },
+    {
+      "round": "atomic-snapshot-on-main-new-2-resources",
+      "snapshot_span_seconds": 8.692495,
+      "services": {
+        "gateway": {
+          "periods": 63,
+          "throttled_periods": 0,
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 1226.272,
+          "cpu_limit": 0.5,
+          "approx_profile_cpu_budget_used_percent": 28.21449997958009
+        },
+        "qdrant": {
+          "periods": 65,
+          "throttled_periods": 16,
+          "throttled_periods_percent": 24.615384615384617,
+          "throttled_ms": 2575.433,
+          "cpu_usage_ms": 4589.812,
+          "cpu_limit": 1.25,
+          "approx_profile_cpu_budget_used_percent": 42.24160727156013
+        },
+        "cache-valkey": {
+          "periods": 79,
+          "throttled_periods": 4,
+          "throttled_periods_percent": 5.063291139240507,
+          "throttled_ms": 275.103,
+          "cpu_usage_ms": 690.267,
+          "cpu_limit": 0.25,
+          "approx_profile_cpu_budget_used_percent": 31.763814647002967
+        },
+        "elasticsearch": {
+          "periods": 59,
+          "throttled_periods": 1,
+          "throttled_periods_percent": 1.694915254237288,
+          "throttled_ms": 23.087,
+          "cpu_usage_ms": 1072.991,
+          "cpu_limit": 2,
+          "approx_profile_cpu_budget_used_percent": 6.1719391267984625
+        },
+        "opensearch": {
+          "periods": 66,
+          "throttled_periods": 1,
+          "throttled_periods_percent": 1.5151515151515151,
+          "throttled_ms": 5.945,
+          "cpu_usage_ms": 1038.871,
+          "cpu_limit": 2,
+          "approx_profile_cpu_budget_used_percent": 5.975677869242376
+        }
+      }
+    },
+    {
+      "round": "atomic-snapshot-on-main-old-1-resources",
+      "snapshot_span_seconds": 8.997971,
+      "services": {
+        "gateway": {
+          "periods": 63,
+          "throttled_periods": 1,
+          "throttled_periods_percent": 1.5873015873015872,
+          "throttled_ms": 23.426,
+          "cpu_usage_ms": 1238.636,
+          "cpu_limit": 0.5,
+          "approx_profile_cpu_budget_used_percent": 27.53145125717787
+        },
+        "qdrant": {
+          "periods": 67,
+          "throttled_periods": 19,
+          "throttled_periods_percent": 28.35820895522388,
+          "throttled_ms": 3831.964,
+          "cpu_usage_ms": 4570.729,
+          "cpu_limit": 1.25,
+          "approx_profile_cpu_budget_used_percent": 40.63786380285067
+        },
+        "cache-valkey": {
+          "periods": 82,
+          "throttled_periods": 9,
+          "throttled_periods_percent": 10.975609756097562,
+          "throttled_ms": 451.671,
+          "cpu_usage_ms": 694.536,
+          "cpu_limit": 0.25,
+          "approx_profile_cpu_budget_used_percent": 30.87522731513582
+        },
+        "elasticsearch": {
+          "periods": 73,
+          "throttled_periods": 4,
+          "throttled_periods_percent": 5.47945205479452,
+          "throttled_ms": 407.242,
+          "cpu_usage_ms": 1827.487,
+          "cpu_limit": 2,
+          "approx_profile_cpu_budget_used_percent": 10.154994942748761
+        },
+        "opensearch": {
+          "periods": 68,
+          "throttled_periods": 4,
+          "throttled_periods_percent": 5.882352941176471,
+          "throttled_ms": 182.902,
+          "cpu_usage_ms": 1908.538,
+          "cpu_limit": 2,
+          "approx_profile_cpu_budget_used_percent": 10.60537981284892
+        }
+      }
+    },
+    {
+      "round": "atomic-snapshot-on-main-old-2-resources",
+      "snapshot_span_seconds": 8.548286,
+      "services": {
+        "gateway": {
+          "periods": 63,
+          "throttled_periods": 0,
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 1210.218,
+          "cpu_limit": 0.5,
+          "approx_profile_cpu_budget_used_percent": 28.31486920301918
+        },
+        "qdrant": {
+          "periods": 67,
+          "throttled_periods": 18,
+          "throttled_periods_percent": 26.865671641791046,
+          "throttled_ms": 3205.344,
+          "cpu_usage_ms": 4491.951,
+          "cpu_limit": 1.25,
+          "approx_profile_cpu_budget_used_percent": 42.0383782199145
+        },
+        "cache-valkey": {
+          "periods": 80,
+          "throttled_periods": 5,
+          "throttled_periods_percent": 6.25,
+          "throttled_ms": 505.246,
+          "cpu_usage_ms": 696.387,
+          "cpu_limit": 0.25,
+          "approx_profile_cpu_budget_used_percent": 32.58604122510641
+        },
+        "elasticsearch": {
+          "periods": 67,
+          "throttled_periods": 1,
+          "throttled_periods_percent": 1.492537313432836,
+          "throttled_ms": 44.507,
+          "cpu_usage_ms": 1116.645,
+          "cpu_limit": 2,
+          "approx_profile_cpu_budget_used_percent": 6.531397054333466
+        },
+        "opensearch": {
+          "periods": 64,
+          "throttled_periods": 2,
+          "throttled_periods_percent": 3.125,
+          "throttled_ms": 180.836,
+          "cpu_usage_ms": 1121.67,
+          "cpu_limit": 2,
+          "approx_profile_cpu_budget_used_percent": 6.56078891136773
+        }
+      }
+    }
+  ]
+}

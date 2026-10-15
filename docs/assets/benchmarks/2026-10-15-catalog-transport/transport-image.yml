@@ -1,0 +1,4 @@
+# Change only the gateway build during a paired transport experiment.
+services:
+  gateway:
+    image: '${CATALOG_TRANSPORT_IMAGE:?Select the prebuilt old or new image}'

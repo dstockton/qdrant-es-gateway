@@ -1,0 +1,1384 @@
+{
+  "status": "passed",
+  "measured_http_responses": 93600,
+  "aggregation": "Median of six trial quantiles per image. Do not pool with earlier experiments.",
+  "comparisons": [
+    {
+      "kind": "off-control",
+      "profile": "cold",
+      "engine": "elasticsearch",
+      "workload": "unique_sorted_filter",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.5576458061113954,
+        "new": 0.5761561915278435,
+        "change_percent": 3.3193803689703483
+      },
+      "p95_ms": {
+        "old": 0.6542494520545006,
+        "new": 0.6623540539294481,
+        "change_percent": 1.2387632652189673
+      }
+    },
+    {
+      "kind": "off-control",
+      "profile": "cold",
+      "engine": "elasticsearch",
+      "workload": "unique_sorted_filter",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 1.4712499687448144,
+        "new": 1.4341354835778475,
+        "change_percent": -2.522649852535319
+      },
+      "p95_ms": {
+        "old": 2.485666424036026,
+        "new": 2.5408542715013027,
+        "change_percent": 2.220243510215947
+      }
+    },
+    {
+      "kind": "off-control",
+      "profile": "cold",
+      "engine": "gateway",
+      "workload": "unique_sorted_filter",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 1.371531281620264,
+        "new": 1.3123961398378015,
+        "change_percent": -4.311614512547102
+      },
+      "p95_ms": {
+        "old": 1.4785414095968008,
+        "new": 1.4352086000144482,
+        "change_percent": -2.9307809237598237
+      }
+    },
+    {
+      "kind": "off-control",
+      "profile": "cold",
+      "engine": "gateway",
+      "workload": "unique_sorted_filter",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 3.2343227649107575,
+        "new": 2.988750347867608,
+        "change_percent": -7.592699767239386
+      },
+      "p95_ms": {
+        "old": 55.983603931963444,
+        "new": 43.67964598350227,
+        "change_percent": -21.977788288539102
+      }
+    },
+    {
+      "kind": "off-control",
+      "profile": "cold",
+      "engine": "opensearch",
+      "workload": "unique_sorted_filter",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.4792290274053812,
+        "new": 0.46984374057501554,
+        "change_percent": -1.958413679817983
+      },
+      "p95_ms": {
+        "old": 0.5499995313584805,
+        "new": 0.5736879538744688,
+        "change_percent": 4.30698958187814
+      }
+    },
+    {
+      "kind": "off-control",
+      "profile": "cold",
+      "engine": "opensearch",
+      "workload": "unique_sorted_filter",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 1.311208470724523,
+        "new": 1.3552919263020158,
+        "change_percent": 3.3620478025995215
+      },
+      "p95_ms": {
+        "old": 2.3632703814655542,
+        "new": 2.26108287461102,
+        "change_percent": -4.323987117849959
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "cold",
+      "engine": "elasticsearch",
+      "workload": "unique_sorted_filter",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.5702811758965254,
+        "new": 0.5747603718191385,
+        "change_percent": 0.7854363973300638
+      },
+      "p95_ms": {
+        "old": 0.6747920997440815,
+        "new": 0.685499981045723,
+        "change_percent": 1.5868415332222385
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "cold",
+      "engine": "elasticsearch",
+      "workload": "unique_sorted_filter",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 1.254500006325543,
+        "new": 1.2508437503129244,
+        "change_percent": -0.29145125501655045
+      },
+      "p95_ms": {
+        "old": 2.3136455565690994,
+        "new": 2.4918955750763416,
+        "change_percent": 7.704292388310718
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "cold",
+      "engine": "gateway",
+      "workload": "unique_sorted_filter",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 1.9114891765639186,
+        "new": 1.82569760363549,
+        "change_percent": -4.488206053180333
+      },
+      "p95_ms": {
+        "old": 2.374333795160055,
+        "new": 2.2013960406184196,
+        "change_percent": -7.2836327770829605
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "cold",
+      "engine": "gateway",
+      "workload": "unique_sorted_filter",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 4.782312782481313,
+        "new": 4.521177266724408,
+        "change_percent": -5.460444091266958
+      },
+      "p95_ms": {
+        "old": 55.13122957199812,
+        "new": 60.9166044741869,
+        "change_percent": 10.493825273084866
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "cold",
+      "engine": "opensearch",
+      "workload": "unique_sorted_filter",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.4881351487711072,
+        "new": 0.4925105022266507,
+        "change_percent": 0.8963405865278551
+      },
+      "p95_ms": {
+        "old": 0.6207502447068691,
+        "new": 0.5835837218910456,
+        "change_percent": -5.98735532248954
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "cold",
+      "engine": "opensearch",
+      "workload": "unique_sorted_filter",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 1.168749644421041,
+        "new": 1.2647189432755113,
+        "change_percent": 8.211279405523175
+      },
+      "p95_ms": {
+        "old": 2.205520635470748,
+        "new": 2.449395600706339,
+        "change_percent": 11.057478280339827
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "elasticsearch",
+      "workload": "filter_aggregation",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.35138509701937437,
+        "new": 0.34777133259922266,
+        "change_percent": -1.0284341740174785
+      },
+      "p95_ms": {
+        "old": 0.4326249472796917,
+        "new": 0.44104200787842274,
+        "change_percent": 1.9455791099558084
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "elasticsearch",
+      "workload": "filter_aggregation",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 0.8036663057282567,
+        "new": 0.7887913379818201,
+        "change_percent": -1.8508885641233097
+      },
+      "p95_ms": {
+        "old": 1.2002920266240835,
+        "new": 1.2333958875387907,
+        "change_percent": 2.7579839056179
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "elasticsearch",
+      "workload": "filtered_search",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.4839790053665638,
+        "new": 0.49717724323272705,
+        "change_percent": 2.727026941213495
+      },
+      "p95_ms": {
+        "old": 0.5725836381316185,
+        "new": 0.5838540382683277,
+        "change_percent": 1.9683412843380044
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "elasticsearch",
+      "workload": "filtered_search",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 1.0511253494769335,
+        "new": 1.0675103403627872,
+        "change_percent": 1.5588046557917457
+      },
+      "p95_ms": {
+        "old": 1.6351244412362576,
+        "new": 1.7303749918937683,
+        "change_percent": 5.825278385875965
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "elasticsearch",
+      "workload": "point_read",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.294302124530077,
+        "new": 0.2908234018832445,
+        "change_percent": -1.182024306615892
+      },
+      "p95_ms": {
+        "old": 0.35364553332328796,
+        "new": 0.35316660068929195,
+        "change_percent": -0.1354273103622683
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "elasticsearch",
+      "workload": "point_read",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 0.5841772072017193,
+        "new": 0.5946664605289698,
+        "change_percent": 1.7955601824137135
+      },
+      "p95_ms": {
+        "old": 0.863479683175683,
+        "new": 0.8721244521439075,
+        "change_percent": 1.0011548779504498
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "elasticsearch",
+      "workload": "sorted_pagination",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.5633024265989661,
+        "new": 0.5674171261489391,
+        "change_percent": 0.730460114439091
+      },
+      "p95_ms": {
+        "old": 0.6578958127647638,
+        "new": 0.6430000066757202,
+        "change_percent": -2.264158822723761
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "elasticsearch",
+      "workload": "sorted_pagination",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 1.163437613286078,
+        "new": 1.1642082827165723,
+        "change_percent": 0.06624071816945243
+      },
+      "p95_ms": {
+        "old": 1.832729671150446,
+        "new": 1.8933748360723257,
+        "change_percent": 3.30900764452684
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "elasticsearch",
+      "workload": "terms_aggregation",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.36005175206810236,
+        "new": 0.36289566196501255,
+        "change_percent": 0.7898614242466628
+      },
+      "p95_ms": {
+        "old": 0.44749933294951916,
+        "new": 0.45700022019445896,
+        "change_percent": 2.123106459694224
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "elasticsearch",
+      "workload": "terms_aggregation",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 0.8612710516899824,
+        "new": 0.8704062784090638,
+        "change_percent": 1.0606680325730533
+      },
+      "p95_ms": {
+        "old": 1.3670835178345442,
+        "new": 1.394958235323429,
+        "change_percent": 2.0389915557637917
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "gateway",
+      "workload": "filter_aggregation",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.3175312886014581,
+        "new": 0.3136671148240566,
+        "change_percent": -1.2169426812774553
+      },
+      "p95_ms": {
+        "old": 0.40862499736249447,
+        "new": 0.37822872400283813,
+        "change_percent": -7.438672023457138
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "gateway",
+      "workload": "filter_aggregation",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 0.741958268918097,
+        "new": 0.7155418861657381,
+        "change_percent": -3.5603596400210713
+      },
+      "p95_ms": {
+        "old": 1.2174791190773249,
+        "new": 1.0887084063142538,
+        "change_percent": -10.57683131852486
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "gateway",
+      "workload": "filtered_search",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.38648955523967743,
+        "new": 0.3882083110511303,
+        "change_percent": 0.44470951107256074
+      },
+      "p95_ms": {
+        "old": 0.484708696603775,
+        "new": 0.4806665237993002,
+        "change_percent": -0.8339385764681517
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "gateway",
+      "workload": "filtered_search",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 0.9536562720313668,
+        "new": 0.8997605182230473,
+        "change_percent": -5.651486325730037
+      },
+      "p95_ms": {
+        "old": 1.621354604139924,
+        "new": 1.4547703322023153,
+        "change_percent": -10.27438855832381
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "gateway",
+      "workload": "point_read",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.30450010672211647,
+        "new": 0.3020940348505974,
+        "change_percent": -0.7901711094357111
+      },
+      "p95_ms": {
+        "old": 0.3388125915080309,
+        "new": 0.33979187719523907,
+        "change_percent": 0.2890346202452099
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "gateway",
+      "workload": "point_read",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 0.5819584475830197,
+        "new": 0.5784791428595781,
+        "change_percent": -0.5978613658572662
+      },
+      "p95_ms": {
+        "old": 0.837687635794282,
+        "new": 0.847645802423358,
+        "change_percent": 1.1887684864339443
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "gateway",
+      "workload": "sorted_pagination",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.3876041155308485,
+        "new": 0.3830416826531291,
+        "change_percent": -1.1770857673868762
+      },
+      "p95_ms": {
+        "old": 0.493666622787714,
+        "new": 0.4770203959196806,
+        "change_percent": -3.371957126457703
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "gateway",
+      "workload": "sorted_pagination",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 0.9132293052971363,
+        "new": 0.8982600411400199,
+        "change_percent": -1.6391572270280874
+      },
+      "p95_ms": {
+        "old": 1.3957498595118523,
+        "new": 1.3983959797769785,
+        "change_percent": 0.189584132650511
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "gateway",
+      "workload": "terms_aggregation",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.3288752632215619,
+        "new": 0.32854173332452774,
+        "change_percent": -0.10141531891666444
+      },
+      "p95_ms": {
+        "old": 0.4014996811747551,
+        "new": 0.4183331038802862,
+        "change_percent": 4.19263663081324
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "gateway",
+      "workload": "terms_aggregation",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 0.7732495432719588,
+        "new": 0.7804583292454481,
+        "change_percent": 0.9322716109195106
+      },
+      "p95_ms": {
+        "old": 1.2088329531252384,
+        "new": 1.2142914347350597,
+        "change_percent": 0.4515497030180393
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "opensearch",
+      "workload": "filter_aggregation",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.340833212248981,
+        "new": 0.3339791437610984,
+        "change_percent": -2.0109743538947344
+      },
+      "p95_ms": {
+        "old": 0.40112552233040333,
+        "new": 0.39260461926460266,
+        "change_percent": -2.124248543522511
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "opensearch",
+      "workload": "filter_aggregation",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 0.7826872169971466,
+        "new": 0.8053334895521402,
+        "change_percent": 2.8934000790096226
+      },
+      "p95_ms": {
+        "old": 1.1801461223512888,
+        "new": 1.1878544464707375,
+        "change_percent": 0.6531669234391746
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "opensearch",
+      "workload": "filtered_search",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.4345098277553916,
+        "new": 0.4543439717963338,
+        "change_percent": 4.5647170153554795
+      },
+      "p95_ms": {
+        "old": 0.5186249036341906,
+        "new": 0.5356671754270792,
+        "change_percent": 3.286049642712352
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "opensearch",
+      "workload": "filtered_search",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 1.067676697857678,
+        "new": 1.0098540224134922,
+        "change_percent": -5.415747628491707
+      },
+      "p95_ms": {
+        "old": 1.677999971434474,
+        "new": 1.7694381531327963,
+        "change_percent": 5.449236189208895
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "opensearch",
+      "workload": "point_read",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.28706248849630356,
+        "new": 0.2855308121070266,
+        "change_percent": -0.5335689791098219
+      },
+      "p95_ms": {
+        "old": 0.3205414395779371,
+        "new": 0.32456242479383945,
+        "change_percent": 1.2544353769661898
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "opensearch",
+      "workload": "point_read",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 0.5663230549544096,
+        "new": 0.5704999202862382,
+        "change_percent": 0.7375411075511984
+      },
+      "p95_ms": {
+        "old": 0.8333541918545961,
+        "new": 0.8320000488311052,
+        "change_percent": -0.16249309558008518
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "opensearch",
+      "workload": "sorted_pagination",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.45979174319654703,
+        "new": 0.4545520059764385,
+        "change_percent": -1.1395892374406302
+      },
+      "p95_ms": {
+        "old": 0.5310624837875366,
+        "new": 0.5517085082828999,
+        "change_percent": 3.8876827352058108
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "opensearch",
+      "workload": "sorted_pagination",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 1.1174060637131333,
+        "new": 1.0493540903553367,
+        "change_percent": -6.0901739813063465
+      },
+      "p95_ms": {
+        "old": 1.9873338751494884,
+        "new": 1.729978946968913,
+        "change_percent": -12.949758035056735
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "opensearch",
+      "workload": "terms_aggregation",
+      "concurrency": 1,
+      "p50_ms": {
+        "old": 0.3671665908768773,
+        "new": 0.3487084759399295,
+        "change_percent": -5.027177143994955
+      },
+      "p95_ms": {
+        "old": 0.4704373423010111,
+        "new": 0.4328959621489048,
+        "change_percent": -7.9801020829858516
+      }
+    },
+    {
+      "kind": "on-main",
+      "profile": "warm",
+      "engine": "opensearch",
+      "workload": "terms_aggregation",
+      "concurrency": 8,
+      "p50_ms": {
+        "old": 0.8410831214860082,
+        "new": 0.8796877227723598,
+        "change_percent": 4.58986755294124
+      },
+      "p95_ms": {
+        "old": 1.287729712203145,
+        "new": 1.3729787897318602,
+        "change_percent": 6.620106433893236
+      }
+    }
+  ],
+  "resources": [
+    {
+      "round": "typed-readview-off-control-new-1-resources",
+      "profile": "cold",
+      "seconds": 1.913587,
+      "pool_before": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "pool_after": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "services": {
+        "gateway": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 159.875,
+          "cpu_budget_used_percent": 16.709457160818925
+        },
+        "qdrant": {
+          "throttled_periods_percent": 17.647058823529413,
+          "throttled_ms": 432.856,
+          "cpu_usage_ms": 915.269,
+          "cpu_budget_used_percent": 38.26401412635015
+        },
+        "cache-valkey": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 79.384,
+          "cpu_budget_used_percent": 16.59375821428553
+        },
+        "elasticsearch": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 297.832,
+          "cpu_budget_used_percent": 7.7820344724331845
+        },
+        "opensearch": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 192.624,
+          "cpu_budget_used_percent": 5.033060947842977
+        }
+      },
+      "valkey": {
+        "aof_rewrites": 0,
+        "aof_delayed_fsync": 0,
+        "evicted_keys": 0,
+        "expired_keys": 0,
+        "keyspace_hits": 1926,
+        "keyspace_misses": 614
+      }
+    },
+    {
+      "round": "typed-readview-off-control-new-2-resources",
+      "profile": "cold",
+      "seconds": 1.910647,
+      "pool_before": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "pool_after": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "services": {
+        "gateway": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 161.627,
+          "cpu_budget_used_percent": 16.918562141515416
+        },
+        "qdrant": {
+          "throttled_periods_percent": 15.789473684210526,
+          "throttled_ms": 824.965,
+          "cpu_usage_ms": 918.158,
+          "cpu_budget_used_percent": 38.44385697619707
+        },
+        "cache-valkey": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 72.944,
+          "cpu_budget_used_percent": 15.271057395740815
+        },
+        "elasticsearch": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 266.837,
+          "cpu_budget_used_percent": 6.982896369659074
+        },
+        "opensearch": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 201.044,
+          "cpu_budget_used_percent": 5.261149757124157
+        }
+      },
+      "valkey": {
+        "aof_rewrites": 0,
+        "aof_delayed_fsync": 0,
+        "evicted_keys": 0,
+        "expired_keys": 0,
+        "keyspace_hits": 1926,
+        "keyspace_misses": 614
+      }
+    },
+    {
+      "round": "typed-readview-off-control-old-1-resources",
+      "profile": "cold",
+      "seconds": 1.993259,
+      "pool_before": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "pool_after": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "services": {
+        "gateway": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 199.064,
+          "cpu_budget_used_percent": 19.973721428073322
+        },
+        "qdrant": {
+          "throttled_periods_percent": 17.647058823529413,
+          "throttled_ms": 696.176,
+          "cpu_usage_ms": 937.716,
+          "cpu_budget_used_percent": 37.635490420462176
+        },
+        "cache-valkey": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 79.82,
+          "cpu_budget_used_percent": 16.017988630679707
+        },
+        "elasticsearch": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 285.485,
+          "cpu_budget_used_percent": 7.161262033684534
+        },
+        "opensearch": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 288.96,
+          "cpu_budget_used_percent": 7.2484308361331875
+        }
+      },
+      "valkey": {
+        "aof_rewrites": 0,
+        "aof_delayed_fsync": 0,
+        "evicted_keys": 0,
+        "expired_keys": 0,
+        "keyspace_hits": 1926,
+        "keyspace_misses": 614
+      }
+    },
+    {
+      "round": "typed-readview-off-control-old-2-resources",
+      "profile": "cold",
+      "seconds": 1.880754,
+      "pool_before": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "pool_after": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "services": {
+        "gateway": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 195.28,
+          "cpu_budget_used_percent": 20.766139537653515
+        },
+        "qdrant": {
+          "throttled_periods_percent": 16.666666666666668,
+          "throttled_ms": 293.793,
+          "cpu_usage_ms": 931.145,
+          "cpu_budget_used_percent": 39.60730643135679
+        },
+        "cache-valkey": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 81.971,
+          "cpu_budget_used_percent": 17.433646292922948
+        },
+        "elasticsearch": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 248.221,
+          "cpu_budget_used_percent": 6.5989757299466065
+        },
+        "opensearch": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 191.033,
+          "cpu_budget_used_percent": 5.078628039605392
+        }
+      },
+      "valkey": {
+        "aof_rewrites": 0,
+        "aof_delayed_fsync": 0,
+        "evicted_keys": 0,
+        "expired_keys": 0,
+        "keyspace_hits": 1926,
+        "keyspace_misses": 614
+      }
+    },
+    {
+      "round": "typed-readview-on-main-new-1-resources",
+      "profile": "cold",
+      "seconds": 3.713505,
+      "pool_before": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "pool_after": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "services": {
+        "gateway": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 387.613,
+          "cpu_budget_used_percent": 20.875857175363976
+        },
+        "qdrant": {
+          "throttled_periods_percent": 18.75,
+          "throttled_ms": 1430.869,
+          "cpu_usage_ms": 1838.798,
+          "cpu_budget_used_percent": 39.61320639126647
+        },
+        "cache-valkey": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 217.763,
+          "cpu_budget_used_percent": 23.4563303402042
+        },
+        "elasticsearch": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 459.91,
+          "cpu_budget_used_percent": 6.192397748219
+        },
+        "opensearch": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 582.882,
+          "cpu_budget_used_percent": 7.848138079792541
+        }
+      },
+      "valkey": {
+        "aof_rewrites": 0,
+        "aof_delayed_fsync": 0,
+        "evicted_keys": 0,
+        "expired_keys": 0,
+        "keyspace_hits": 16926,
+        "keyspace_misses": 3614
+      }
+    },
+    {
+      "round": "typed-readview-on-main-new-1-resources",
+      "profile": "warm",
+      "seconds": 8.949551,
+      "pool_before": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "pool_after": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "services": {
+        "gateway": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 558.435,
+          "cpu_budget_used_percent": 12.479620485988628
+        },
+        "qdrant": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 10.533,
+          "cpu_budget_used_percent": 0.09415444417267413
+        },
+        "cache-valkey": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 417.45,
+          "cpu_budget_used_percent": 18.6579192632122
+        },
+        "elasticsearch": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 1613.595,
+          "cpu_budget_used_percent": 9.01494946506255
+        },
+        "opensearch": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 1639.176,
+          "cpu_budget_used_percent": 9.157867249429609
+        }
+      },
+      "valkey": {
+        "aof_rewrites": 0,
+        "aof_delayed_fsync": 0,
+        "evicted_keys": 0,
+        "expired_keys": 0,
+        "keyspace_hits": 82003,
+        "keyspace_misses": 8201
+      }
+    },
+    {
+      "round": "typed-readview-on-main-new-2-resources",
+      "profile": "cold",
+      "seconds": 3.613406,
+      "pool_before": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "pool_after": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "services": {
+        "gateway": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 381.678,
+          "cpu_budget_used_percent": 21.125663708977072
+        },
+        "qdrant": {
+          "throttled_periods_percent": 17.647058823529413,
+          "throttled_ms": 1583.552,
+          "cpu_usage_ms": 1788.071,
+          "cpu_budget_used_percent": 39.58749169066526
+        },
+        "cache-valkey": {
+          "throttled_periods_percent": 3.0303030303030303,
+          "throttled_ms": 43.949,
+          "cpu_usage_ms": 218.616,
+          "cpu_budget_used_percent": 24.200546520374406
+        },
+        "elasticsearch": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 450.232,
+          "cpu_budget_used_percent": 6.230022311359422
+        },
+        "opensearch": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 464.213,
+          "cpu_budget_used_percent": 6.423482442880761
+        }
+      },
+      "valkey": {
+        "aof_rewrites": 0,
+        "aof_delayed_fsync": 0,
+        "evicted_keys": 0,
+        "expired_keys": 0,
+        "keyspace_hits": 21726,
+        "keyspace_misses": 2414
+      }
+    },
+    {
+      "round": "typed-readview-on-main-new-2-resources",
+      "profile": "warm",
+      "seconds": 8.784145,
+      "pool_before": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "pool_after": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "services": {
+        "gateway": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 550.228,
+          "cpu_budget_used_percent": 12.527753127936753
+        },
+        "qdrant": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 11.783,
+          "cpu_budget_used_percent": 0.10731152548142134
+        },
+        "cache-valkey": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 411.302,
+          "cpu_budget_used_percent": 18.729290101654744
+        },
+        "elasticsearch": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 1614.387,
+          "cpu_budget_used_percent": 9.189209649886244
+        },
+        "opensearch": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 1622.376,
+          "cpu_budget_used_percent": 9.23468362601027
+        }
+      },
+      "valkey": {
+        "aof_rewrites": 0,
+        "aof_delayed_fsync": 0,
+        "evicted_keys": 0,
+        "expired_keys": 0,
+        "keyspace_hits": 82003,
+        "keyspace_misses": 8201
+      }
+    },
+    {
+      "round": "typed-readview-on-main-old-1-resources",
+      "profile": "cold",
+      "seconds": 3.700576,
+      "pool_before": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "pool_after": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "services": {
+        "gateway": {
+          "throttled_periods_percent": 3.125,
+          "throttled_ms": 0.365,
+          "cpu_usage_ms": 473.269,
+          "cpu_budget_used_percent": 25.578126216026913
+        },
+        "qdrant": {
+          "throttled_periods_percent": 18.75,
+          "throttled_ms": 1270.674,
+          "cpu_usage_ms": 1866.579,
+          "cpu_budget_used_percent": 40.35218301150956
+        },
+        "cache-valkey": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 218.459,
+          "cpu_budget_used_percent": 23.61351313957611
+        },
+        "elasticsearch": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 507.715,
+          "cpu_budget_used_percent": 6.859945586849183
+        },
+        "opensearch": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 532.776,
+          "cpu_budget_used_percent": 7.198555035756596
+        }
+      },
+      "valkey": {
+        "aof_rewrites": 0,
+        "aof_delayed_fsync": 0,
+        "evicted_keys": 0,
+        "expired_keys": 0,
+        "keyspace_hits": 16926,
+        "keyspace_misses": 3614
+      }
+    },
+    {
+      "round": "typed-readview-on-main-old-1-resources",
+      "profile": "warm",
+      "seconds": 8.788138,
+      "pool_before": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "pool_after": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "services": {
+        "gateway": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 563.283,
+          "cpu_budget_used_percent": 12.819166016737562
+        },
+        "qdrant": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 9.668,
+          "cpu_budget_used_percent": 0.08800954195302804
+        },
+        "cache-valkey": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 416.951,
+          "cpu_budget_used_percent": 18.97789952774979
+        },
+        "elasticsearch": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 1615.682,
+          "cpu_budget_used_percent": 9.19240230410583
+        },
+        "opensearch": {
+          "throttled_periods_percent": 1.3333333333333333,
+          "throttled_ms": 157.973,
+          "cpu_usage_ms": 1742.481,
+          "cpu_budget_used_percent": 9.913823610871836
+        }
+      },
+      "valkey": {
+        "aof_rewrites": 0,
+        "aof_delayed_fsync": 0,
+        "evicted_keys": 0,
+        "expired_keys": 0,
+        "keyspace_hits": 82003,
+        "keyspace_misses": 8201
+      }
+    },
+    {
+      "round": "typed-readview-on-main-old-2-resources",
+      "profile": "cold",
+      "seconds": 3.81152,
+      "pool_before": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "pool_after": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "services": {
+        "gateway": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 489.313,
+          "cpu_budget_used_percent": 25.6754785492402
+        },
+        "qdrant": {
+          "throttled_periods_percent": 20.58823529411765,
+          "throttled_ms": 2060.706,
+          "cpu_usage_ms": 1886.289,
+          "cpu_budget_used_percent": 39.591323146671144
+        },
+        "cache-valkey": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 266.446,
+          "cpu_budget_used_percent": 27.962177818822937
+        },
+        "elasticsearch": {
+          "throttled_periods_percent": 3.8461538461538463,
+          "throttled_ms": 110.398,
+          "cpu_usage_ms": 592.676,
+          "cpu_budget_used_percent": 7.7747985055830755
+        },
+        "opensearch": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 597.396,
+          "cpu_budget_used_percent": 7.83671606078415
+        }
+      },
+      "valkey": {
+        "aof_rewrites": 0,
+        "aof_delayed_fsync": 0,
+        "evicted_keys": 0,
+        "expired_keys": 0,
+        "keyspace_hits": 21726,
+        "keyspace_misses": 2414
+      }
+    },
+    {
+      "round": "typed-readview-on-main-old-2-resources",
+      "profile": "warm",
+      "seconds": 8.846252,
+      "pool_before": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "pool_after": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "services": {
+        "gateway": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 555.046,
+          "cpu_budget_used_percent": 12.548726850648162
+        },
+        "qdrant": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 12.877,
+          "cpu_budget_used_percent": 0.11645157745901882
+        },
+        "cache-valkey": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 421.261,
+          "cpu_budget_used_percent": 19.048112127034138
+        },
+        "elasticsearch": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 1638.733,
+          "cpu_budget_used_percent": 9.26230114177168
+        },
+        "opensearch": {
+          "throttled_periods_percent": 0.0,
+          "throttled_ms": 0.0,
+          "cpu_usage_ms": 1642.673,
+          "cpu_budget_used_percent": 9.284570459896463
+        }
+      },
+      "valkey": {
+        "aof_rewrites": 0,
+        "aof_delayed_fsync": 0,
+        "evicted_keys": 0,
+        "expired_keys": 0,
+        "keyspace_hits": 82003,
+        "keyspace_misses": 8201
+      }
+    }
+  ],
+  "resource_limitations": "Whole profile spans include setup and native trials. Throttled-period percentage is not latency overhead; keyspace counters are not response-cache hit counts."
+}

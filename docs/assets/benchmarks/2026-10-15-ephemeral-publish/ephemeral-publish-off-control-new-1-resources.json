@@ -1,0 +1,254 @@
+{
+  "experiment": "ephemeral-response-publish-paired-v1",
+  "arguments": {
+    "kind": "off-control",
+    "version": "new",
+    "round": "1",
+    "prefix": "ephemeral-publish",
+    "old_image": "qdrant-es-gateway:typed-readview",
+    "old_image_id": "sha256:1c79aae1383e1190f83172b46fb1a9b7b352a3b131ea7fd3d20767af5bba2e20",
+    "old_source": "04b6d7eecce6230634109ec1905509666f00b8bc",
+    "new_image": "qdrant-es-gateway:ephemeral-publish",
+    "new_image_id": "sha256:cde451c21702a472cee155d6835cc8a889fc843d17eb2ec6c40fe553ecf15fdf",
+    "new_source": "a778a357f677345939e61b559bf6beac234624d7"
+  },
+  "profiles": {
+    "cold": {
+      "before": {
+        "captured_at": "2026-10-15T21:37:36.689665+00:00",
+        "cpu": {
+          "gateway": {
+            "image_id": "sha256:cde451c21702a472cee155d6835cc8a889fc843d17eb2ec6c40fe553ecf15fdf",
+            "counters": {
+              "usage_usec": 251280,
+              "user_usec": 178110,
+              "system_usec": 73169,
+              "nice_usec": 0,
+              "nr_periods": 14,
+              "nr_throttled": 0,
+              "throttled_usec": 0,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "qdrant": {
+            "image_id": "sha256:b7b0444c4c351c970b98e90a6f89c2ee4287c65b44e52b4cb503fa5b2aa927ad",
+            "counters": {
+              "usage_usec": 43193101,
+              "user_usec": 36424671,
+              "system_usec": 6768430,
+              "nice_usec": 0,
+              "nr_periods": 12932,
+              "nr_throttled": 100,
+              "throttled_usec": 16421340,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "cache-valkey": {
+            "image_id": "sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507",
+            "counters": {
+              "usage_usec": 623412048,
+              "user_usec": 358639345,
+              "system_usec": 264772703,
+              "nice_usec": 0,
+              "nr_periods": 220072,
+              "nr_throttled": 400,
+              "throttled_usec": 27927880,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "elasticsearch": {
+            "image_id": "sha256:84a73ced8390c059e7bc2858595c68dc36e6f8bdb98895dcab0074eda35ac96e",
+            "counters": {
+              "usage_usec": 374766096,
+              "user_usec": 276153739,
+              "system_usec": 98612357,
+              "nice_usec": 0,
+              "nr_periods": 232149,
+              "nr_throttled": 98,
+              "throttled_usec": 3434026,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "opensearch": {
+            "image_id": "sha256:adfa61f85025d06b4aeb562e7e74fde7e31c437039c93c3862c17e9acebd6c7c",
+            "counters": {
+              "usage_usec": 523155783,
+              "user_usec": 433194219,
+              "system_usec": 89961564,
+              "nice_usec": 0,
+              "nr_periods": 222383,
+              "nr_throttled": 87,
+              "throttled_usec": 4196910,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          }
+        },
+        "scope": "outside timers; includes profile setup and priming",
+        "valkey": {
+          "used_memory": "26042112",
+          "used_memory_peak": "26128568",
+          "keyspace_hits": "2834891",
+          "keyspace_misses": "357898",
+          "evicted_keys": "0",
+          "expired_keys": "13076",
+          "aof_current_size": "30750711",
+          "aof_rewrites": "3",
+          "aof_rewrite_in_progress": "0",
+          "aof_rewrite_scheduled": "0",
+          "aof_delayed_fsync": "0",
+          "aof_last_write_status": "ok",
+          "aof_last_bgrewrite_status": "ok"
+        }
+      },
+      "pool_before": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      },
+      "after": {
+        "captured_at": "2026-10-15T21:37:38.662887+00:00",
+        "cpu": {
+          "gateway": {
+            "image_id": "sha256:cde451c21702a472cee155d6835cc8a889fc843d17eb2ec6c40fe553ecf15fdf",
+            "counters": {
+              "usage_usec": 416434,
+              "user_usec": 307253,
+              "system_usec": 109181,
+              "nice_usec": 0,
+              "nr_periods": 29,
+              "nr_throttled": 0,
+              "throttled_usec": 0,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "qdrant": {
+            "image_id": "sha256:b7b0444c4c351c970b98e90a6f89c2ee4287c65b44e52b4cb503fa5b2aa927ad",
+            "counters": {
+              "usage_usec": 44132721,
+              "user_usec": 37299047,
+              "system_usec": 6833674,
+              "nice_usec": 0,
+              "nr_periods": 12948,
+              "nr_throttled": 102,
+              "throttled_usec": 17204493,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "cache-valkey": {
+            "image_id": "sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507",
+            "counters": {
+              "usage_usec": 623513616,
+              "user_usec": 358689415,
+              "system_usec": 264824201,
+              "nice_usec": 0,
+              "nr_periods": 220091,
+              "nr_throttled": 401,
+              "throttled_usec": 27958945,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "elasticsearch": {
+            "image_id": "sha256:84a73ced8390c059e7bc2858595c68dc36e6f8bdb98895dcab0074eda35ac96e",
+            "counters": {
+              "usage_usec": 375043038,
+              "user_usec": 276380054,
+              "system_usec": 98662984,
+              "nice_usec": 0,
+              "nr_periods": 232166,
+              "nr_throttled": 98,
+              "throttled_usec": 3434026,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "opensearch": {
+            "image_id": "sha256:adfa61f85025d06b4aeb562e7e74fde7e31c437039c93c3862c17e9acebd6c7c",
+            "counters": {
+              "usage_usec": 523424196,
+              "user_usec": 433417023,
+              "system_usec": 90007172,
+              "nice_usec": 0,
+              "nr_periods": 222398,
+              "nr_throttled": 87,
+              "throttled_usec": 4196910,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          }
+        },
+        "scope": "outside timers; includes profile setup and priming",
+        "valkey": {
+          "used_memory": "26021496",
+          "used_memory_peak": "26128568",
+          "keyspace_hits": "2836817",
+          "keyspace_misses": "358512",
+          "evicted_keys": "0",
+          "expired_keys": "13076",
+          "aof_current_size": "30752727",
+          "aof_rewrites": "3",
+          "aof_rewrite_in_progress": "0",
+          "aof_rewrite_scheduled": "0",
+          "aof_delayed_fsync": "0",
+          "aof_last_write_status": "ok",
+          "aof_last_bgrewrite_status": "ok"
+        }
+      },
+      "pool_after": {
+        "mode": "high_io",
+        "high_cpu_threads": 2,
+        "high_io_threads": 8
+      }
+    }
+  },
+  "status": "passed",
+  "initial_pool": {
+    "mode": "high_io",
+    "high_cpu_threads": 2,
+    "high_io_threads": 8
+  },
+  "primer": "All engines: five workloads i0..199 and uncached sorted rank7000..7199, before each profile outside timers",
+  "provenance": {
+    "elasticsearch": {
+      "image": "docker.elastic.co/elasticsearch/elasticsearch:8.15.0",
+      "image_id": "sha256:84a73ced8390c059e7bc2858595c68dc36e6f8bdb98895dcab0074eda35ac96e",
+      "cpu_limit": 2.0,
+      "memory_limit_bytes": 4294967296
+    },
+    "opensearch": {
+      "image": "opensearchproject/opensearch:3.9.0",
+      "image_id": "sha256:adfa61f85025d06b4aeb562e7e74fde7e31c437039c93c3862c17e9acebd6c7c",
+      "cpu_limit": 2.0,
+      "memory_limit_bytes": 4294967296
+    },
+    "gateway": {
+      "image": "qdrant-es-gateway:ephemeral-publish",
+      "image_id": "sha256:cde451c21702a472cee155d6835cc8a889fc843d17eb2ec6c40fe553ecf15fdf",
+      "cpu_limit": 0.5,
+      "memory_limit_bytes": 536870912,
+      "cache_coordination": true,
+      "cache_serving": "false",
+      "cache_ttl_seconds": "300",
+      "cache_max_bytes": "1048576"
+    },
+    "qdrant": {
+      "image": "qdrant/qdrant:v1.19.2",
+      "image_id": "sha256:b7b0444c4c351c970b98e90a6f89c2ee4287c65b44e52b4cb503fa5b2aa927ad",
+      "cpu_limit": 1.25,
+      "memory_limit_bytes": 3489660928
+    },
+    "cache-valkey": {
+      "image": "valkey/valkey:8-alpine",
+      "image_id": "sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507",
+      "cpu_limit": 0.25,
+      "memory_limit_bytes": 268435456
+    }
+  }
+}

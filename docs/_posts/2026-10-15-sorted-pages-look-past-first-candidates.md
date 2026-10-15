@@ -40,3 +40,8 @@ is different. Concurrent writes can move records between pages because this is
 not a point in time snapshot.
 
 The container replay against Elasticsearch 8.15.0 and Qdrant 1.19.2 passed all four cases: complete aggregations, post-filtered hits, the first sorted page, and its cursor continuation. The [captured results](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/aggregations/results.json) include actual request timings. They establish correctness for this fixture, not a speed advantage.
+
+A later [three-engine benchmark]({% post_url 2026-10-15-indexed-query-performance %})
+adds guarded indexed paths for compatible numeric sorting, keyword facets and
+simple filter counts. The complete scan described here remains the fallback
+when the gateway cannot prove those operations preserve the result.

@@ -1,0 +1,31 @@
+# Layer over ../three-engine/compose.yml from that directory. Only diagnostic.
+services:
+  qdrant:
+    cpus: 1.25
+    mem_limit: 3328m
+  gateway:
+    image: qdrant-es-gateway:cache-upper-bound
+    build:
+      context: ../cache-upper-bound
+      dockerfile: Dockerfile
+    cpus: 0.5
+    mem_limit: 512m
+    environment:
+      PROBE_VALKEY_URL: redis://cache-probe-valkey:6379
+      PROBE_FIXTURES: /fixtures/fixtures.json
+    volumes:
+      - ../cache-upper-bound/results:/fixtures:ro
+    depends_on:
+      cache-probe-valkey:
+        condition: service_healthy
+  cache-probe-valkey:
+    image: valkey/valkey:8-alpine
+    cpus: 0.25
+    mem_limit: 256m
+    command: [valkey-server, --save, '', --appendonly, 'no', --maxmemory, 192mb, --maxmemory-policy, noeviction]
+    ports: ['127.0.0.1:16380:6379']
+    healthcheck:
+      test: [CMD, valkey-cli, ping]
+      interval: 1s
+      timeout: 1s
+      retries: 20

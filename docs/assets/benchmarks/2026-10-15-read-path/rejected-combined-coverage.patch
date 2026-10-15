@@ -1,0 +1,382 @@
+diff --git a/src/aggregations.rs b/src/aggregations.rs
+index ad255d6..0e7a23f 100644
+--- a/src/aggregations.rs
++++ b/src/aggregations.rs
+@@ -2,9 +2,11 @@
+ use super::*;
+ use chrono::{DateTime, Datelike, Duration, LocalResult, NaiveDate, TimeZone, Utc};
+ use chrono_tz::Tz;
++use futures_util::StreamExt;
+ use std::collections::BTreeMap;
+ 
+ const MAX_BUCKETS: usize = 10_000;
++const MAX_INDEXED_READS: usize = 8;
+ 
+ enum Reduction {
+     Metric {
+@@ -284,87 +286,83 @@ impl Plan {
+         }
+         let fast_paths_allowed = validate_fast_field_namespace(mapping).is_ok();
+         let mut completed = Map::new();
+-        let filter_results = try_join_all(self.0.iter().filter_map(|(name, reducer)| {
++        let mut markers = std::collections::BTreeSet::new();
++        let mut reads = Vec::new();
++        for (name, reducer) in &self.0 {
+             if !fast_paths_allowed {
+-                return None;
++                break;
+             }
+-            let Reduction::Filter { query, .. } = reducer else {
+-                return None;
+-            };
+-            let (marker, condition) = count_condition(query, mapping)?;
+-            Some(async move {
+-                let mut conditions = vec![condition];
+-                if let Some(filter) = filter {
+-                    conditions.push(filter.clone());
++            match reducer {
++                Reduction::Filter { query, .. } => {
++                    let Some((marker, condition)) = count_condition(query, mapping) else {
++                        continue;
++                    };
++                    markers.insert(marker);
++                    let mut conditions = vec![condition];
++                    if let Some(filter) = filter {
++                        conditions.push(filter.clone());
++                    }
++                    reads.push((
++                        name.clone(),
++                        None,
++                        format!("/collections/{collection}/points/count"),
++                        json!({"exact":true,"filter":{"must":conditions}}),
++                    ));
+                 }
+-                let path = format!("/collections/{collection}/points/count");
+-                let (covered, response) = tokio::join!(
+-                    marker_covered(state, collection, filter, &marker),
+-                    state.qdrant.request(
+-                        Method::POST,
+-                        &path,
+-                        Some(json!({"exact":true,"filter":{"must":conditions}}))
+-                    )
+-                );
+-                // The speculative read is never authoritative without coverage;
+-                // even an index error is discarded for legacy/malformed payloads.
+-                if !covered? {
+-                    return Ok::<_, GatewayError>(None);
++                Reduction::Terms { field, size, .. }
++                    if !field.starts_with('_')
++                        && !field.contains(['.', '[', ']'])
++                        && mapping
++                            .get("properties")
++                            .and_then(|p| p.get(field))
++                            .and_then(|p| p.get("type"))
++                            .and_then(Value::as_str)
++                            == Some("keyword") =>
++                {
++                    markers.insert(format!("v1:keyword:{field}"));
++                    let mut request = json!({"key":field,"exact":true,"limit":MAX_BUCKETS + 1});
++                    if let Some(filter) = filter {
++                        request["filter"] = filter.clone();
++                    }
++                    reads.push((
++                        name.clone(),
++                        Some(*size),
++                        format!("/collections/{collection}/facet"),
++                        request,
++                    ));
+                 }
+-                let response = response?;
+-                let count = response
+-                    .pointer("/result/count")
+-                    .and_then(Value::as_u64)
+-                    .ok_or_else(|| bad("invalid Qdrant count response"))?;
+-                Ok(Some((name.clone(), json!({"doc_count":count}))))
+-            })
+-        }))
+-        .await?;
+-        for (name, result) in filter_results.into_iter().flatten() {
+-            self.0.remove(&name);
+-            completed.insert(name, result);
+-        }
+-        let names = self.0.keys().cloned().collect::<Vec<_>>();
+-        for name in names {
+-            if !fast_paths_allowed {
+-                break;
++                _ => {}
+             }
+-            let Reduction::Terms { field, .. } = &self.0[&name] else {
+-                continue;
+-            };
+-            if field.starts_with('_')
+-                || field.contains(['.', '[', ']'])
+-                || mapping
+-                    .get("properties")
+-                    .and_then(|p| p.get(field))
+-                    .and_then(|p| p.get("type"))
+-                    .and_then(Value::as_str)
+-                    != Some("keyword")
+-            {
+-                continue;
+-            }
+-            // Old or malformed documents never carry this versioned proof. Check
+-            // coverage in the same query scope before trusting the indexed facet.
+-            let mut request = json!({"key":field,"exact":true,"limit":MAX_BUCKETS + 1});
+-            if let Some(filter) = filter {
+-                request["filter"] = filter.clone();
+-            }
+-            let marker = format!("v1:keyword:{field}");
+-            let path = format!("/collections/{collection}/facet");
+-            let (covered, response) = tokio::join!(
+-                marker_covered(state, collection, filter, &marker),
+-                state.qdrant.request(Method::POST, &path, Some(request))
++        }
++        if !reads.is_empty() {
++            // One request-scoped proof covers every candidate marker. A document
++            // missing any marker makes all candidates fall back conservatively.
++            // Speculative facets and counts overlap the proof, but their errors
++            // and values are authoritative only after coverage succeeds.
++            // Bound outstanding reads and reduce each facet before retaining it:
++            // raw 10,000-bucket responses must not accumulate across the plan.
++            let (covered, responses) = tokio::join!(
++                markers_covered(state, collection, filter, &markers),
++                futures_util::stream::iter(reads.into_iter().map(
++                    |(name, terms_size, path, request)| async move {
++                        let result = state
++                            .qdrant
++                            .request(Method::POST, &path, Some(request))
++                            .await
++                            .and_then(|response| indexed_result(&response, terms_size));
++                        (name, result)
++                    }
++                ))
++                .buffer_unordered(MAX_INDEXED_READS)
++                .collect::<Vec<_>>()
+             );
+-            if !covered? {
+-                continue;
++            if covered? {
++                for (name, result) in responses {
++                    let result = result?;
++                    self.0.remove(&name);
++                    completed.insert(name, result);
++                }
+             }
+-            let response = response?;
+-            let counts = facet_counts(&response)?;
+-            let Reduction::Terms { counts: target, .. } = self.0.get_mut(&name).unwrap() else {
+-                unreachable!()
+-            };
+-            *target = counts;
+-            completed.insert(name.clone(), self.0.remove(&name).unwrap().finish());
+         }
+         if self.0.is_empty() {
+             return Ok(Value::Object(completed));
+@@ -488,13 +486,17 @@ fn count_condition(query: &Value, mapping: &Value) -> Option<(String, Value)> {
+     }
+ }
+ 
+-async fn marker_covered(
++async fn markers_covered(
+     state: &AppState,
+     collection: &str,
+     filter: Option<&Value>,
+-    marker: &str,
++    markers: &std::collections::BTreeSet<String>,
+ ) -> Result<bool, GatewayError> {
+-    let mut coverage = json!({"must_not":[{"key":"_qeg_fast_fields","match":{"value":marker}}]});
++    let required = markers
++        .iter()
++        .map(|marker| json!({"key":"_qeg_fast_fields","match":{"value":marker}}))
++        .collect::<Vec<_>>();
++    let mut coverage = json!({"must_not":[{"must":required}]});
+     if let Some(filter) = filter {
+         coverage["must"] = json!([filter]);
+     }
+@@ -513,6 +515,25 @@ async fn marker_covered(
+     Ok(points.is_empty())
+ }
+ 
++// Called inside each bounded read future, before its result is retained. Keep
++// errors as values until the shared coverage proof makes the read authoritative.
++fn indexed_result(response: &Value, terms_size: Option<usize>) -> Result<Value, GatewayError> {
++    if let Some(size) = terms_size {
++        Ok(Reduction::Terms {
++            field: String::new(),
++            size,
++            counts: facet_counts(response)?,
++        }
++        .finish())
++    } else {
++        let count = response
++            .pointer("/result/count")
++            .and_then(Value::as_u64)
++            .ok_or_else(|| bad("invalid Qdrant count response"))?;
++        Ok(json!({"doc_count":count}))
++    }
++}
++
+ fn facet_counts(response: &Value) -> Result<BTreeMap<String, (Value, u64)>, GatewayError> {
+     let hits = response
+         .pointer("/result/hits")
+@@ -750,6 +771,142 @@ mod tests {
+         }
+     }
+ 
++    #[tokio::test]
++    async fn combined_proof_overlaps_mixed_reads_and_falls_back_atomically() {
++        for covered in [false, true] {
++            let observed = Arc::new(Mutex::new(Vec::new()));
++            let requests = observed.clone();
++            // One coverage request, two counts, and one facet must all start
++            // before any can finish. The metric still requires a source scan.
++            let barrier = Arc::new(tokio::sync::Barrier::new(4));
++            let mock = Router::new().fallback(any(move |uri: axum::http::Uri, Json(request): Json<Value>| {
++                let requests = requests.clone();
++                let barrier = barrier.clone();
++                async move {
++                    requests.lock().unwrap().push((uri.path().to_owned(), request.clone()));
++                    if request["with_payload"] == true {
++                        return Json(json!({"result":{"points":[{"payload":{"_source":{"brand":"A","price":3}}}],"next_page_offset":null}})).into_response();
++                    }
++                    barrier.wait().await;
++                    if uri.path().ends_with("/scroll") {
++                        return Json(json!({"result":{"points":if covered { json!([]) } else { json!([{"id":1}]) }}})).into_response();
++                    }
++                    if !covered {
++                        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error":"speculative reads must be discarded"}))).into_response();
++                    }
++                    Json(if uri.path().ends_with("/facet") { json!({"result":{"hits":[{"value":"A","count":1}]}}) }
++                        else { json!({"result":{"count":1}}) }).into_response()
++                }
++            }));
++            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
++            let address = listener.local_addr().unwrap();
++            let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
++            let state = search_test_state(format!("http://{address}"), false);
++            let plan = Plan::parse(Some(&json!({
++                "brand":{"filter":{"term":{"brand":"A"}}},
++                "cheap":{"filter":{"range":{"price":{"lt":10}}}},
++                "brands":{"terms":{"field":"brand"}},
++                "minimum":{"min":{"field":"price"}}
++            })))
++            .unwrap()
++            .unwrap();
++            let mapping =
++                json!({"properties":{"brand":{"type":"keyword"},"price":{"type":"integer"}}});
++            let scope = json!({"must":[{"key":"visible","match":{"value":true}}]});
++            let result = tokio::time::timeout(
++                std::time::Duration::from_secs(2),
++                plan.execute(&state, "es_products", Some(&scope), &mapping),
++            )
++            .await
++            .expect("all speculative aggregation reads must overlap")
++            .unwrap();
++            assert_eq!(
++                result,
++                json!({"brand":{"doc_count":1},"cheap":{"doc_count":1},
++                "brands":{"doc_count_error_upper_bound":0,"sum_other_doc_count":0,"buckets":[{"key":"A","doc_count":1}]},
++                "minimum":{"value":3.0}})
++            );
++            let requests = observed.lock().unwrap();
++            assert_eq!(requests.len(), 5);
++            let proofs = requests
++                .iter()
++                .filter(|(_, r)| r["with_payload"] == false)
++                .collect::<Vec<_>>();
++            assert_eq!(proofs.len(), 1);
++            assert_eq!(
++                proofs[0].1["filter"],
++                json!({"must":[scope],"must_not":[{"must":[
++                    {"key":"_qeg_fast_fields","match":{"value":"v1:keyword:brand"}},
++                    {"key":"_qeg_fast_fields","match":{"value":"v1:number:price"}}
++                ]}]})
++            );
++            server.abort();
++        }
++    }
++
++    #[tokio::test]
++    async fn indexed_facets_bound_inflight_reads_and_retain_only_requested_buckets() {
++        use std::sync::atomic::{AtomicUsize, Ordering};
++        let inflight = Arc::new(AtomicUsize::new(0));
++        let peak = Arc::new(AtomicUsize::new(0));
++        let started = Arc::new(AtomicUsize::new(0));
++        let barrier = Arc::new(tokio::sync::Barrier::new(MAX_INDEXED_READS));
++        let observed_peak = peak.clone();
++        let mock = Router::new().fallback(any(move |uri: axum::http::Uri| {
++            let inflight = inflight.clone();
++            let peak = peak.clone();
++            let started = started.clone();
++            let barrier = barrier.clone();
++            async move {
++                if uri.path().ends_with("/scroll") {
++                    return Json(json!({"result":{"points":[]}}));
++                }
++                let active = inflight.fetch_add(1, Ordering::SeqCst) + 1;
++                peak.fetch_max(active, Ordering::SeqCst);
++                if started.fetch_add(1, Ordering::SeqCst) < MAX_INDEXED_READS {
++                    barrier.wait().await;
++                }
++                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
++                inflight.fetch_sub(1, Ordering::SeqCst);
++                Json(json!({"result":{"hits":[{"value":"A","count":3},{"value":"B","count":2},{"value":"C","count":1}]}}))
++            }
++        }));
++        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
++        let address = listener.local_addr().unwrap();
++        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
++        let state = search_test_state(format!("http://{address}"), false);
++        let specs = (0..12)
++            .map(|i| {
++                (
++                    format!("terms{i}"),
++                    json!({"terms":{"field":"brand","size":1}}),
++                )
++            })
++            .collect::<Map<_, _>>();
++        let plan = Plan::parse(Some(&Value::Object(specs))).unwrap().unwrap();
++        let result = tokio::time::timeout(
++            std::time::Duration::from_secs(2),
++            plan.execute(
++                &state,
++                "es_products",
++                None,
++                &json!({"properties":{"brand":{"type":"keyword"}}}),
++            ),
++        )
++        .await
++        .unwrap()
++        .unwrap();
++        assert_eq!(observed_peak.load(Ordering::SeqCst), MAX_INDEXED_READS);
++        assert_eq!(result.as_object().unwrap().len(), 12);
++        for value in result.as_object().unwrap().values() {
++            assert_eq!(
++                value,
++                &json!({"doc_count_error_upper_bound":0,"sum_other_doc_count":3,"buckets":[{"key":"A","doc_count":3}]})
++            );
++        }
++        server.abort();
++    }
++
+     #[tokio::test]
+     async fn simple_filter_counts_push_down_exactly_with_common_scope() {
+         let observed = Arc::new(Mutex::new(Vec::new()));
+@@ -785,7 +942,7 @@ mod tests {
+             json!({"cheap":{"doc_count":7},"group":{"doc_count":7}})
+         );
+         let requests = observed.lock().unwrap();
+-        assert_eq!(requests.len(), 4);
++        assert_eq!(requests.len(), 3);
+         for (path, request) in requests.iter() {
+             if path.ends_with("/count") {
+                 assert_eq!(request["exact"], true);
+@@ -899,7 +1056,7 @@ mod tests {
+                 .1;
+             assert_eq!(coverage["filter"]["must"], json!([filter]));
+             assert_eq!(
+-                coverage["filter"]["must_not"][0]["match"]["value"],
++                coverage["filter"]["must_not"][0]["must"][0]["match"]["value"],
+                 "v1:keyword:brand"
+             );
+             assert_eq!(facet["filter"], filter);

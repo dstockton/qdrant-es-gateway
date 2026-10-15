@@ -40,3 +40,8 @@ reductions use mapped non-text values in the search projection, keeping membersh
 and values together instead of fetching a newer source document.
 
 The container replay against Elasticsearch 8.15.0 and Qdrant 1.19.2 passed all four cases: complete aggregations, post-filtered hits, the first sorted page, and its cursor continuation. The [captured results](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/aggregations/results.json) include actual request timings. They establish correctness for this fixture, not a speed advantage.
+
+A later [three-engine benchmark](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-indexed-query-performance.md)
+adds guarded indexed paths for compatible numeric sorting, keyword facets and
+simple filter counts. The complete scan described here remains the fallback
+when the gateway cannot prove those operations preserve the result.

@@ -69,6 +69,37 @@ verifies full-width token IDs; it does not reproduce SEISMIC approximation bugs.
 
 SQLite remains the default single-replica catalog. The optional [Redis/Valkey catalog](https://dstockton.github.io/qdrant-es-gateway/shared-catalog.md) shares mappings and single-index aliases across replicas, with explicit recovery after uncertain administrative writes. It does not supply atomic document updates or snapshot pagination. Unsupported `pit` search bodies and URL parameters `if_seq_no`, `if_primary_term`, `version`, `version_type`, `retry_on_conflict`, `op_type`, `routing`, and `scroll` return a structured 400 rather than being ignored.
 
+### Ordered numeric searches
+
+Single-field numeric sorts can use Qdrant's ordered scroll when every matching
+point carries a gateway-generated scalar-type marker. This avoids downloading
+all matching documents to return one page. Multiple sort fields, missing or
+array values, integers outside the exact floating-point comparison range,
+separate document projections, and ties crossing the requested page boundary
+retain the complete scan. The `search_after` predicate excludes the cursor value;
+exact totals still describe all query matches before pagination.
+
+New writes carry versioned eligibility metadata in the reserved
+`_qeg_fast_fields` payload field. New collections and mapping updates index that
+field; old points without markers safely use the existing scan. Application
+mappings cannot define this reserved field. No reindex is required for correctness.
+Neither ordered scroll nor the fallback is a point-in-time snapshot during
+concurrent writes. Qdrant's [ordered-scroll API](https://qdrant.tech/documentation/concepts/points/#order-points-by-payload-key)
+provides the backend ordering; the gateway checks compatibility before using it.
+
+Exact keyword `terms` and simple keyword `term` / numeric `range` filter
+aggregations can also use Qdrant facet/count indexes after checking the matching
+payloads' eligibility markers. Facets request exact counts and up to 10,001
+values, preserving the existing 10,000-bucket error and `sum_other_doc_count`.
+Other reducers and unsafe or legacy values retain streaming evaluation.
+The [facet API](https://qdrant.tech/documentation/concepts/payload/#facet-counts)
+counts each distinct value once per document, including multivalued keywords.
+
+An older mapping that already owns `_qeg_fast_fields` is treated as user data:
+its values and index type are preserved, and fast paths are disabled for that
+index. New mappings cannot introduce that name. These optimizations add no
+cursor sessions, result cache, or Redis/Valkey dependency.
+
 
 Source: https://dstockton.github.io/qdrant-es-gateway/markdown/architecture.md
 
@@ -93,6 +124,8 @@ Elasticsearch client / REST
 Each ES index maps to a Qdrant collection named `es_<safe-index-name>`. SQLite stores mappings, vector names, and aliases in the default single-gateway deployment. The optional [Redis/Valkey catalog](https://dstockton.github.io/qdrant-es-gateway/shared-catalog.md) keeps authoritative metadata outside the gateway; each request materializes a fresh ephemeral SQLite view. Gateway replicas then require no durable local catalog. Metadata administration uses an explicit ownership/recovery protocol; there is no transaction spanning the catalog and Qdrant. Documents are payload-first: the original source is stored under `_source`, while mapped non-text fields are mirrored for Qdrant filtering, sorting, and aggregations.
 
 When `DOCUMENT_PROJECTION=true`, every index also has `es_<safe-index-name>_documents`. This second collection is a durable document projection with no payload indexes and no HNSW graph. Qdrant 1.15 requires a vector field on points, so the gateway uses a one-dimensional on-disk placeholder vector and `m=0`; it is never searched. The searchable collection contains sparse representations plus only `_es_id`, `_es_index`, and mapped non-text fields. GETs and search response hydration read the authoritative `_source` from the document collection in a batch, which avoids storing the full source in the searchable collection. A full write persists the document projection first, then updates the searchable projection. `ASYNC_SEARCH_PROJECTION=true` uses Qdrant's asynchronous operation acknowledgement for the second step, so metadata-only writes can be acknowledged without waiting for sparse-index maintenance. The gateway itself owns no document queue or source cache.
+
+Synchronous point writes and payload-index creation send Qdrant's `wait=true` URL parameter, so acknowledgment waits for the operation to finish. Asynchronous modes send `wait=false`. Earlier gateway revisions placed this control in the JSON body, which did not enforce completion; historical ingestion timings from those revisions measure acknowledgment rather than guaranteed completed writes. Completion is distinct from a transaction across collections or a guarantee about every replica's read visibility.
 
 The two collections are intentionally not treated as one transaction. The source write is the durability boundary; projection updates must be idempotent and should be retried/reconciled by an external durable worker in an HA deployment. Filter and sort fields that must be read-after-write correct must remain mirrored in the searchable collection. Unmapped metadata can remain source-only. This is an explicit eventual-consistency mode, not an attempt to hide the trade-off behind local state.
 
@@ -436,7 +469,13 @@ The default SQLite catalog is still the simplest choice for one gateway. No meas
 
 Set `CATALOG_REDIS_URL` to a `redis://` or TLS `rediss://` URL. All replicas serving the same Qdrant collections must use the same `CATALOG_REDIS_KEY` (default `qeg:{catalog}:v1`) and collection-related configuration. The URL may contain credentials; supply it through a secret. Redis Cluster is not a supported connection topology.
 
-The authoritative catalog contains mappings, named vector metadata, and single-index aliases. Every request loads the current committed snapshot into an ephemeral SQLite database. There is no replica metadata cache and no persistent local metadata dependency in shared mode. Snapshot size is limited to 8 MiB. Index creation and mapping changes check the exact prospective serialized size before mutating Qdrant; alias batches check it before committing local metadata. Oversized changes return a validation error and release the administrative claim. Fetching and materializing the whole catalog on each request favors small catalogs and correctness; it is not a high-throughput optimization. Network operations time out after five seconds.
+The authoritative catalog contains mappings, named vector metadata, and single-index aliases. Requests that need catalog metadata load a fresh committed snapshot; there is no replica metadata cache or persistent local metadata dependency in shared mode. Network operations time out after five seconds.
+
+For exact `GET /<index>/_doc/<id>` and `GET`/`POST /<index>/_search` handlers, the gateway validates the complete snapshot into request-local typed maps instead of rebuilding an ephemeral SQLite database. This also applies when response-cache serving is disabled or the request bypasses that cache. A valid response-cache hit can return without loading a catalog. Alias-read routes, other metadata routes and mutations retain the SQLite snapshot path; route precedence is preserved, including `GET /_alias/_search`. Deployments using the default local SQLite catalog are unchanged.
+
+The read view is not retained between requests. It still fetches and validates the whole catalog, including records unrelated to the requested index, with work proportional to catalog size. Malformed metadata and duplicate records fail closed. Snapshot size remains limited to 8 MiB. This removes SQLite reconstruction from the selected shared-catalog read handlers; it does not establish a measured latency improvement or remove the small-catalog constraint.
+
+Index creation and mapping changes check the exact prospective serialized size before mutating Qdrant; alias batches check it before committing local metadata. Oversized changes return a validation error and release the administrative claim.
 
 ## Starting a new deployment
 
@@ -487,6 +526,87 @@ CATALOG_TEST_REDIS_URL=redis://127.0.0.1:16379 cargo test shared_catalog -- --in
 ```
 
 The tests check fresh cross-client reads, successful create/mapping/alias dispatch across independent replicas, concurrent administration exclusion, absence of lock expiry, wrong-owner rejection, safe validation-error release, capacity rejection before upstream writes and retention of a claim after its owner disappears. It creates unique temporary keys and deletes them on success.
+
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/shared-read-cache.md
+
+# Shared read cache
+
+The optional shared read cache keeps gateway replicas stateless while reusing successful point reads and filter searches. Qdrant remains the document store. Valkey holds the authoritative catalog, cache entries, and persistent write coordination. Caching is off by default.
+
+The [measured three-engine comparison](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-shared-cache-warm-search-results.md) found 12–30% lower warm-search median latency than the faster native engine in a 10,000-document catalogue profile. Fresh queries and write-followed-by-point-read cycles were slower than native engines; point-read warm gains were small. These results do not establish a general production advantage. Measure cold reads, repeated reads, writes, and your actual hit rate before adopting it.
+
+## Supported deployment
+
+Use a dedicated standalone Valkey primary with no attached replicas, persistent storage, `appendonly yes`, `appendfsync always`, `no-appendfsync-on-rewrite no`, a nonzero `maxmemory`, and a supported eviction policy that cannot evict persistent catalog or control keys. `noeviction` is the simplest configuration. Cached entries have bounded sizes and expire; control keys and unresolved writer tokens do not.
+
+Qdrant must run as a standalone node with distributed mode disabled. Every existing collection must have replication factor one. Set `QDRANT_REPLICATION_FACTOR=1` so new collections have the same constraint. Both asynchronous write settings must be off. Startup checks these requirements; a configuration value alone does not prove existing collections are suitable.
+
+Every gateway writing to this deployment must participate in coordination. Stop and drain old replicas before activation. An old binary, a direct Qdrant writer, or an independent metadata writer can bypass invalidation and is unsupported. Do not use automatic Valkey failover or restore an older control snapshot. A surviving but rolled-back control record is not detectable from its contents. A gateway without `CATALOG_REDIS_URL` cannot discover this deployment at all; it is an unsupported unfenced writer even if it runs a new binary.
+
+## Activate deliberately
+
+First provision the authoritative catalog as described in [Shared catalog](https://dstockton.github.io/qdrant-es-gateway/shared-catalog/). Stop all gateway writers and external writers. Use the same catalog endpoint and namespace for every command and replica. Do not set `CATALOG_INITIALIZE=true` during cache operation.
+
+Choose a new deployment identity, for example a UUID, and configure:
+
+```sh
+export READ_CACHE_DEPLOYMENT="<new-deployment-uuid>"
+export QDRANT_REPLICATION_FACTOR=1
+export ASYNC_PAYLOAD_WRITES=false
+export ASYNC_SEARCH_PROJECTION=false
+export READ_CACHE_SERVE=true
+export READ_CACHE_TTL_SECONDS=60
+export READ_CACHE_MAX_BYTES=1048576
+qdrant-es-gateway cache bootstrap --quiesced
+```
+
+The command requires an existing catalog and no unresolved administrative claim. It will not overwrite an existing control record. Persistent lineage also prevents bootstrap from treating a lost control record as a new deployment; use explicit recovery instead. Then start all replicas with this configuration. `READ_CACHE_SERVE=false` disables cache reads and fills on a replica while retaining mandatory write coordination.
+
+Deployment identity is separate from response compatibility: cache keys also include a digest of the actual executable, response-affecting configuration, method, URI, and request body. Different builds do not reuse each other's responses. Keys do not contain plaintext credentials.
+
+## Response entries and persistence
+
+Response-cache fills are disposable. Their publication script suppresses incremental AOF propagation only for the bounded, expiring response entry, then restores normal propagation. Catalog updates, deployment lineage, generation changes and writer admission/release remain durable under the required `appendfsync always` configuration. This does not weaken the persistence requirements for the authoritative state.
+
+AOF rewrites or snapshots may still retain response entries that exist in memory. Restored entries must therefore pass the same deployment identity, build/configuration, generation, expiry and quiet-writer checks before use. Do not assume a restart empties the response cache, or that every cache-fill request avoids all fsync activity: other writes and persistence work can still occur. This change alone establishes no performance benefit.
+
+The isolated [AOF crash/rewrite proof](https://github.com/dstockton/qdrant-es-gateway/blob/main/tests/cache_ephemeral_aof.py) exercises the production Lua scripts against disposable durable Valkey storage. See the [test instructions](https://github.com/dstockton/qdrant-es-gateway/blob/main/tests/cache-live.md) for its scope and invocation.
+
+## What happens around a write
+
+Before the gateway starts a mutation, it advances the shared generation and records a persistent writer token. A cached response is usable only in the same quiet generation with no writer or catalog administrative claim. A cold read captures its generation before loading catalog metadata; publication fails if a writer intervenes.
+
+Each backend mutation must report completion. An HTTP success or bulk HTTP 200 alone is not sufficient. The gateway releases its token only when all attempted backend operations and its own catalog publication are known complete. Cancellation, a crash, an ambiguous backend response, or failed publication leaves the token in place. This disables cached reads and fills; it does not silently serve stale results after a timeout.
+
+This does not add transactions, optimistic concurrency control, point-in-time snapshots, or full Elasticsearch/OpenSearch semantics. Uncached reads retain existing gateway behavior, including visibility during multistep writes. Explicit `request_cache=false`, ranked queries, vector queries, unsupported shapes, and oversized responses remain uncached.
+
+## Maintenance and recovery
+
+Inspect outstanding tokens with:
+
+```sh
+qdrant-es-gateway cache status
+qdrant-es-gateway cache maintenance
+```
+
+Maintenance prevents new coordinated mutations and cached reads. Stop and drain all replicas before changing Qdrant data, topology, credentials, catalog state, or Valkey persistence. A cached hit cannot discover a revoked upstream credential without contacting Qdrant, so upstream authorization changes require this maintenance procedure too.
+
+After a crash or uncertain write, reconcile Qdrant and catalog state and account for every pending backend operation. An elapsed timeout is not proof that an operation cannot finish later. Resolve any catalog administrative claim using its documented recovery procedure. Keep all writers stopped. Choose a fresh identity and explicitly acknowledge that reconciliation is complete:
+
+```sh
+qdrant-es-gateway cache recover --new-identity "<fresh-deployment-uuid>" --reconciled
+```
+
+The expected old identity comes from `READ_CACHE_DEPLOYMENT`. Configure every replica with the new identity before restarting. Recovery invalidates old entries and must never reuse an earlier identity. The command cannot establish the operator's reconciliation proof. Control-only loss can be recovered using the persisted lineage and expected old identity. Total namespace or lineage loss, or restoration of older state, requires stopping all writers, reconciling Qdrant and the catalog, and provisioning a fresh catalog/cache namespace with a fresh identity. Never recreate the catalog and resume the old cache identity.
+
+## Costs and limits
+
+Warm reads still make a Valkey request. Cold reads also run the ordinary Qdrant query and may write a cache entry. Every mutation adds durable coordination writes, and any write invalidates the shared generation. Frequent writes or low reuse can erase the benefit. The aggregate resource budget must include Valkey as well as the gateway and Qdrant when comparing native engines.
+
+Valkey AOF durability follows its [persistence configuration](https://valkey.io/topics/persistence/). Qdrant completion and replication are separate guarantees; see [Qdrant consistency guarantees](https://qdrant.tech/documentation/scaling/consistency-guarantees/).
+
+For Helm, set `readCache.deployment`, `catalog.existingSecret`, and `qdrant.replicationFactor: 1`, and disable both `gateway.asyncPayloadWrites` and `gateway.asyncSearchProjection`. Set `readCache.serve: false` to bypass cache serving while preserving coordination. The chart does not bootstrap or recover state automatically. Scale every writer to zero for initial activation and perform the operator command before restoring replicas.
 
 
 Source: https://dstockton.github.io/qdrant-es-gateway/markdown/storage-findings.md
@@ -551,6 +671,98 @@ The reproducible collector is [benchmark/disk_usage.sh](https://dstockton.github
 
 ---
 
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-testing-a-cache-before-building-it.md
+
+# Testing a cache before building it
+
+Would Valkey make this gateway fast enough to beat native search? Before adding
+a production cache, we tested a narrower question: **is there enough latency
+headroom in an ideal warm hit to justify the work?**
+
+The answer is cautiously useful. A standalone synthetic probe returned aggregation
+responses about **7–15% faster** than the faster native engine's median latency
+across the corrected measurement rounds. Its aggregation p95 values were also
+lower than both native engines in both rounds. This is a reason to investigate,
+not a gateway performance win: the production gateway still trailed both native
+engines in all ten measured workload/concurrency combinations.
+
+### What the probe actually does
+
+We captured 644 distinct, correctness-checked responses from the real gateway
+using the public 10,000-document catalogue. A separate probe validates each
+incoming request, hashes its identity and performs one Valkey Lua lookup. The
+script checks synthetic control state and returns an already populated response.
+The probe parses that response, updates `took` and serializes JSON normally.
+
+Every request is a warm hit. There are no cache misses, changing documents,
+invalidation, crash recovery or real writer coordination. Qdrant remains
+provisioned but receives no reads on hits. The probe is deliberately named
+`cache_probe` in the evidence, rather than “gateway + Qdrant”. It is not a
+production feature, and its guard tests do not establish cache consistency.
+
+The combined budget remains two CPUs and 4 GiB: probe 0.5 CPU/512 MiB, Valkey
+0.25 CPU/256 MiB, and Qdrant 1.25 CPU/3328 MiB. Each native engine retains two
+CPUs and 4 GiB. Normal production rounds instead allocate 0.5 CPU/512 MiB to the
+gateway and 1.5 CPUs/3584 MiB to Qdrant. Native caching stays enabled.
+
+### First, fix the measuring instrument
+
+The initial probe run exposed a benchmark problem. For every filter-aggregation
+response, the Python verifier recomputed the expected count by walking the entire
+corpus. That work sat outside the nominal HTTP timer, but with concurrent clients
+it still competed for Python's global interpreter lock and delayed other clients.
+Trial throughput also included this verification work.
+
+The corrected harness computes the same expected count once and retains the
+strict response assertions. Correctness conclusions did not change. Historical
+filter-aggregation timing rows need caution; we retain them with their original
+validation profile instead of pooling old and new medians. This identified issue
+concerns filter-count validation, not evidence that every historical workload was
+invalid.
+
+We then measured two corrected production rounds and two corrected probe rounds,
+with native engines interleaved in each. Each profile passed **36,000 measured
+response checks**. The earlier 36,000-response probe profile is separately retained.
+
+### The available margin is small
+
+The table gives each corrected probe round separately. Values are median trial
+p50 milliseconds, shown as **Elasticsearch / OpenSearch / synthetic probe**.
+
+| Aggregation | Clients | Round 1 | Round 2 |
+|---|---:|---:|---:|
+| Terms buckets | 1 | 0.360 / 0.347 / 0.307 | 0.362 / 0.354 / 0.315 |
+| Two filter counts | 1 | 0.347 / 0.336 / 0.300 | 0.347 / 0.340 / 0.298 |
+| Terms buckets | 8 | 0.888 / 0.840 / 0.783 | 0.815 / 0.822 / 0.738 |
+| Two filter counts | 8 | 0.795 / 0.811 / 0.673 | 0.780 / 0.786 / 0.700 |
+
+These are optimistic ceilings on potential performance, not a demonstrated
+production advantage. Correct write fencing, epoch changes, miss publication and
+recovery all have costs. Even a modest extra round trip or a lower hit rate could
+erase the observed margin. A broader cache for document reads and sorted pages needs its own correctness
+design and production measurements.
+
+The [complete corrected probe summary](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-cache-ceiling/summary-probe-v2.json)
+includes every participant and all five workloads, with p50, p95 and throughput
+for both rounds. The [production summary](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-cache-ceiling/summary-production-v2.json)
+shows the actual gateway alongside its own native controls. We have not combined
+those separate profiles into an implementation speedup claim.
+
+To reproduce the diagnostic, follow the
+[standalone probe instructions](https://github.com/dstockton/qdrant-es-gateway/tree/main/benchmark/cache-upper-bound):
+capture from the retained production image, build before timing, then measure
+with `REQUESTS=200 TRIALS=3 WARMUP=40` and exact totals. Restore the production
+image and original Qdrant allocation afterward. The
+[evidence manifest](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-cache-ceiling/manifest.json)
+records all six raw rounds, separate summaries, image provenance, the fixture
+hash and resource budgets.
+
+Valkey now has a measured reason to remain under consideration. The remaining
+question is whether a correct cache can preserve enough of this small margin.
+
+
+---
+
 Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-sorted-pages-look-past-first-candidates.md
 
 # Find the next page across the whole catalogue
@@ -591,6 +803,11 @@ not a point in time snapshot.
 
 The container replay against Elasticsearch 8.15.0 and Qdrant 1.19.2 passed all four cases: complete aggregations, post-filtered hits, the first sorted page, and its cursor continuation. The [captured results](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/aggregations/results.json) include actual request timings. They establish correctness for this fixture, not a speed advantage.
 
+A later [three-engine benchmark](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-indexed-query-performance.md)
+adds guarded indexed paths for compatible numeric sorting, keyword facets and
+simple filter counts. The complete scan described here remains the fallback
+when the gateway cannot prove those operations preserve the result.
+
 
 ---
 
@@ -623,6 +840,144 @@ For configuration, the test command, durability requirements and the recovery pr
 
 ---
 
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-shared-cache-warm-search-results.md
+
+# Repeated searches get faster; fresh queries still cost more
+
+The gateway now has a measured advantage for repeated, unchanged searches.
+With its optional shared cache enabled, warm search medians were **12–30% lower
+than the faster native engine** across our eight search/concurrency comparisons.
+Point reads were close to parity, with only a 3–5% combined median advantage.
+That advantage was not consistent in every round: in the second enabled round,
+single-client point reads were about 2% slower than the faster native engine.
+
+This is the actual gateway, not the earlier synthetic cache probe. It uses Qdrant
+for documents and Valkey for shared cache entries, the authoritative catalog and
+persistent write coordination. The trade-off is real: fresh queries and
+write-followed-by-point-read cycles remained substantially slower than native
+Elasticsearch and OpenSearch. This is useful for a read-heavy catalogue with
+repeated queries, not a blanket search-engine win.
+
+### Warm searches, same requests
+
+We used Elasticsearch 8.15.0, OpenSearch 3.9.0 and Qdrant 1.19.2 with 10,000
+synthetic catalogue documents. Every engine received the same requests and exact
+total-hit requirements. Native request caches stayed at their defaults.
+
+The table contains every warm workload. Values are median trial p50 milliseconds,
+shown as **one client / eight clients**. All six trial medians from both
+cache-enabled rounds contribute; we did not select the fastest trial.
+
+| Operation | Elasticsearch | OpenSearch | Gateway + Qdrant + Valkey |
+|---|---:|---:|---:|
+| Read one document | 0.350 / 0.707 | 0.345 / 0.661 | 0.333 / 0.630 |
+| Filtered, sorted page | 0.579 / 1.401 | 0.547 / 1.343 | 0.417 / 1.033 |
+| Page after a sort cursor | 0.643 / 1.405 | 0.541 / 1.289 | 0.382 / 1.026 |
+| Keyword terms buckets | 0.460 / 1.081 | 0.453 / 1.136 | 0.360 / 0.951 |
+| Two filter counts | 0.416 / 0.981 | 0.409 / 1.057 | 0.339 / 0.800 |
+
+Warm p95 values were also lower than both native engines in these ten cells.
+The [complete enabled summary](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-shared-cache/summary-on.json)
+includes p95, throughput and the range of trial medians.
+
+We alternated **serving off, on, on, off**, keeping the same image, data and
+resource caps. Write coordination remained enabled in both modes. With serving
+off, the gateway's single-client sorted page was 1.362 ms; with serving on it was
+0.382 ms. Those off-mode results include the shared-catalog and coordination
+architecture, so they do not measure total overhead versus a gateway without
+cache infrastructure. The [off-mode summary](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-shared-cache/summary-off.json)
+retains every native control and gateway result too.
+
+### Misses and writes change the answer
+
+We separately tested unused cache keys and real writes. “Cold” here means a new
+response-cache key on already loaded data, not cold operating-system caches or
+storage. Values below are median trial p50 milliseconds with cache serving on.
+Write rows measure the combined write and following read at one client.
+
+| Separate workload | Elasticsearch | OpenSearch | Gateway + Qdrant + Valkey |
+|---|---:|---:|---:|
+| New sorted-filter query, one client | 0.582 | 0.522 | 2.085 |
+| New sorted-filter query, eight clients | 1.446 | 1.344 | 5.454 |
+| Write then read the document | 1.070 | 1.006 | 2.712 |
+| Write then read filter counts | 3.964 | 4.439 | 3.273 |
+
+Misses pay for the Qdrant query and cache publication. The gateway's cold-query
+median increased from 1.567 to 2.085 ms at one client when serving was enabled.
+At eight clients it increased from 3.993 to 5.454 ms; that enabled run's p95 was
+45.499 ms, versus roughly 2.7–2.8 ms for native engines. Tail latency matters as
+much as the warm median.
+
+Point-write cycles omit `refresh` for every engine because native GET is
+realtime. Filter-count cycles use `refresh=true` everywhere because the next
+search requires immediate visibility. The gateway led that latter comparison,
+but caching itself did not improve the write cycle: its median rose from
+2.942 ms with serving off to 3.273 ms with serving on. Point-write cycles also
+rose, from 2.310 to 2.712 ms. These separate off/on profiles were not an ABBA
+experiment, so their differences should not be treated as isolated effect sizes.
+The [complete mixed-workload summary](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-shared-cache/summary-mixed.json)
+includes all participants, both modes and p95 values.
+
+### The cache has to know when an answer is unsafe
+
+Before a mutation starts, the gateway advances a shared generation and records a
+persistent writer token. A cached answer is usable only in the same quiet
+generation. A cold read captures that generation before loading metadata; if a
+writer intervenes, its result cannot be published into the cache.
+
+The token is released only after backend completion and catalog publication are
+known complete. A timeout, cancellation or uncertain operation leaves a fence in
+place. That sacrifices cache availability until deliberate recovery instead of
+reusing an answer after an unresolved write. Replicas remain stateless, but this
+is not a system without state: Valkey's durability and the exclusive writer
+contract are essential. Direct Qdrant writes, unfenced gateway replicas and
+automatic failover to older coordination state are unsupported.
+
+Every native engine had a two-CPU, 4-GiB cap. The gateway setup shared the same
+aggregate budget: gateway 0.5 CPU/512 MiB, Qdrant 1.25 CPUs/3328 MiB, and Valkey
+0.25 CPU/256 MiB. Valkey used durable AOF with `appendfsync always` and a 64-MiB
+memory limit inside its container. We included its resource and write costs.
+An idle post-warm-run memory snapshot totaled approximately 265 MiB for those
+three services, versus 984 MiB and 923 MiB for the native engines. These are
+single container observations, not peak memory or capacity estimates.
+
+### Reproduce and decide
+
+These results measure revision
+[`187944e4cc274a0ae61a6c79de885179319e9d4a`](https://github.com/dstockton/qdrant-es-gateway/commit/187944e4cc274a0ae61a6c79de885179319e9d4a).
+Later optimizations require separate measurements; they are not represented by
+this baseline. The [harness and full preparation procedure at that revision](https://github.com/dstockton/qdrant-es-gateway/tree/187944e4cc274a0ae61a6c79de885179319e9d4a/benchmark/shared-cache)
+prepare a fresh disposable deployment and reuse the three-engine correctness
+checks. Build that revision, run its preparation helper, load the saved deployment
+identity into `CACHE_BENCH_DEPLOYMENT`, and select `CACHE_BENCH_SERVE=true` using
+the documented Compose command. Once ready, this measures one enabled round:
+
+```sh
+ROUND=on-1 REQUESTS=200 TRIALS=3 WARMUP=40 \
+  OUTPUT=benchmark/shared-cache/results/on-1.json \
+  python3 benchmark/shared-cache/measure.py
+# Preserve the other three rounds and run the separate cold/invalidation profiles.
+```
+
+Across the retained profiles, **86,400 measured HTTP responses passed correctness
+checks**: 72,000 warm reads, 7,200 cold reads and 7,200 responses from 3,600
+write/read cycles. Checks cover sources, IDs, ordering, totals, buckets and
+changed document contents. The
+[evidence manifest](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-shared-cache/manifest.json)
+links all eight raw rounds, the exact build, image IDs and resource observations.
+These runs use the v3 client-validation profile and are kept separate from older
+measurements.
+
+For repeated catalogue searches between writes, the cache offers a demonstrated
+latency benefit in this lab profile. For mostly new queries or frequent document
+updates, the native engines remain stronger in the measured cases. Start with
+your actual reuse and write rate, and follow the
+[deployment and recovery requirements](https://dstockton.github.io/qdrant-es-gateway/shared-read-cache/)
+before enabling it.
+
+
+---
+
 Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-rustls-security-fixes-landed.md
 
 # Rustls security fixes landed
@@ -632,6 +987,258 @@ The dependency update in [PR #62](https://github.com/dstockton/qdrant-es-gateway
 The [upstream release](https://github.com/rustls/rustls/releases/tag/v/0.23.46) fixes several security issues, including secret data appearing in session debug output and key-exchange hints being saved before a handshake is confirmed. Some other fixes concern optional TLS features; this does not mean every deployment was exposed to every issue.
 
 The merged change passed Rust tests, the dependency audit, Helm checks, and the container build and vulnerability gate. Today's follow-up independently confirmed the locked 0.23.46 version and passed formatting, tests, Clippy, a refreshed dependency audit, and Compose and Helm validation. These checks support the update; they are not a reproduction of each upstream security advisory.
+
+
+---
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-reusing-catalog-connections.md
+
+# Reusing catalog connections helps misses and writes, with a warm-read warning
+
+The shared catalog was opening a new Valkey connection whenever a request loaded
+its metadata snapshot. We changed it to reuse a persistent multiplexed connection.
+A failed operation is still returned as a failure: reconnecting later must not
+silently replay a write whose outcome is uncertain.
+
+In a new paired experiment, gateway cold-query and write/read medians generally
+improved by **12–17%**. The exception was eight-client cold queries with cache
+serving off, which improved only 1.4%. Warm performance was mixed, and one
+important case regressed. This change reduces connection work; it does not
+establish an across-the-board latency improvement.
+
+### Compare within this experiment
+
+We measured the original revision
+[`187944e`](https://github.com/dstockton/qdrant-es-gateway/commit/187944e4cc274a0ae61a6c79de885179319e9d4a)
+against connection-reuse change
+[`49da1cb`](https://github.com/dstockton/qdrant-es-gateway/commit/49da1cb22279d22761e18cb38480c36d0bea943b),
+built from validated source
+[`c420872`](https://github.com/dstockton/qdrant-es-gateway/commit/c4208725b240289a3c0890e576904b80bdf7a0e7).
+Each profile used **old, new, new, old** order, retaining native controls and all
+trials. Cache coordination stayed enabled; serving off/on were separate profiles.
+
+Native and old-gateway absolute latency were higher than in the
+[earlier shared-cache experiment](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-shared-cache-warm-search-results.md).
+We therefore keep these experiments separate. Their differences cannot identify
+a cause, and pooling their medians would be misleading.
+
+Values below are gateway median trial p50 milliseconds. Cold means unused
+response-cache keys on loaded data. Write rows measure a write and its following
+read with one client.
+
+| Workload | Serving off: old → new | Serving on: old → new |
+|---|---:|---:|
+| Cold sorted filter, one client | 2.590 → 2.159 | 3.155 → 2.788 |
+| Cold sorted filter, eight clients | 7.761 → 7.650 | 10.692 → 9.344 |
+| Write then point read | 3.524 → 2.914 | 4.008 → 3.392 |
+| Write then filter counts | 4.673 → 3.974 | 5.137 → 4.481 |
+
+Median improvements do not describe the whole result. Eight-client cold p95
+increased from **64.454 to 71.301 ms** with serving off and **51.765 to 57.449 ms**
+with serving on. The new enabled gateway's cold medians remained approximately
+4.1 and 4.8 times the faster native engine at one and eight clients. Native
+engines also remained faster for write/point-read cycles. The gateway led the
+write/filter-count comparison, whose identical `refresh=true` requests require
+immediate search visibility; point-write cycles omit refresh on every engine.
+
+### Warm reads were not uniformly preserved
+
+These are the separate cache-enabled warm rounds. Each cell shows **one client /
+eight clients**, in milliseconds.
+
+| Gateway operation | Old | New |
+|---|---:|---:|
+| Read one document | 0.380 / 0.845 | 0.381 / 0.985 |
+| Filtered, sorted page | 0.593 / 1.324 | 0.571 / 1.403 |
+| Page after a sort cursor | 0.603 / 1.344 | 0.462 / 1.411 |
+| Keyword terms buckets | 0.417 / 1.351 | 0.413 / 1.136 |
+| Two filter counts | 0.403 / 1.037 | 0.403 / 1.046 |
+
+Eight-client point-read p50 rose **16.5%**, and p95 rose **27.5%**, from 1.242 to
+1.583 ms. The native point-read medians also increased roughly 12% between the
+corresponding old/new rounds. That drift prevents attributing the gateway change
+to connection reuse alone, but it does not make the adverse result disappear.
+**Warm-read neutrality remains unproven.**
+
+The [full summary](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-catalog-transport/summary.json)
+includes all native, old-gateway and new-gateway rows, with p95 and throughput.
+The new gateway still led the warm search medians in this experiment; native
+point reads and the cold/write costs prevent a blanket engine-performance claim.
+
+### Replay the change
+
+The corpus remained 10,000 documents, with identical client requests and v3
+correctness assertions. Elasticsearch 8.15.0 and OpenSearch 3.9.0 each retained
+two CPUs and 4 GiB. Gateway, Qdrant 1.19.2 and durable Valkey shared that same
+aggregate budget. No builds ran during timing.
+
+Build both pinned revisions before measuring and prepare the disposable shared
+cache deployment using the
+[pinned harness instructions](https://github.com/dstockton/qdrant-es-gateway/tree/c4208725b240289a3c0890e576904b80bdf7a0e7/benchmark/shared-cache).
+The retained [round driver](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-catalog-transport/transport_round.py)
+and [image override](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-catalog-transport/transport-image.yml)
+belong in that harness directory. They replace only the gateway image, wait for
+readiness, preserve volumes and refuse to overwrite evidence. Defaults verify the
+recorded image IDs before changing the container. For a rebuilt image, pass its
+explicit `--old-image-id` or `--new-image-id` and retain the resulting provenance.
+
+Build the old revision as `qdrant-es-gateway:cache-runtime` and the new revision
+as `qdrant-es-gateway:catalog-transport`. Fresh local builds generally have different
+image IDs from the retained lab images. After verifying their source revisions,
+record those local IDs and pass them explicitly:
+
+```sh
+old_image_id=$(docker image inspect qdrant-es-gateway:cache-runtime | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["Id"])')
+new_image_id=$(docker image inspect qdrant-es-gateway:catalog-transport | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["Id"])')
+python3 benchmark/shared-cache/transport_round.py off old 1 mixed \
+  --old-image-id "$old_image_id" --new-image-id "$new_image_id"
+# Keep both ID arguments for each later call.
+# Continue off: new 1, new 2, old 2; repeat the four rounds with on.
+# Then run on old 1 warm, on new 1 warm, on new 2 warm, on old 2 warm.
+```
+
+All **129,600 measured HTTP responses** passed checks across twenty raw rounds.
+The [manifest](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-catalog-transport/manifest.json)
+records exact image IDs, revisions, every raw file and post-run observations.
+Memory snapshots are not peaks, and container-lifetime throttling counters cannot
+attribute individual latency changes. Valkey key-access counters are not response-cache
+hit rates; the retained observations do not provide a causal diagnosis.
+Published raw files add experiment/build labels to prevent accidental pooling;
+the manifest preserves their original hashes and identifies that metadata-only
+annotation. Connection reuse removes avoidable work
+from misses and writes; the warm-read regression and cold tails remain visible
+in the evidence.
+
+
+---
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-request-local-catalog-read-views.md
+
+# Removing request-local SQLite reconstruction: modest gains, one worse tail
+
+The shared-catalog read path used to rebuild an in-memory SQLite database for
+every uncached request. Document reads and searches now load the same validated
+snapshot into request-local maps. In our paired experiment, cold-query medians
+fell **4.5–5.5% with cache serving enabled** and **4.3–7.6% with serving disabled**.
+The enabled eight-client p95 worsened **10.5%**. This is a modest reduction in
+request overhead, not an across-the-board latency win.
+
+### Change the representation, preserve the boundary
+
+The change applies to exact document GET and index search GET/POST handlers in
+shared-catalog mode. It includes requests that bypass the response cache or run
+with serving disabled. Each request still obtains a fresh authoritative snapshot,
+validates every mapping and vector list, and rejects duplicate records. Concrete
+indices retain precedence over single-hop aliases. There is no persistent local
+metadata cache or fallback to an old local database.
+
+Metadata and mutation handlers still use SQLite; default local SQLite deployments
+are unchanged. Quiet cache misses keep the atomic generation/snapshot operation,
+and the original ticket still guards cache publication after an alias or document
+change. This remains a full-catalog fetch and validation, bounded at 8 MiB, with
+work proportional to catalog size. It does not establish that SQLite generally
+limits search performance. The [operational guide](https://dstockton.github.io/qdrant-es-gateway/shared-catalog/)
+describes the scope.
+
+### Cold medians improved, but the enabled tail did not
+
+We compared baseline
+[`2deda5e`](https://github.com/dstockton/qdrant-es-gateway/commit/2deda5e43b72de9b2c2ad6f9043df2a01217fd55)
+with candidate
+[`04b6d7e`](https://github.com/dstockton/qdrant-es-gateway/commit/04b6d7eecce6230634109ec1905509666f00b8bc)
+in old, new, new, old order. Serving-enabled and serving-disabled profiles remained
+separate; coordination stayed enabled in both. Cold means new response-cache keys
+on loaded data. Values below are median trial quantiles in milliseconds.
+
+| Gateway cold sorted filter | p50 old → new | p95 old → new |
+|---|---:|---:|
+| Serving enabled, one client | 1.911 → 1.826 | 2.374 → 2.201 |
+| Serving enabled, eight clients | 4.782 → 4.521 | 55.131 → 60.917 |
+| Serving disabled, one client | 1.372 → 1.312 | 1.479 → 1.435 |
+| Serving disabled, eight clients | 3.234 → 2.989 | 55.984 → 43.680 |
+
+The enabled eight-client p95 increase repeated in both rounds: baseline round
+medians were 55.141/55.121 ms, versus 61.437/60.396 ms for the candidate. The
+disabled p95 reduction was less stable: baseline 79.107/25.479 ms versus candidate
+32.133/55.227 ms. Cold p50 improvements repeated in both rounds of both modes.
+Both native engines remained substantially faster for cold queries. These are
+their p50 controls from the same enabled rounds:
+
+| Cold sorted filter | Elasticsearch old → new | OpenSearch old → new |
+|---|---:|---:|
+| One client | 0.570 → 0.575 | 0.488 → 0.493 |
+| Eight clients | 1.255 → 1.251 | 1.169 → 1.265 |
+
+Native movement and the adverse gateway tail rule out a blanket performance claim.
+The [complete summary](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-typed-readview/typed-readview-summary.json)
+retains all 42 native and gateway comparisons, including the disabled controls.
+
+### Warm behavior is separate
+
+Warm cache hits do not reconstruct the catalog. Their p50 results were mostly
+close, with some reductions and some increases. Cells show one / eight clients.
+
+| Warm gateway operation | Old p50 ms | New p50 ms |
+|---|---:|---:|
+| Read one document | 0.305 / 0.582 | 0.302 / 0.578 |
+| Filtered, sorted page | 0.386 / 0.954 | 0.388 / 0.900 |
+| Page after a sort cursor | 0.388 / 0.913 | 0.383 / 0.898 |
+| Keyword terms buckets | 0.329 / 0.773 | 0.329 / 0.780 |
+| Two filter counts | 0.318 / 0.742 | 0.314 / 0.716 |
+
+Single-client filtered-page p50 rose 0.45%, and eight-client terms p50 rose 0.93%.
+Single-client terms p95 rose **4.19%** (0.401 → 0.418 ms); eight-client point p95
+rose **1.19%** (0.838 → 0.848 ms). These changes should not be presented as a warm
+read improvement caused by removing work from misses.
+
+### Reproduce and inspect
+
+All **93,600 measured responses** passed correctness checks: 72,000 warm,
+14,400 enabled cold and 7,200 disabled cold. The corpus contained 10,000 documents,
+with unchanged requests, exact totals and validation profile v3. Each profile used
+three trials per round, giving six trial quantiles per image for each comparison.
+No builds or tests ran during measurement.
+
+Elasticsearch 8.15.0 and OpenSearch 3.9.0 each had two CPUs and 4 GiB. Gateway,
+Qdrant 1.19.2 and durable Valkey shared that aggregate budget. Qdrant retained its
+automatic two/eight search-pool budgets; both profile boundaries reported high-I/O
+mode. The driver primes all engines identically before each profile, including
+uncached sorted queries, and recreates the gateway consistently between rounds.
+
+Follow the [pinned shared-cache preparation procedure](https://github.com/dstockton/qdrant-es-gateway/tree/04b6d7eecce6230634109ec1905509666f00b8bc/benchmark/shared-cache).
+Build the two revisions as `qdrant-es-gateway:atomic-snapshot` and
+`qdrant-es-gateway:typed-readview`. Record their local image IDs; rebuilt images
+need not have the historical IDs in the
+[manifest](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-typed-readview/manifest.json).
+From the repository root after preparation:
+
+```sh
+old_id=$(docker image inspect qdrant-es-gateway:atomic-snapshot | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["Id"])')
+new_id=$(docker image inspect qdrant-es-gateway:typed-readview | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["Id"])')
+python3 benchmark/shared-cache/readview_round.py on-main old 1 \
+  --old-image-id "$old_id" \
+  --new-image qdrant-es-gateway:typed-readview --new-image-id "$new_id" \
+  --new-source 04b6d7eecce6230634109ec1905509666f00b8bc
+# Repeat on-main new 1, on-main new 2, on-main old 2, keeping all flags.
+# Then off-control old 1, new 1, new 2, old 2, keeping all flags.
+```
+
+All twelve raw profiles, eight resource records and the exact driver, override
+and helpers are retained in the manifest. Only ephemeral container IDs were
+removed; original and published hashes are recorded. Resource intervals cover
+profile setup and native-engine phases as well as gateway work. Qdrant was
+throttled in roughly 15.8–20.6% of its cold-profile scheduling periods and none
+of the warm-profile periods. These counters do not explain individual requests.
+No AOF rewrite increments or delayed fsync were recorded within sampled profile
+intervals. A rewrite completed between the final baseline cold and warm snapshots
+(the cumulative count rose from two to three). The second enabled candidate cold
+profile recorded 43.949 ms of Valkey throttling. These observations remain in the
+evidence rather than being excluded from the comparison.
+
+These measurements are separate from earlier experiments. The read view removes
+avoidable reconstruction while keeping complete validation and request-local
+metadata. The modest median gains, worse enabled tail and native cold-query
+advantage all remain part of the result.
 
 
 ---
@@ -657,6 +1264,128 @@ A follow-up browser check reached the Elasticsearch listing using the account ow
 
 ---
 
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-qdrant-search-thread-tradeoff.md
+
+# One Qdrant search thread improves tails, but hurts typical cold queries
+
+Limiting Qdrant search pools to one thread produced a clear trade-off in our small
+CPU-budget experiment. With eight clients, gateway cold-query p95 fell from
+**45.610 to 11.088 ms**, while p50 rose from **4.805 to 7.568 ms**. That is a
+75.7% reduction in the tail measurement and a 57.5% increase in typical latency.
+Throughput rose 20.1%. It is not an overall latency win or a reason to change
+the default everywhere.
+
+### Why test one thread?
+
+Qdrant had a 1.25-CPU quota in our two-CPU gateway deployment. Its telemetry
+reported two high-CPU search threads and eight high-I/O search threads, with
+high-I/O mode selected. In Qdrant 1.19.2, the automatic budgets are the detected
+CPU count and four times that count. An explicit `max_search_threads` sets each
+pool's budget instead; it does not cap every thread in the process.
+See the versioned [runtime implementation](https://github.com/qdrant/qdrant/blob/v1.19.2/lib/storage/src/content_manager/toc/runtimes.rs#L34-L115)
+and [default calculation](https://github.com/qdrant/qdrant/blob/v1.19.2/lib/common/common/src/defaults.rs#L87-L103).
+
+The pinned CPU-detection library rounds fractional cgroup quotas upward, subject
+to available CPUs: 1.25 becomes two here. That explains the reported two/eight
+budgets. A CPU quota limits scheduled CPU time, not worker count; extra workers
+can be useful while waiting for I/O. These facts motivated a measurement, not an
+assumption that fewer workers must be faster.
+[CPU detection source](https://github.com/seanmonstar/num_cpus/blob/v1.17.0/src/linux.rs#L201-L215).
+
+### Cold queries: better tails, worse medians
+
+We ran automatic, one, one, automatic order, retaining native controls and all
+trials. Only Qdrant's search-thread setting changed. Each value below is the
+median of six trial quantiles, in milliseconds. Cold means unused response-cache
+keys on loaded data, not cold OS caches or storage.
+
+| Cold sorted filter | Automatic p50 → one | Automatic p95 → one |
+|---|---:|---:|
+| Gateway, one client | 1.970 → 2.172 | 2.314 → 2.452 |
+| Gateway, eight clients | 4.805 → 7.568 | 45.610 → 11.088 |
+| Elasticsearch, one client | 0.578 → 0.610 | 0.658 → 0.702 |
+| Elasticsearch, eight clients | 1.264 → 1.334 | 2.323 → 2.835 |
+| OpenSearch, one client | 0.481 → 0.491 | 0.595 → 0.571 |
+| OpenSearch, eight clients | 1.162 → 1.169 | 2.305 → 2.169 |
+
+Both native engines remained faster for these cold queries. Single-client gateway
+p50 also worsened, by 10.3%. The eight-client tail improvement does not erase those
+costs. Eight-client cold throughput increased from **849.210 to 1,019.941 requests
+per second**, using the same median-of-trials calculation. Valkey completed an AOF rewrite during the second one-thread cold profile;
+we retain that possible confounder rather than attributing every change to threads.
+
+### Warm reads stayed mixed
+
+The gateway image and enabled response cache were unchanged. These rows show
+p50 for one client / eight clients, in milliseconds.
+
+| Warm gateway operation | Automatic | One |
+|---|---:|---:|
+| Read one document | 0.301 / 0.580 | 0.300 / 0.573 |
+| Filtered, sorted page | 0.371 / 0.916 | 0.391 / 0.940 |
+| Page after a sort cursor | 0.389 / 0.908 | 0.388 / 0.910 |
+| Keyword terms buckets | 0.326 / 0.788 | 0.326 / 0.772 |
+| Two filter counts | 0.311 / 0.733 | 0.315 / 0.722 |
+
+Most movements were small. Filtered-page p50 rose 5.3% with one client and 2.7%
+with eight; single-client p95 rose 13.6%. Two-filter single-client p95 rose 9.1%.
+The [full summary](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-qdrant-search-threads/summary.json)
+includes all 36 native and gateway comparisons and their tails. These warm
+observations do not establish a benefit from a setting that acts on backend work.
+
+### Reproduce the comparison
+
+All **86,400 measured responses** passed correctness checks: 14,400 cold and
+72,000 warm. The corpus had 10,000 documents. Requests, exact totals, validation
+profile v3 and native cache settings stayed the same. Elasticsearch 8.15.0 and
+OpenSearch 3.9.0 each had two CPUs and 4 GiB. Gateway, Qdrant 1.19.2 and durable
+Valkey shared that aggregate budget: 0.5, 1.25 and 0.25 CPUs respectively.
+
+Use the [shared-cache preparation procedure](https://github.com/dstockton/qdrant-es-gateway/tree/2deda5e43b72de9b2c2ad6f9043df2a01217fd55/benchmark/shared-cache)
+and the gateway source at that revision. Copy the retained
+[round driver](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-qdrant-search-threads/thread_round.py),
+[image override](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-qdrant-search-threads/thread-image.yml)
+and [snapshot helper](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-qdrant-search-threads/snapshot_round.py)
+into `benchmark/shared-cache/`. The driver pins the historical
+`qdrant-es-gateway:atomic-snapshot` image. A fresh build may have a different ID:
+verify its source, explicitly update the driver's `DIGEST` to that local image ID,
+and ensure `SOURCE` records the revision actually built. Retain any driver changes
+with your results. Do not bypass image verification.
+
+From the repository root, after preparation:
+
+```sh
+python3 benchmark/shared-cache/thread_round.py auto 1
+python3 benchmark/shared-cache/thread_round.py one 1
+python3 benchmark/shared-cache/thread_round.py one 2
+python3 benchmark/shared-cache/thread_round.py auto 2
+```
+
+The driver restarts Qdrant and the gateway in the same sequence each round,
+retains volumes, checks readiness and verifies effective pool budgets. Before each
+profile it primes all three engines with identical workloads and additional
+uncached sorted queries, outside timing. Collections had 10,000 points and two
+segments after each restart. Pool telemetry remained high-I/O at the sampled
+boundaries, with budgets two/eight or one/one as intended. Boundary samples do
+not prove that no transitions occurred between them.
+
+The [manifest](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-qdrant-search-threads/manifest.json)
+links all eight raw profiles, four resource records, image provenance and hashes.
+Resource intervals include priming and native-engine phases; throttling counters
+cannot assign a cause to individual latency changes. Qdrant cold-profile throttled
+time fell from 1.054/0.912 seconds in the automatic rounds to 8.407/3.609
+milliseconds in the one-thread rounds. The second one-thread cold profile also
+recorded 262.916 ms of Valkey throttling and the AOF rewrite. Those observations
+provide context, not a per-request diagnosis. Delayed-fsync counts remained
+zero. Only ephemeral container IDs were removed from public evidence.
+
+This experiment stays separate from earlier gateway code comparisons. One search
+thread is a possible tail-latency trade-off for this workload and quota, with a
+substantial median cost. It is not a generally faster configuration.
+
+
+---
+
 Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-missing-alias-removals-are-not-success.md
 
 # Missing alias removals are not success
@@ -672,6 +1401,417 @@ cargo test alias_removal_reports_when_no_action_can_succeed
 ```
 
 This is deliberately not a claim of identical partial-failure responses. The gateway retains the simpler OpenSearch-shaped success body for mixed batches and does not yet emit Elasticsearch per-action alias results. It also continues to reject `must_exist`, alias arrays and patterns, filters, routing, write-index flags, and multi-index final states rather than approximating them. The probe measures request semantics only; it is not a latency or resource benchmark.
+
+
+---
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-measuring-the-gateway-request-timeline.md
+
+# Measure the request timeline before rewriting JSON handling
+
+The gateway's own diagnostic traces show that backend waiting occupies most of
+the measured cold-search dispatch interval. The median **per-request** fraction
+spent in the backend join was **79.4% with one client and 73.6% with eight**.
+Cache-envelope JSON parsing took a single-client median of **0.017 ms**, compared
+with **1.162 ms** for the whole dispatch interval. These traces do not justify a
+JSON-handling rewrite as the next optimization.
+
+This is an instrumented diagnostic, not a production performance benchmark or a
+native-engine comparison. The `diagnostic-timing` compile-time feature is off by
+default. Its timers, trace storage and response header add overhead.
+
+### Follow the actual request
+
+We captured 600 correct sorted-filter responses: 100 cold, 100 warm and 100
+explicitly bypassed requests at each of one and eight clients. Each request keeps
+exact totals and returns 20 full-source documents in rank order. The corpus has
+10,000 documents. Cold bounds were ranks 1–100 with one client and 301–400 with
+eight, so the exact counts include most of the corpus. Warm profiles repeat bounds
+101 and 401; bypass profiles use bounds 201–300 and 501–600. These selectivities
+matter when comparing this diagnostic with another workload.
+
+The following values are per-phase p50 milliseconds for cold requests:
+
+| Interval | One client | Eight clients |
+|---|---:|---:|
+| Complete dispatch scope | 1.162 | 2.513 |
+| Cache lookup | 0.059 | 0.223 |
+| Catalog read-view parsing | 0.002 | 0.001 |
+| Backend join | 0.916 | 1.708 |
+| Work after the join | 0.044 | 0.040 |
+| Response JSON encoding | 0.013 | 0.011 |
+| Cache-envelope parsing | 0.017 | 0.015 |
+| Cache-envelope encoding | 0.006 | 0.005 |
+| Cache publication | 0.088 | 0.277 |
+
+**These rows overlap and must not be added.** Response encoding sits inside the
+work after the join; the join includes concurrent count, coverage and ordered-page
+RPCs plus their local response handling. The fractions above were calculated for
+each individual request before taking the median, not by dividing table medians.
+
+The count RPC finished last among those three operations in **100 of 100**
+single-client cold requests and **86 of 100** eight-client cold requests. Ordered
+response parsing had medians of **0.015 / 0.016 ms**. That makes backend work a
+better-supported investigation target than JSON parsing for this workload. It
+does not prove the count endpoint is the only cost or that dropping exact totals
+would preserve the same request contract.
+
+Warm dispatch medians were 0.092 / 0.228 ms; bypass medians were 1.018 / 2.080 ms.
+The [full phase summary](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-gateway-phases/gateway-phases-summary.json)
+and [per-request relationships](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-gateway-phases/gateway-phases-relationships.json)
+retain every profile, including tails. Profiles ran in a fixed order and are not
+paired speed comparisons.
+
+### What the clocks include
+
+Dispatch timing excludes HTTP request-body ingress, final diagnostic-header
+serialization and network delivery. Client-observed cold p50 was 1.500 / 3.442 ms;
+subtracting those independent medians would not measure a specific overhead.
+The RPC send-to-headers interval includes connection-pool waits, socket work,
+backend execution and scheduling. Body receipt and parsing have separate nested
+intervals. Wall intervals are not CPU measurements.
+
+Resource snapshots include untimed worker connection primers. A zero rounded
+microsecond interval does not mean work is free. The trace records no request
+bodies, credentials or backend URLs. Production builds omit the timing header.
+
+### Reproduce the diagnostic, then restore production
+
+The diagnostic image was built from
+[`68add4d`](https://github.com/dstockton/qdrant-es-gateway/commit/68add4dc8aecd8b01ad501ee30ab4d94518f03b6)
+with `diagnostic-timing` enabled. The runner is pinned separately in the
+[manifest](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-gateway-phases/manifest.json),
+which also contains both image identities and the restoration record.
+Use the prepared shared-cache corpus and resource settings from that revision:
+gateway 0.5 CPU/512 MiB, Qdrant 1.25 CPUs/3,328 MiB and Valkey 0.25 CPU/256 MiB.
+Qdrant keeps its automatic two/eight pool budgets and cache serving is enabled.
+
+In an isolated checkout of the diagnostic source, build its dedicated image:
+
+```sh
+docker build -f benchmark/shared-cache/diagnostic.Dockerfile \
+  -t qdrant-es-gateway:phase-diagnostic .
+```
+
+Copy the retained [runner](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-gateway-phases/gateway_phases.py)
+and [Compose override](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-gateway-phases/phase-image.yml)
+into `benchmark/shared-cache/`. Load `CACHE_BENCH_DEPLOYMENT` from the preparation
+file, set `CACHE_BENCH_SERVE=true`, and use `PHASE_GATEWAY_IMAGE` with the existing
+three-engine/shared-cache Compose files plus the override to recreate only the
+gateway. Wait for readiness before capture. Record the locally built image ID:
+
+```sh
+python3 benchmark/shared-cache/gateway_phases.py \
+  --image-id '<full locally verified diagnostic image ID>' \
+  --source 68add4dc8aecd8b01ad501ee30ab4d94518f03b6
+```
+
+The runner requires fresh cold keys and refuses to overwrite evidence. For another
+capture, use a new prefix and an unused `--start` range; retain that changed
+selectivity. It does not deploy or restore images. After capture, recreate the
+gateway with the retained production image and verify readiness and the absence
+of diagnostic headers. Our [restoration record](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-gateway-phases/gateway-phases-restoration.json)
+confirms production was restored with cache serving enabled.
+
+All raw traces, resource observations, runner copies and hashes are retained;
+public records remove only ephemeral container IDs. No additional performance
+claim follows from instrumenting the path. The useful result is a better basis
+for choosing the next correctness-preserving experiment.
+
+
+---
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-measuring-small-read-path-changes.md
+
+# Fewer requests did not make this query faster
+
+> Measurement note: these historical filter-aggregation trials recomputed the expected count in each client worker. The calculation was outside that request's timer, but affected throughput and could delay concurrent requests. Later trials tagged `precomputed-filter-count-v2` compute it once before timing. The figures here are preserved without adjustment; do not combine them with the corrected trials.
+
+We tried to speed up gateway aggregations by combining their safety checks.
+Two filter counts would need four Qdrant calls instead of five, including the
+exact total. That sounded promising. After measuring the final implementation,
+we removed it: fewer calls did not produce a reliable latency improvement, and
+filter counts were slightly slower.
+
+This followed our [indexed-query optimization](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-indexed-query-performance.md).
+The large win there came from avoiding a complete document scan. The next round
+was about much smaller costs: database query preparation, duplicated payloads,
+and coordination between independent reads.
+
+### Compare the code, not the warmup
+
+Fresh runs changed the ranking even when the gateway binary stayed identical.
+We therefore kept the same 10,000 documents and alternated the old and new
+images in **old, new, new, old** order. Each round shuffled Elasticsearch,
+OpenSearch and gateway + Qdrant trials, used persistent connections, and warmed
+each workload before measuring it. No image builds ran during these trials.
+
+The retained read-path change passed **72,000 measured response checks** across
+four rounds. That includes full sources, IDs, ordering, exact totals and buckets.
+Each variant contributes six trial medians to each table cell; values are
+**one client / eight clients**, in milliseconds.
+
+| Gateway operation | Before | After |
+|---|---:|---:|
+| Read one document | 0.380 / 0.781 | 0.370 / 0.783 |
+| Filtered, sorted page | 0.702 / 2.055 | 0.688 / 2.037 |
+| Page after a sort cursor | 1.022 / 2.613 | 1.009 / 2.521 |
+| Keyword terms buckets | 0.892 / 3.382 | 0.896 / 3.159 |
+| Two filter counts | 1.109 / 3.332 | 1.129 / 3.283 |
+
+These small, mixed differences do not establish a broad speedup. Native engines
+remained faster in all ten workload/concurrency combinations in this warmed
+comparison. The [complete summary](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-read-path/summary.json)
+includes their results, p95 latency, throughput and trial ranges.
+
+### What we kept
+
+Document reads now ask Qdrant only for the payload fields they consume. For one
+representative benchmark document, the internal payload shrank from **684 to
+274 bytes**, while the returned source stayed identical. Bulk existence checks
+request only document IDs. GET and HEAD no longer parse unused mapping metadata;
+SQLite reuses prepared statements, and parsing happens outside the catalog lock.
+The final search page also takes ownership of its hits instead of copying them.
+
+These remove specific work without a result cache or another service. Alias
+changes still take effect immediately: prepared statements cache query plans,
+not catalog answers. The evidence supports reduced data movement; it does not
+support a promised percentage improvement in application latency.
+
+### What we rejected
+
+The combined aggregation check required a more complicated backend predicate.
+Review also caught an intermediate-memory problem with launching every facet at
+once. We bounded concurrency and reduced responses immediately, then reran the
+comparison. The final result still did not justify the extra complexity, so the
+original aggregation path remains. CPU redistribution, one runtime worker and
+an exploratory in-memory payload configuration also failed to establish a
+consistent benefit; their defaults remain unchanged.
+
+Native caching matters, but it is not the whole explanation. Both native engines
+recorded roughly 18,000 request-cache hits and three misses. [Elasticsearch](https://www.elastic.co/guide/en/elasticsearch/reference/current/shard-request-cache.html)
+and [OpenSearch](https://docs.opensearch.org/latest/search-plugins/caching/request-cache/)
+cache eligible aggregation requests by default.
+A separate `request_cache=false` diagnostic left those counters unchanged, yet
+native engines remained faster. Adding Redis without locating the remaining
+cost would not by itself solve that difference.
+
+### Reproduce the read comparison
+
+Build both gateway revisions before timing, load the shared corpus using the
+[three-engine runner](https://github.com/dstockton/qdrant-es-gateway/tree/main/benchmark/three-engine),
+and replace only the gateway image between rounds. Retain the data volumes and
+wait for readiness after each replacement.
+
+```sh
+ROUND=baseline-a REQUESTS=200 TRIALS=3 WARMUP=40 \
+  OUTPUT=results/baseline-a.json python3 compare_reads.py
+# Repeat with candidate-b, candidate-c and baseline-d.
+python3 summarize_reads.py results/baseline-a.json results/baseline-d.json
+python3 summarize_reads.py results/candidate-b.json results/candidate-c.json
+```
+
+Every engine receives the same requests; the original aggregate two-CPU, 4-GiB
+limits remain. The [evidence manifest](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-read-path/manifest.json)
+identifies revisions, raw round files, image IDs and the rejected experiment.
+This remains an investigation, not a claim that the gateway has overtaken the
+native engines.
+
+
+---
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-inside-a-cold-search-backend-diagnostic.md
+
+# Inside a cold search: a backend diagnostic, not another engine benchmark
+
+After reducing cache-fill overhead, we inspected three Qdrant operations used by
+a filtered, sorted search: exact counting, checking indexed-field coverage, and
+retrieving an ordered page. The diagnostic found that exact counting had the
+largest single-client server-reported time of those operations. It also showed a
+large gap between server-reported timings and parallel client wall time under
+concurrency. Neither observation identifies the entire gateway bottleneck.
+
+**This is not an Elasticsearch-compatible or native-engine comparison.** The
+runner sends Qdrant RPCs directly inside the container network. It bypasses the
+gateway, catalog, response cache and public client path. Its Python client is
+not the gateway's Rust client.
+
+### Three pieces of work
+
+The requests use a range filter over the retained 10,000-document corpus. The
+count is exact. The coverage probe asks whether any matching document lacks the
+expected indexed-field marker. The ordered request retrieves 21 full-source documents with their document IDs
+in ascending rank order. All results are checked, including counts, ordering,
+document IDs and full sources.
+
+A separate [payload-schema snapshot](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-backend-diagnostic/backend-payload-schema.json)
+captured **after the diagnostic** found an integer index on `rank` and a keyword
+index on the coverage marker, each covering all 10,000 points. It does not support
+a missing-rank-index explanation for the observed count cost, but it is not
+contemporaneous proof of the index state during timing.
+
+These are pooled p50 **Qdrant response `time` fields**, in milliseconds, from
+400 measured calls per configuration:
+
+| RPC | Run alone, one / eight clients | Run in parallel, one / eight clients |
+|---|---:|---:|
+| Exact count | 0.698 / 0.892 | 0.734 / 0.873 |
+| Coverage probe | 0.163 / 0.298 | 0.180 / 0.320 |
+| Ordered page | 0.136 / 0.190 | 0.170 / 0.263 |
+
+The parallel group waits for all three operations and includes Python dispatch,
+JSON parsing and correctness validation. Its median trial p50/p95 was
+**1.023 / 1.161 ms with one client** and **4.426 / 41.780 ms with eight clients**.
+Per-RPC client wall time ends when the response body is received; it has a different
+boundary from both group time and the server's reported field.
+
+Do not add parallel quantiles or subtract these independently aggregated timings
+to estimate gateway overhead. Network transit, client scheduling, executor work,
+validation and server queueing can contribute at different boundaries. This
+experiment does not isolate their individual costs or prove count is the sole
+bottleneck. The [full summary](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-backend-diagnostic/backend-decomposition-summary.json)
+retains standalone and parallel group quantiles plus each RPC's client and
+server-reported quantiles.
+
+### Resource context and reproducibility
+
+All **4,800 measured RPC responses across 3,200 groups** passed checks. Four trials
+rotate the operation order at each concurrency level. Connections are persistent
+per worker and RPC. The isolated Python generator has two CPUs and 256 MiB,
+outside the server budget; its execution model can influence group wall time.
+
+Qdrant 1.19.2 retained 1.25 CPUs and 3,328 MiB. The collection was green at both sampled boundaries, with
+10,000 points and two segments. Search-pool telemetry reported high-I/O mode and
+two/eight pool budgets at both boundaries. Across the whole capture, Qdrant was
+throttled in **13 of 32 scheduling periods (40.6%)**, with **1.107 seconds** of
+reported throttled time. Other recorded services had no throttled periods.
+These whole-run counters do not assign the long parallel tail to a particular
+request or exclude client effects.
+
+Use the [prepared harness at revision 47113fc](https://github.com/dstockton/qdrant-es-gateway/tree/47113fc5a0bc1f3ab4aad6728a480626c7aa006f/benchmark/shared-cache)
+with its retained corpus and resource settings. Copy the
+[launcher](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-backend-diagnostic/backend_diagnostic.py)
+and [RPC runner](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-backend-diagnostic/backend_decomposition.py)
+into `benchmark/shared-cache/`, then run from the repository root:
+
+```sh
+python3 benchmark/shared-cache/backend_diagnostic.py --prefix backend-decomposition
+```
+
+The launcher requires the recorded Python image digest to be available, checks
+the prepared corpus and resource limits, and refuses to overwrite evidence.
+It creates a restricted temporary runner without changing the engines. The
+[manifest](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-backend-diagnostic/manifest.json)
+records the image provenance, exact runner hashes, raw samples and resource
+snapshots. The two diagnostic scripts were uncommitted at execution; their exact
+copies are retained. The gateway image was built from `47113fc`, but the gateway
+was not in this measured request path. Only ephemeral container IDs were removed
+from public records.
+
+The next useful question is which changes reduce complete request latency while
+preserving exact counts and result correctness. These measurements help choose
+experiments; they are not evidence of a new production speedup.
+
+
+---
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-indexed-query-performance.md
+
+# Sorting twenty records should not fetch ten thousand
+
+> Measurement note: these historical filter-aggregation trials recomputed the expected count in each client worker. The calculation was outside that request's timer, but affected throughput and could delay concurrent requests. Later trials tagged `precomputed-filter-count-v2` compute it once before timing. The figures here are preserved without adjustment; do not combine them with the corrected trials.
+
+Our first three-engine benchmark exposed a straightforward problem. To return
+20 sorted products, the gateway fetched all 10,000 matching documents from
+Qdrant. It also fetched those documents to count a handful of categories.
+The answers were correct, but moving and reducing all that data was expensive:
+median sorted-page latency was 55.6 ms, and terms aggregation took 39.1 ms.
+Elasticsearch and OpenSearch completed those operations in roughly 1–2 ms.
+
+We changed where the work happens. For compatible numeric fields, Qdrant now
+orders the records and returns the requested page. Keyword buckets use exact
+Qdrant facets; simple filter counts use its count API. Independent reads run
+concurrently, and a count-only request does not fetch an unused document.
+No client request changes, result cache, or Redis/Valkey service were needed.
+
+Each cell shows **one client / eight clients**, in milliseconds.
+
+| Operation | Elasticsearch | OpenSearch | Gateway + Qdrant |
+|---|---:|---:|---:|
+| Read one document | 0.466 / 1.194 | 0.428 / 1.047 | 0.502 / 1.298 |
+| Filtered, sorted page | 1.023 / 2.960 | 0.939 / 3.251 | 0.917 / 3.190 |
+| Page after a sort cursor | 0.948 / 2.263 | 0.733 / 2.602 | 1.228 / 3.565 |
+| Keyword terms buckets | 0.586 / 1.996 | 0.605 / 1.791 | 1.068 / 4.302 |
+| Two filter counts | 0.714 / 2.928 | 0.718 / 2.854 | 1.135 / 4.167 |
+
+These are median trial p50 latencies in milliseconds, measured with one and
+eight concurrent clients. Every measured response passed correctness checks:
+IDs, full sources, sort values, exact totals, bucket order and counts. We kept
+all trials, including slower ones. The [full summary](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15/summary.json)
+contains p95 latency, throughput and the range of trial medians.
+
+The optimized gateway reduced observed sorted-page latency to 1.228 ms,
+about 45 times lower than the first run. Native engines also became faster
+across runs, so that ratio is an observed before/after result, not an isolated
+production speedup guarantee. The gateway narrowly led filtered search at one
+client; that small margin is not a broad performance win. In this measured run, native engines had lower median latency in nine of the ten
+workload/concurrency combinations. They also led searchable ingest throughput: roughly
+31,900 documents/s for Elasticsearch, 41,600 for OpenSearch and 22,600 for the
+gateway.
+
+The clearer advantage was the observed memory footprint. During separate
+five-second, eight-client filter-count probes, gateway + Qdrant used about
+327 MiB, versus 973 MiB for Elasticsearch and 912 MiB for OpenSearch. Those are
+single Docker memory observations, not peaks or production sizing estimates.
+For a compact catalogue service already using Qdrant, this is a useful trade:
+near-millisecond scalar queries with a smaller observed footprint. For the
+lowest latency or fastest ingest in this profile, the native engines remain
+stronger choices.
+
+There is a correctness condition behind the speedup. New writes record which
+fields have values the indexed operation can handle exactly. Queries check that
+coverage before using the fast result. Old documents, mixed types, missing
+numeric values, multiple sort fields and page-boundary ties use the complete
+scan. Existing documents gain eligibility when rewritten; deploying the new
+binary alone does not accelerate every old index. Existing indexes that already
+own the new internal field retain their
+original data and behavior. This remains stateless request processing; it does
+not turn pagination into a snapshot during concurrent writes.
+
+### Reproduce the comparison
+
+The [container profile and runner](https://github.com/dstockton/qdrant-es-gateway/tree/main/benchmark/three-engine)
+use Elasticsearch 8.15.0, OpenSearch 3.9.0 and Qdrant 1.19.2. Each native engine
+has a two-CPU, 4-GiB cap; Qdrant and the gateway share the same total cap. Both
+JVM heaps are 512 MiB. The dataset has 10,000 deterministic documents with
+integer rank/price fields, 20 keyword categories and a description. All engines
+receive the same mapping, documents and requests; only the endpoint changes.
+This tests scalar catalogue operations, not text relevance or vector search.
+
+```sh
+cd benchmark/three-engine
+docker compose -p qeg-balanced -f compose.yml up -d --build
+# Once all three endpoints respond:
+DOCS=10000 TRIALS=3 REQUESTS=40 CONCURRENCY=1,8 python3 run.py
+python3 summarize.py results/three-engine.json
+```
+
+The runner uses persistent HTTP connections, warms each workload, shuffles engine
+order with a fixed seed, and measures three trials of 40 requests. Bulk timings
+include waiting until all documents are searchable. It deletes only its named
+benchmark index, so use the disposable containers. All services share one Docker
+VM; this is a small reproducible lab profile, not a production capacity estimate.
+
+Download the [baseline trials](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15/baseline.json),
+[optimized trials](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15/optimized.json) and
+[build/resource provenance](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15/provenance.json).
+The practical improvement is that compatible catalogue queries move a page or
+counts across the network instead of the entire matching catalogue. SQLite was
+not the measured bottleneck, so replacing its small metadata catalog would not
+have addressed the expensive work this benchmark revealed.
+
+A [later paired comparison](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-measuring-small-read-path-changes.md)
+examines warmup, native caches and smaller read-path changes.
 
 
 ---
@@ -760,6 +1900,335 @@ For a migration review, start with the compatibility guide before reading a succ
 
 ---
 
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-disposable-cache-fills-durable-coordination.md
+
+# Keep coordination durable, let response-cache fills be disposable
+
+A response cache should be cheap to refill. Our cache entries shared Valkey's
+append-only log with catalog metadata and writer coordination, so filling a cold
+response also added durable log traffic. We changed only response publication to
+skip incremental AOF propagation. Catalog updates, generations and writer tokens
+retain their required durability.
+
+In a paired experiment, enabled cold-query p50 improved about **21%** at both
+one and eight clients. Eight-client p95 fell **67.8%**, from **43.949 to 14.169 ms**.
+Native engines still handled these cold queries faster, and warm results included
+regressions. The improvement is specific to this cache-fill workload.
+
+### Disposable entries, durable authority
+
+The publication script validates the deployment, generation and quiet writer state
+before storing a bounded response with an expiry. It disables propagation only
+around that response write, then restores normal propagation. Administrative
+claims, catalog publication and writer admission/release keep the existing
+`appendfsync always` requirements.
+
+This does not mean response entries can never survive a restart. An AOF rewrite
+or snapshot can capture entries already in memory. A restored entry must still
+pass identity, build/configuration, generation, expiry and writer-state checks.
+An old response cannot become current merely because a rewrite saved it.
+The [deployment guide](https://dstockton.github.io/qdrant-es-gateway/shared-read-cache/) explains these
+boundaries. This is not a guarantee that every fill avoids all fsync activity.
+
+### Cold-query results and log growth
+
+We compared baseline
+[`04b6d7e`](https://github.com/dstockton/qdrant-es-gateway/commit/04b6d7eecce6230634109ec1905509666f00b8bc)
+with measured candidate
+[`a778a35`](https://github.com/dstockton/qdrant-es-gateway/commit/a778a357f677345939e61b559bf6beac234624d7),
+using old, new, new, old order in separate serving-enabled and serving-disabled
+profiles. These measurements describe those builds, not a later merge.
+Values are median trial quantiles in milliseconds.
+
+| Gateway cold sorted filter | p50 old → new | p95 old → new |
+|---|---:|---:|
+| Serving enabled, one client | 1.943 → 1.537 | 2.277 → 1.715 |
+| Serving enabled, eight clients | 4.578 → 3.614 | 43.949 → 14.169 |
+| Serving disabled, one client | 1.353 → 1.359 | 1.515 → 1.562 |
+| Serving disabled, eight clients | 3.336 → 3.150 | 44.380 → 50.073 |
+
+The enabled cold profiles added **9,103,721 and 9,103,723 bytes** to the baseline
+AOF, compared with **2,016 bytes in each candidate round**. Disabled cold profiles
+also added 2,016 bytes; warm profiles added none. No rewrite occurred within these
+sampled intervals, so log compaction does not account for that difference.
+The observations support reduced incremental log work, not a count of individual
+fsync calls or proof that all latency variation has one cause.
+
+Native cold p50 controls from the enabled rounds remained lower:
+
+| Cold sorted filter | Elasticsearch old → new | OpenSearch old → new |
+|---|---:|---:|
+| One client | 0.579 → 0.581 | 0.487 → 0.498 |
+| Eight clients | 1.201 → 1.295 | 1.247 → 1.182 |
+
+The disabled eight-client p95 worsened **12.8%**, even though response fills were
+bypassed. Native controls also moved. Those results remain in the
+[complete 42-row summary](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-ephemeral-publish/ephemeral-publish-summary.json).
+
+### Warm results were mixed
+
+Warm hits do not publish another response. Cells show one / eight clients, in
+p50 milliseconds.
+
+| Warm gateway operation | Old | New |
+|---|---:|---:|
+| Read one document | 0.302 / 0.585 | 0.305 / 0.567 |
+| Filtered, sorted page | 0.396 / 0.911 | 0.387 / 0.914 |
+| Page after a sort cursor | 0.374 / 0.923 | 0.395 / 0.905 |
+| Keyword terms buckets | 0.328 / 0.776 | 0.331 / 0.778 |
+| Two filter counts | 0.321 / 0.768 | 0.322 / 0.709 |
+
+Single-client sorted pagination worsened **5.8% at p50 and 21.7% at p95**
+(0.439 → 0.535 ms). Eight-client terms p95 rose **5.15%** (1.210 → 1.272 ms).
+We do not claim a general warm-read improvement from this change.
+
+### Check crashes as well as speed
+
+An isolated Valkey 8.1.10 proof exercised the production Lua scripts. Publishing
+a response produced a hit while AOF size stayed **257 → 257 bytes**. The final
+six-check run also verified persistent unresolved claims and writers, durable
+catalog commit and releases, rewrite-restored entries with their original expiry,
+rejection after a durable generation change, and writer durability after a
+publication error.
+
+The [final proof](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-ephemeral-publish/aof-proof-3.json)
+and [proof script](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-ephemeral-publish/cache_ephemeral_aof.py)
+are retained. So are both earlier attempts: the first failed before checks because
+the harness mishandled INFO JSON readiness parsing; the second passed an earlier
+five-check suite. They are not silently discarded or presented as equivalent to
+the final proof.
+
+### Replay the comparison
+
+All **93,600 measured HTTP responses** passed correctness checks: 72,000 warm,
+14,400 enabled cold and 7,200 disabled cold. Each comparison uses six trial
+quantiles per image. The 10,000-document corpus, requests, exact totals and
+validation profile v3 stayed fixed. Cold means new cache keys on loaded data.
+
+Elasticsearch 8.15.0 and OpenSearch 3.9.0 each had two CPUs and 4 GiB. Gateway,
+Qdrant 1.19.2 and durable Valkey shared the same aggregate budget. Qdrant retained
+automatic search pools. The driver consistently recreates the gateway and primes
+all engines outside timing. No builds or tests ran during measurement.
+
+Follow the [pinned preparation instructions](https://github.com/dstockton/qdrant-es-gateway/tree/a778a357f677345939e61b559bf6beac234624d7/benchmark/shared-cache).
+Build the baseline as `qdrant-es-gateway:typed-readview` and candidate as
+`qdrant-es-gateway:ephemeral-publish`, using the revisions above. Record local
+image IDs; rebuilt images may differ from the historical manifest. After preparation:
+
+```sh
+old_id=$(docker image inspect qdrant-es-gateway:typed-readview | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["Id"])')
+new_id=$(docker image inspect qdrant-es-gateway:ephemeral-publish | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["Id"])')
+python3 benchmark/shared-cache/ephemeral_round.py on-main old 1 \
+  --old-image-id "$old_id" \
+  --new-image qdrant-es-gateway:ephemeral-publish --new-image-id "$new_id" \
+  --new-source a778a357f677345939e61b559bf6beac234624d7
+# Repeat on-main new 1, new 2, old 2, retaining all flags.
+# Then off-control old 1, new 1, new 2, old 2, retaining all flags.
+python3 tests/cache_ephemeral_aof.py --output /tmp/cache-aof-proof.json
+```
+
+The [manifest](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-ephemeral-publish/manifest.json)
+retains twelve raw profiles, eight resource records, all proof attempts, exact
+scripts and hashes. Public records omit only ephemeral container identifiers and
+failed-proof resource names. Resource counters span setup and native phases as
+well as gateway requests; they cannot attribute individual latencies. No delayed
+fsync increments were recorded in sampled profiles. Earlier experiments are kept
+separate.
+
+For a workload that repeatedly fills the cache, disposable publication removes
+unnecessary durable response storage while preserving durable coordination.
+That benefit coexists with the native engines’ cold-query advantage and the adverse
+warm results above.
+
+
+---
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-disabling-totals-should-not-slow-sorting.md
+
+# Asking for less should not make sorting slower
+
+> Measurement note: these historical filter-aggregation trials recomputed the expected count in each client worker. The calculation was outside that request's timer, but affected throughput and could delay concurrent requests. Later trials tagged `precomputed-filter-count-v2` compute it once before timing. The figures here are preserved without adjustment; do not combine them with the corrected trials.
+
+A client that only needs the next page can set `track_total_hits: false` and
+avoid asking for the total number of matching documents. In the gateway, that
+apparently cheaper request had an expensive surprise: it disabled indexed
+sorting and fetched every matching document from Qdrant instead.
+
+On our 10,000-product catalogue, a single-client sorted page took **45.340 ms**.
+After separating the sorting decision from the total-count decision, the same
+request took **0.689 ms**. Both requests return the same twenty products, source
+fields and sort values, with no `hits.total` field.
+
+### Keep the page, skip the count
+
+The gateway now uses its guarded indexed sorting path whether or not totals are
+requested. When totals are disabled, it skips the exact count. A zero-size
+aggregation response also skips the otherwise unused hit lookup. These are
+request-local changes: no result cache, new database or Redis service is needed.
+
+The existing safety checks still apply. Eligible scalar numeric fields can use
+Qdrant's indexed ordering; unsupported values, old documents without eligibility
+metadata and ambiguous page-boundary ties keep the complete-scan fallback.
+Disabling totals does not relax sorting correctness or provide snapshot isolation
+while documents change.
+
+We measured **old, new, new, old** images against the same retained corpus. Each
+image contributes six trial medians per table cell. Values below are median
+trial p50 milliseconds, shown as **one client / eight clients**.
+
+| Gateway operation, totals disabled | Before | After |
+|---|---:|---:|
+| Read one document | 0.384 / 0.842 | 0.374 / 0.769 |
+| Filtered, sorted page | 2.888 / 10.093 | 0.691 / 1.797 |
+| Page after a sort cursor | 45.340 / 305.877 | 0.689 / 1.833 |
+| Keyword terms buckets | 0.870 / 2.470 | 0.675 / 1.970 |
+| Two filter counts | 1.102 / 3.305 | 0.858 / 2.954 |
+
+The point-read request is unaffected by the totals option; its smaller movement
+helps show ordinary measurement variation. The large sorting improvement removes
+an identified full scan. It does **not** establish that the gateway is faster
+than the native engines.
+
+### Native engines still lead
+
+All three engines received identical requests within this disabled-total profile;
+only the endpoint changed. Here are the final candidate-round results, including
+every workload rather than selecting the gateway's strongest result.
+
+| Operation | Elasticsearch | OpenSearch | Gateway + Qdrant |
+|---|---:|---:|---:|
+| Read one document | 0.307 / 0.599 | 0.289 / 0.579 | 0.374 / 0.769 |
+| Filtered, sorted page | 0.487 / 1.082 | 0.468 / 1.020 | 0.691 / 1.797 |
+| Page after a sort cursor | 0.554 / 1.185 | 0.442 / 1.028 | 0.689 / 1.833 |
+| Keyword terms buckets | 0.355 / 0.863 | 0.354 / 0.856 | 0.675 / 1.970 |
+| Two filter counts | 0.446 / 2.745 | 0.494 / 2.745 | 0.858 / 2.954 |
+
+Both native engines remain faster in all ten workload/concurrency combinations.
+For applications already using Qdrant, this fix makes requesting only a page
+substantially more practical. It is not a reason to promise lower latency than
+Elasticsearch or OpenSearch.
+
+We separately repeated the four-round comparison with exact totals enabled.
+That profile passed another 72,000 response checks, with no material measured
+regression: single-client filtered search changed from 0.699 to 0.701 ms and
+sorted pagination from 1.010 to 1.011 ms. Exact totals and disabled totals are
+separate profiles; we did not give the gateway a cheaper request than its peers.
+Across both profiles, **144,000 measured responses passed** checks for IDs, full
+sources, ordering, bucket counts, and either exact totals or their absence.
+
+### Reproduce it
+
+Use the [three-engine harness](https://github.com/dstockton/qdrant-es-gateway/tree/main/benchmark/three-engine)
+with Elasticsearch 8.15.0, OpenSearch 3.9.0 and Qdrant 1.19.2. Build both gateway
+images before timing and populate the disposable 10,000-document corpus once.
+Each native engine has a two-CPU, 4-GiB cap; Qdrant and the gateway share the same
+total cap. Native cache settings remain at their defaults.
+
+```sh
+# From benchmark/three-engine, after loading data and waiting for readiness:
+TRACK_TOTAL_HITS=false ROUND=old-1 REQUESTS=200 TRIALS=3 WARMUP=40 \
+  OUTPUT=results/old-1.json python3 compare_reads.py
+# Replace only the gateway image, preserving volumes, and wait for readiness.
+# Repeat as new-1, new-2, then old-2.
+python3 summarize_reads.py results/old-1.json results/old-2.json
+python3 summarize_reads.py results/new-1.json results/new-2.json
+# Repeat all four rounds with TRACK_TOTAL_HITS=true into separate output files.
+```
+
+Each round interleaves all engines, uses persistent connections and warms every
+trial. No builds or ingestion run during timing. The shared Docker host and small
+scalar catalogue limit what these measurements establish; this is not a text,
+vector, durability or production-capacity benchmark.
+
+The [evidence manifest](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-disabled-totals/manifest.json)
+links all eight raw rounds, revisions and image provenance. Separate summaries
+retain [disabled-total results](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-disabled-totals/disabled-summary.json)
+and [exact-total results](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-disabled-totals/exact-summary.json),
+including p95 latency, throughput and trial ranges. The improvement is concrete:
+a client asking for less work no longer accidentally triggers a full scan.
+
+
+---
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-changing-transport-was-not-enough.md
+
+# Changing transport was not enough
+
+> Measurement note: these historical filter-aggregation trials recomputed the expected count in each client worker. The calculation was outside that request's timer, but affected throughput and could delay concurrent requests. Later trials tagged `precomputed-filter-count-v2` compute it once before timing. The figures here are preserved without adjustment; do not combine them with the corrected trials.
+
+After removing unnecessary scans, we tested another plausible optimization:
+send gateway reads to Qdrant over gRPC instead of REST. The smaller typed
+messages and shared connection might reduce overhead. The results were mixed,
+so we removed the prototypes and kept REST in production.
+
+### Compare one change at a time
+
+We built each prototype once, then ran the same image with gRPC disabled and
+enabled. The client-facing requests, retained 10,000-document corpus and resource
+caps stayed identical. Four rounds ran in **REST, candidate, candidate, REST**
+order, with Elasticsearch and OpenSearch interleaved throughout. No builds or
+ingestion ran during timing.
+
+The first prototype moved supported document reads, scrolling, facets and counts
+to gRPC. It improved nine of ten median-latency combinations by roughly 1–11%,
+but single-client filter aggregation became **15.4% slower: 1.085 → 1.251 ms**.
+Those extra costs mattered more than an attractive count of winning cells.
+
+We then tried a hybrid: keep counts on REST and use gRPC for the other supported
+reads. The table shows all gateway results for that second experiment. Each cell
+is median trial p50 milliseconds, **one client / eight clients**, using all six
+trial medians per variant.
+
+| Operation | REST | Hybrid |
+|---|---:|---:|
+| Read one document | 0.377 / 0.784 | 0.371 / 0.703 |
+| Filtered, sorted page | 0.703 / 2.017 | 0.706 / 1.851 |
+| Page after a sort cursor | 1.015 / 2.519 | 0.990 / 2.531 |
+| Keyword terms buckets | 0.901 / 3.080 | 0.928 / 2.744 |
+| Two filter counts | 1.117 / 3.211 | 1.145 / 3.273 |
+
+Five combinations improved and five regressed. Keeping counts on REST reduced
+the earlier single-client regression, but did not produce a consistent win.
+These are observations from separate paired experiments, not proof that one
+transport operation alone caused every difference.
+
+Both native engines remained faster in all ten candidate workload/concurrency
+combinations in each experiment. We did not change their requests or disable
+their default caching to make the gateway look better.
+
+### Keep the evidence, not the extra machinery
+
+Across the two paired experiments, **144,000 measured responses passed strict
+checks** for full sources, IDs, sort values, exact totals and aggregation results.
+Correctness was necessary, but it did not justify the additional adapter,
+conversion rules and dependencies for these mixed latency results. The gateway
+continues to use REST; no new transport setting is required.
+
+This does not establish that gRPC is generally slower, or that it cannot help a
+different workload. It shows that changing transport was insufficient to close
+this gateway's measured latency gap on a small scalar catalogue. The larger
+[disabled-total sorting improvement](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-disabling-totals-should-not-slow-sorting.md)
+came from eliminating work rather than changing its encoding.
+
+The [evidence manifest](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-transport/manifest.json)
+retains all eight rounds, exact image IDs, resource limits and replayable prototype
+patches. Complete summaries include native results, p95 latency, throughput and
+trial ranges for the [full gRPC experiment](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-transport/full-summary.json)
+and [hybrid experiment](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-transport/hybrid-summary.json).
+A separate REST-only disabled-total diagnostic is retained but excluded from the
+paired results.
+
+To replay, apply one archived patch and its companion module to the manifest's
+base revision, build the image, and use the three-engine read-only runner with
+`REQUESTS=200 TRIALS=3 WARMUP=40 TRACK_TOTAL_HITS=true`. Alternate only the backend
+transport between rounds, preserving data and waiting for readiness. The native
+versions remain Elasticsearch 8.15.0 and OpenSearch 3.9.0, with Qdrant 1.19.2;
+each engine receives the same aggregate two-CPU, 4-GiB limit. This is a reproducible
+lab experiment, not a production-capacity or general engine ranking.
+
+
+---
+
 Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-calendar-days-follow-local-time.md
 
 # A reporting day is not always 24 hours
@@ -803,6 +2272,122 @@ updated zone data. The London checks exercise established DST rules, not those
 reported Canadian and Moroccan rule changes.
 
 The container replay against Elasticsearch 8.15.0 and Qdrant 1.19.2 passed all four cases: complete aggregations, post-filtered hits, the first sorted page, and its cursor continuation. The [captured results](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/aggregations/results.json) include actual request timings. They establish correctness for this fixture, not a speed advantage.
+
+
+---
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-atomic-cache-miss-snapshots.md
+
+# One fewer catalog request, without a proven latency win
+
+A quiet cache miss now gets its generation ticket and catalog snapshot in one
+Valkey operation. This removes a second metadata request before querying Qdrant.
+In our paired test, cold-query medians fell **3.0% with one client and 7.9% with
+eight clients**. Native controls moved too, and warm reads were mixed. These
+measurements do **not** isolate a performance win from the change.
+
+### Keep the ticket and snapshot together
+
+The catalog maps index and alias names to collections. The cache ticket identifies
+the generation under which a response may be stored. If an alias changes between
+independent reads, pairing an older catalog with a newer ticket could allow an
+outdated response into the cache.
+The previous two-call path already enforced safe ordering by obtaining the ticket
+before the catalog. This change preserves that guarantee with one call; it does
+not fix a stale-cache bug in the previous path.
+
+The new script checks that no writers are active, captures the generation and
+reads the catalog atomically. It bounds the catalog size before fetching its
+contents. The gateway loads those bytes through its existing validated SQLite
+catalog loader; malformed or duplicate records fail before reaching Qdrant.
+
+A writer starting afterward changes the generation, preventing the earlier
+response from filling the cache. That request may still return its response.
+This protects cache publication; it does not create a transaction spanning
+Valkey and Qdrant or provide backend snapshot isolation. Warm hits retain their
+existing path. Busy or failed lookups, and corrupt cached responses, use the
+ordinary catalog path.
+
+### What changed in the measurements
+
+We compared the retained connection-reuse image with
+[`2deda5e`](https://github.com/dstockton/qdrant-es-gateway/commit/2deda5e43b72de9b2c2ad6f9043df2a01217fd55),
+using old, new, new, old order. Cache-enabled rounds measured cold then warm
+queries. A separate serving-off control measured cold queries only; coordination
+remained enabled. Cold means unused response-cache keys on loaded data, not cold
+OS caches or storage. There were no timed write/read cycles in this experiment.
+
+Each value is the median of six trial p50 measurements, in milliseconds. Native
+columns are controls from the same enabled rounds; only the gateway image changes.
+
+| Cold sorted filter | Gateway old → new | Elasticsearch old → new | OpenSearch old → new |
+|---|---:|---:|---:|
+| One client | 4.268 → 4.139 | 1.375 → 1.516 | 1.202 → 1.117 |
+| Eight clients | 16.067 → 14.800 | 3.343 → 3.087 | 3.324 → 2.946 |
+
+At eight clients, Elasticsearch improved 7.7% and OpenSearch 11.4%, despite neither
+engine changing. Gateway p95 barely moved: **5.099 → 5.122 ms** with one client
+and **70.192 → 68.663 ms** with eight. Both native engines remained substantially
+faster for these cold queries. Serving-off gateway p50 moved **2.677 → 2.707 ms**
+and **10.851 → 10.581 ms**, providing another indication of variation.
+
+Warm results also varied. Cells below show one client / eight clients.
+
+| Warm gateway operation | Old p50 ms | New p50 ms |
+|---|---:|---:|
+| Read one document | 0.519 / 1.392 | 0.569 / 1.230 |
+| Filtered, sorted page | 0.759 / 2.426 | 0.643 / 2.251 |
+| Page after a sort cursor | 0.700 / 2.649 | 0.694 / 2.165 |
+| Keyword terms buckets | 0.536 / 1.799 | 0.546 / 1.736 |
+| Two filter counts | 0.527 / 1.725 | 0.506 / 1.664 |
+
+Single-client point reads worsened **9.6% at p50 and 39.7% at p95**
+(0.730 → 1.020 ms). Terms p95 also worsened at both concurrency levels, by 10.7%
+and 7.4%. The first baseline warm profile included an AOF rewrite; later profiles
+did not. Native controls drifted too. We retain that confounder and every adverse
+result rather than attributing warm changes to an optimization that targets misses.
+The [complete summary](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-atomic-snapshot/atomic-snapshot-summary.json)
+contains all 42 native and gateway comparisons, including p95.
+
+### Replay this experiment
+
+All **93,600 measured HTTP responses** passed the existing correctness checks:
+72,000 warm, 14,400 enabled cold and 7,200 serving-off cold. Fifteen smoke-test
+operations are recorded separately. The corpus was 10,000 documents with identical
+client requests, exact totals and validation profile v3. Elasticsearch 8.15.0 and
+OpenSearch 3.9.0 each had two CPUs and 4 GiB. Gateway, Qdrant 1.19.2 and durable
+Valkey shared the same aggregate budget. No builds ran during timing.
+
+Use the [pinned preparation procedure](https://github.com/dstockton/qdrant-es-gateway/tree/2deda5e43b72de9b2c2ad6f9043df2a01217fd55/benchmark/shared-cache)
+to create the disposable deployment and its preparation file. Build the baseline
+from source `c4208725b240289a3c0890e576904b80bdf7a0e7` as
+`qdrant-es-gateway:catalog-transport` and the candidate from `2deda5e` as
+`qdrant-es-gateway:atomic-snapshot`. Record each locally built image ID; fresh
+builds need not match the historical IDs in the
+[manifest](https://dstockton.github.io/qdrant-es-gateway/assets/benchmarks/2026-10-15-atomic-snapshot/manifest.json).
+Then, from the repository root:
+
+```sh
+old_id=$(docker image inspect qdrant-es-gateway:catalog-transport | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["Id"])')
+new_id=$(docker image inspect qdrant-es-gateway:atomic-snapshot | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["Id"])')
+python3 benchmark/shared-cache/snapshot_round.py on-main old 1 \
+  --old-image-id "$old_id" \
+  --new-image qdrant-es-gateway:atomic-snapshot --new-image-id "$new_id" \
+  --new-source 2deda5e43b72de9b2c2ad6f9043df2a01217fd55
+# Repeat with on-main new 1, on-main new 2, on-main old 2.
+# Then off-control old 1, new 1, new 2, old 2, keeping all flags.
+```
+
+The manifest links all twelve raw measurement files, eight resource records,
+smoke checks, summaries and the retained driver/override. Resource counters span
+setup, priming and native-engine phases; they cannot attribute individual request
+latency. AOF rewrites advanced from zero to one during the first baseline warm
+profile, while delayed-fsync counts remained zero. Ephemeral container IDs were
+removed from public records; original hashes and unchanged timing data are retained.
+
+These results remain separate from earlier experiments. Tests demonstrate that
+a quiet miss avoids the second catalog fetch without weakening generation checks.
+The latency evidence supports a smaller request path, not a broad performance claim.
 
 
 ---
@@ -851,6 +2436,11 @@ reductions use mapped non-text values in the search projection, keeping membersh
 and values together instead of fetching a newer source document.
 
 The container replay against Elasticsearch 8.15.0 and Qdrant 1.19.2 passed all four cases: complete aggregations, post-filtered hits, the first sorted page, and its cursor continuation. The [captured results](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/aggregations/results.json) include actual request timings. They establish correctness for this fixture, not a speed advantage.
+
+A later [three-engine benchmark](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-indexed-query-performance.md)
+adds guarded indexed paths for compatible numeric sorting, keyword facets and
+simple filter counts. The complete scan described here remains the fallback
+when the gateway cannot prove those operations preserve the result.
 
 
 ---

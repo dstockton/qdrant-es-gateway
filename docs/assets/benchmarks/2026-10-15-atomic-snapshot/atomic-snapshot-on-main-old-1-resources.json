@@ -1,0 +1,386 @@
+{
+  "experiment": "atomic-cache-catalog-snapshot-v1",
+  "arguments": {
+    "kind": "on-main",
+    "version": "old",
+    "round": "1",
+    "prefix": "atomic-snapshot",
+    "old_image": "qdrant-es-gateway:catalog-transport",
+    "old_image_id": "sha256:220649fc71be02210342fef90f9b8d2426cfb8013ee8285ce44cc8c41aa61fc4",
+    "old_source": "49da1cb",
+    "new_image": "qdrant-es-gateway:atomic-snapshot",
+    "new_image_id": "sha256:1faf2724e09951316f7bd7699b9fb3199b302675627ce8683505156f3eb8139c",
+    "new_source": "2deda5e43b72de9b2c2ad6f9043df2a01217fd55"
+  },
+  "profiles": {
+    "cold": {
+      "before": {
+        "captured_at": "2026-10-15T12:26:09.309858+00:00",
+        "cpu": {
+          "gateway": {
+            "image_id": "sha256:220649fc71be02210342fef90f9b8d2426cfb8013ee8285ce44cc8c41aa61fc4",
+            "counters": {
+              "usage_usec": 59708,
+              "user_usec": 34258,
+              "system_usec": 25449,
+              "nice_usec": 0,
+              "nr_periods": 2,
+              "nr_throttled": 0,
+              "throttled_usec": 0,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "qdrant": {
+            "image_id": "sha256:b7b0444c4c351c970b98e90a6f89c2ee4287c65b44e52b4cb503fa5b2aa927ad",
+            "counters": {
+              "usage_usec": 59605338,
+              "user_usec": 53228397,
+              "system_usec": 6376941,
+              "nice_usec": 0,
+              "nr_periods": 2930,
+              "nr_throttled": 180,
+              "throttled_usec": 37360932,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "cache-valkey": {
+            "image_id": "sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507",
+            "counters": {
+              "usage_usec": 45701570,
+              "user_usec": 23532873,
+              "system_usec": 22168697,
+              "nice_usec": 0,
+              "nr_periods": 11570,
+              "nr_throttled": 239,
+              "throttled_usec": 17241719,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "elasticsearch": {
+            "image_id": "sha256:84a73ced8390c059e7bc2858595c68dc36e6f8bdb98895dcab0074eda35ac96e",
+            "counters": {
+              "usage_usec": 114128885,
+              "user_usec": 99447770,
+              "system_usec": 14681114,
+              "nice_usec": 0,
+              "nr_periods": 14496,
+              "nr_throttled": 79,
+              "throttled_usec": 2413121,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "opensearch": {
+            "image_id": "sha256:adfa61f85025d06b4aeb562e7e74fde7e31c437039c93c3862c17e9acebd6c7c",
+            "counters": {
+              "usage_usec": 127873841,
+              "user_usec": 114108847,
+              "system_usec": 13764994,
+              "nice_usec": 0,
+              "nr_periods": 14836,
+              "nr_throttled": 71,
+              "throttled_usec": 3005898,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          }
+        },
+        "scope": "outside timers; includes profile setup and priming",
+        "valkey": {
+          "used_memory": "1574520",
+          "used_memory_peak": "26039040",
+          "keyspace_hits": "845874",
+          "keyspace_misses": "122150",
+          "evicted_keys": "0",
+          "expired_keys": "4966",
+          "aof_current_size": "57532823",
+          "aof_rewrites": "0",
+          "aof_rewrite_in_progress": "0",
+          "aof_rewrite_scheduled": "0",
+          "aof_delayed_fsync": "0",
+          "aof_last_write_status": "ok",
+          "aof_last_bgrewrite_status": "ok"
+        }
+      },
+      "after": {
+        "captured_at": "2026-10-15T12:26:18.307829+00:00",
+        "cpu": {
+          "gateway": {
+            "image_id": "sha256:220649fc71be02210342fef90f9b8d2426cfb8013ee8285ce44cc8c41aa61fc4",
+            "counters": {
+              "usage_usec": 1298344,
+              "user_usec": 1007611,
+              "system_usec": 290733,
+              "nice_usec": 0,
+              "nr_periods": 65,
+              "nr_throttled": 1,
+              "throttled_usec": 23426,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "qdrant": {
+            "image_id": "sha256:b7b0444c4c351c970b98e90a6f89c2ee4287c65b44e52b4cb503fa5b2aa927ad",
+            "counters": {
+              "usage_usec": 64176067,
+              "user_usec": 57416662,
+              "system_usec": 6759405,
+              "nice_usec": 0,
+              "nr_periods": 2997,
+              "nr_throttled": 199,
+              "throttled_usec": 41192896,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "cache-valkey": {
+            "image_id": "sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507",
+            "counters": {
+              "usage_usec": 46396106,
+              "user_usec": 23889923,
+              "system_usec": 22506182,
+              "nice_usec": 0,
+              "nr_periods": 11652,
+              "nr_throttled": 248,
+              "throttled_usec": 17693390,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "elasticsearch": {
+            "image_id": "sha256:84a73ced8390c059e7bc2858595c68dc36e6f8bdb98895dcab0074eda35ac96e",
+            "counters": {
+              "usage_usec": 115956372,
+              "user_usec": 101064980,
+              "system_usec": 14891391,
+              "nice_usec": 0,
+              "nr_periods": 14569,
+              "nr_throttled": 83,
+              "throttled_usec": 2820363,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "opensearch": {
+            "image_id": "sha256:adfa61f85025d06b4aeb562e7e74fde7e31c437039c93c3862c17e9acebd6c7c",
+            "counters": {
+              "usage_usec": 129782379,
+              "user_usec": 115840651,
+              "system_usec": 13941727,
+              "nice_usec": 0,
+              "nr_periods": 14904,
+              "nr_throttled": 75,
+              "throttled_usec": 3188800,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          }
+        },
+        "scope": "outside timers; includes profile setup and priming",
+        "valkey": {
+          "used_memory": "11749120",
+          "used_memory_peak": "26039040",
+          "keyspace_hits": "864000",
+          "keyspace_misses": "126964",
+          "evicted_keys": "0",
+          "expired_keys": "4966",
+          "aof_current_size": "66636696",
+          "aof_rewrites": "0",
+          "aof_rewrite_in_progress": "0",
+          "aof_rewrite_scheduled": "0",
+          "aof_delayed_fsync": "0",
+          "aof_last_write_status": "ok",
+          "aof_last_bgrewrite_status": "ok"
+        }
+      }
+    },
+    "warm": {
+      "before": {
+        "captured_at": "2026-10-15T12:26:18.906419+00:00",
+        "cpu": {
+          "gateway": {
+            "image_id": "sha256:220649fc71be02210342fef90f9b8d2426cfb8013ee8285ce44cc8c41aa61fc4",
+            "counters": {
+              "usage_usec": 1315510,
+              "user_usec": 1018524,
+              "system_usec": 296986,
+              "nice_usec": 0,
+              "nr_periods": 67,
+              "nr_throttled": 1,
+              "throttled_usec": 23426,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "qdrant": {
+            "image_id": "sha256:b7b0444c4c351c970b98e90a6f89c2ee4287c65b44e52b4cb503fa5b2aa927ad",
+            "counters": {
+              "usage_usec": 64192689,
+              "user_usec": 57426000,
+              "system_usec": 6766689,
+              "nice_usec": 0,
+              "nr_periods": 2999,
+              "nr_throttled": 199,
+              "throttled_usec": 41192896,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "cache-valkey": {
+            "image_id": "sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507",
+            "counters": {
+              "usage_usec": 46435238,
+              "user_usec": 23910524,
+              "system_usec": 22524714,
+              "nice_usec": 0,
+              "nr_periods": 11658,
+              "nr_throttled": 248,
+              "throttled_usec": 17693390,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "elasticsearch": {
+            "image_id": "sha256:84a73ced8390c059e7bc2858595c68dc36e6f8bdb98895dcab0074eda35ac96e",
+            "counters": {
+              "usage_usec": 115974789,
+              "user_usec": 101077718,
+              "system_usec": 14897071,
+              "nice_usec": 0,
+              "nr_periods": 14574,
+              "nr_throttled": 83,
+              "throttled_usec": 2820363,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "opensearch": {
+            "image_id": "sha256:adfa61f85025d06b4aeb562e7e74fde7e31c437039c93c3862c17e9acebd6c7c",
+            "counters": {
+              "usage_usec": 129804918,
+              "user_usec": 115853676,
+              "system_usec": 13951241,
+              "nice_usec": 0,
+              "nr_periods": 14910,
+              "nr_throttled": 75,
+              "throttled_usec": 3188800,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          }
+        },
+        "scope": "outside timers; includes profile setup and priming",
+        "valkey": {
+          "used_memory": "11749120",
+          "used_memory_peak": "26039040",
+          "keyspace_hits": "864000",
+          "keyspace_misses": "126964",
+          "evicted_keys": "0",
+          "expired_keys": "4966",
+          "aof_current_size": "66636696",
+          "aof_rewrites": "0",
+          "aof_rewrite_in_progress": "0",
+          "aof_rewrite_scheduled": "0",
+          "aof_delayed_fsync": "0",
+          "aof_last_write_status": "ok",
+          "aof_last_bgrewrite_status": "ok"
+        }
+      },
+      "after": {
+        "captured_at": "2026-10-15T12:26:39.941566+00:00",
+        "cpu": {
+          "gateway": {
+            "image_id": "sha256:220649fc71be02210342fef90f9b8d2426cfb8013ee8285ce44cc8c41aa61fc4",
+            "counters": {
+              "usage_usec": 2797024,
+              "user_usec": 2036143,
+              "system_usec": 760880,
+              "nice_usec": 0,
+              "nr_periods": 184,
+              "nr_throttled": 4,
+              "throttled_usec": 94975,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "qdrant": {
+            "image_id": "sha256:b7b0444c4c351c970b98e90a6f89c2ee4287c65b44e52b4cb503fa5b2aa927ad",
+            "counters": {
+              "usage_usec": 64815246,
+              "user_usec": 57961328,
+              "system_usec": 6853918,
+              "nice_usec": 0,
+              "nr_periods": 3040,
+              "nr_throttled": 199,
+              "throttled_usec": 41192896,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "cache-valkey": {
+            "image_id": "sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507",
+            "counters": {
+              "usage_usec": 47769764,
+              "user_usec": 24653815,
+              "system_usec": 23115949,
+              "nice_usec": 0,
+              "nr_periods": 11832,
+              "nr_throttled": 259,
+              "throttled_usec": 18936328,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "elasticsearch": {
+            "image_id": "sha256:84a73ced8390c059e7bc2858595c68dc36e6f8bdb98895dcab0074eda35ac96e",
+            "counters": {
+              "usage_usec": 120336838,
+              "user_usec": 104585536,
+              "system_usec": 15751301,
+              "nice_usec": 0,
+              "nr_periods": 14734,
+              "nr_throttled": 87,
+              "throttled_usec": 2876565,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          },
+          "opensearch": {
+            "image_id": "sha256:adfa61f85025d06b4aeb562e7e74fde7e31c437039c93c3862c17e9acebd6c7c",
+            "counters": {
+              "usage_usec": 134228584,
+              "user_usec": 119468399,
+              "system_usec": 14760184,
+              "nice_usec": 0,
+              "nr_periods": 15074,
+              "nr_throttled": 77,
+              "throttled_usec": 3319957,
+              "nr_bursts": 0,
+              "burst_usec": 0
+            }
+          }
+        },
+        "scope": "outside timers; includes profile setup and priming",
+        "valkey": {
+          "used_memory": "13799968",
+          "used_memory_peak": "26039040",
+          "keyspace_hits": "948113",
+          "keyspace_misses": "136431",
+          "evicted_keys": "0",
+          "expired_keys": "4966",
+          "aof_current_size": "3156750",
+          "aof_rewrites": "1",
+          "aof_rewrite_in_progress": "0",
+          "aof_rewrite_scheduled": "0",
+          "aof_delayed_fsync": "0",
+          "aof_last_write_status": "ok",
+          "aof_last_bgrewrite_status": "ok"
+        }
+      }
+    }
+  },
+  "status": "passed"
+}
