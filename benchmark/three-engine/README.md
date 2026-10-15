@@ -30,7 +30,9 @@ this single-replica data-plane experiment.
 
 Every ingest trial deletes and recreates the benchmark index. Bulk requests use
 `refresh=false` identically. The runner reports both accepted-ingest duration and
-duration through explicit refresh plus exact count verification. Qdrant's
+duration through explicit refresh plus exact count verification. If data is not
+yet visible, every engine gets the same bounded polling loop (50 ms interval,
+120-second timeout); poll counts and refresh-to-visible duration are retained. Qdrant's
 synchronous write acknowledgment differs from Lucene refresh visibility; these
 are stated endpoint-visible measurements, not claims of identical durability.
 After the final ingest, the runner waits 15 seconds, then warms every engine

@@ -125,10 +125,18 @@ def load(base):
         assert not value.get('errors', True), str(value)[:2000]
     accepted = time.perf_counter() - started
     request(base, f'/{INDEX}/_refresh', body={})
-    count, _, _ = request(base, f'/{INDEX}/_count', body={'query': {'match_all': {}}})
-    assert count['count'] == N, count
+    polls = 0
+    while True:
+        count, _, _ = request(base, f'/{INDEX}/_count', body={'query': {'match_all': {}}})
+        polls += 1
+        if count['count'] == N:
+            break
+        if time.perf_counter() - started > accepted + 120:
+            raise AssertionError(f'visibility timeout: {count}')
+        time.sleep(.05)
     visible = time.perf_counter() - started
     return {'accepted_seconds': accepted, 'search_visible_seconds': visible,
+            'visibility_count_polls': polls, 'refresh_and_visibility_seconds': visible - accepted,
             'accepted_documents_per_second': N / accepted, 'visible_documents_per_second': N / visible}
 
 
