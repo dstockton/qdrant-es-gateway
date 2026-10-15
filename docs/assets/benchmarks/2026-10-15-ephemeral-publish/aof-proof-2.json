@@ -1,0 +1,37 @@
+{
+  "status": "passed",
+  "source_sha256": "ebbc7feb6edc70fc8ce9b3c3cfd105361a88ba671677539c67f2d5416988f94d",
+  "catalog_source_sha256": "2fc8b9b6dbb5e14b3e60282f124e0ac1b72e55b57ec1a2094dd606fcdbc52808",
+  "checks": [
+    {
+      "name": "publish_hits_without_incremental_aof_growth",
+      "before_bytes": 257,
+      "after_bytes": 257
+    },
+    {
+      "name": "catalog_and_unresolved_writer_survive_crash_cache_fill_does_not",
+      "passed": true
+    },
+    {
+      "name": "rewrite_restores_same_epoch_hit_with_original_absolute_expiry",
+      "passed": true
+    },
+    {
+      "name": "durable_epoch_and_release_survive_crash_rejecting_rewritten_old_entry",
+      "passed": true
+    },
+    {
+      "name": "publication_error_cannot_suppress_later_writer_durability",
+      "passed": true
+    }
+  ],
+  "scope": "isolated production Lua crash/rewrite proof; not a benchmark",
+  "version": "8.1.10",
+  "image_id": "sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507",
+  "durability": {
+    "save": "",
+    "maxmemory-policy": "noeviction",
+    "appendonly": "yes",
+    "appendfsync": "always"
+  }
+}

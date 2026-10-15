@@ -1,0 +1,9 @@
+{
+  "status": "failed",
+  "source_sha256": "5595f8edd1253710ca466eacc729548b485f2d4e223e00d2d254d7dd6b72acab",
+  "catalog_source_sha256": "2fc8b9b6dbb5e14b3e60282f124e0ac1b72e55b57ec1a2094dd606fcdbc52808",
+  "checks": [],
+  "scope": "isolated production Lua crash/rewrite proof; not a benchmark",
+  "failure_type": "AssertionError",
+  "failure": "Valkey did not become ready"
+}
