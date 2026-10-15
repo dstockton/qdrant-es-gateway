@@ -10,6 +10,13 @@ permissions:
   security-events: write
 
 jobs:
+  documentation:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: python3 -m unittest discover -s scripts/tests
+      - run: python3 scripts/export_agent_docs.py --check
+
   audit:
     runs-on: ubuntu-24.04
     steps:
