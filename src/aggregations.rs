@@ -277,9 +277,87 @@ impl Plan {
         state: &AppState,
         collection: &str,
         filter: Option<&Value>,
+        mapping: &Value,
     ) -> Result<Value, GatewayError> {
         if self.0.is_empty() {
             return Ok(json!({}));
+        }
+        let mut completed = Map::new();
+        let filter_results = try_join_all(self.0.iter().filter_map(|(name, reducer)| {
+            let Reduction::Filter { query, .. } = reducer else {
+                return None;
+            };
+            let (marker, condition) = count_condition(query, mapping)?;
+            Some(async move {
+                if !marker_covered(state, collection, filter, &marker).await? {
+                    return Ok::<_, GatewayError>(None);
+                }
+                let mut conditions = vec![condition];
+                if let Some(filter) = filter {
+                    conditions.push(filter.clone());
+                }
+                let response = state
+                    .qdrant
+                    .request(
+                        Method::POST,
+                        &format!("/collections/{collection}/points/count"),
+                        Some(json!({"exact":true,"filter":{"must":conditions}})),
+                    )
+                    .await?;
+                let count = response
+                    .pointer("/result/count")
+                    .and_then(Value::as_u64)
+                    .ok_or_else(|| bad("invalid Qdrant count response"))?;
+                Ok(Some((name.clone(), json!({"doc_count":count}))))
+            })
+        }))
+        .await?;
+        for (name, result) in filter_results.into_iter().flatten() {
+            self.0.remove(&name);
+            completed.insert(name, result);
+        }
+        let names = self.0.keys().cloned().collect::<Vec<_>>();
+        for name in names {
+            let Reduction::Terms { field, .. } = &self.0[&name] else {
+                continue;
+            };
+            if field.starts_with('_')
+                || field.contains(['.', '[', ']'])
+                || mapping
+                    .get("properties")
+                    .and_then(|p| p.get(field))
+                    .and_then(|p| p.get("type"))
+                    .and_then(Value::as_str)
+                    != Some("keyword")
+            {
+                continue;
+            }
+            // Old or malformed documents never carry this versioned proof. Check
+            // coverage in the same query scope before trusting the indexed facet.
+            if !marker_covered(state, collection, filter, &format!("v1:keyword:{field}")).await? {
+                continue;
+            }
+            let mut request = json!({"key":field,"exact":true,"limit":MAX_BUCKETS + 1});
+            if let Some(filter) = filter {
+                request["filter"] = filter.clone();
+            }
+            let response = state
+                .qdrant
+                .request(
+                    Method::POST,
+                    &format!("/collections/{collection}/facet"),
+                    Some(request),
+                )
+                .await?;
+            let counts = facet_counts(&response)?;
+            let Reduction::Terms { counts: target, .. } = self.0.get_mut(&name).unwrap() else {
+                unreachable!()
+            };
+            *target = counts;
+            completed.insert(name.clone(), self.0.remove(&name).unwrap().finish());
+        }
+        if self.0.is_empty() {
+            return Ok(Value::Object(completed));
         }
         let mut offset = Value::Null;
         loop {
@@ -328,13 +406,136 @@ impl Plan {
             }
             offset = next;
         }
-        Ok(Value::Object(
+        completed.extend(
             self.0
                 .into_iter()
-                .map(|(name, reducer)| (name, reducer.finish()))
-                .collect(),
-        ))
+                .map(|(name, reducer)| (name, reducer.finish())),
+        );
+        Ok(Value::Object(completed))
     }
+}
+
+// Only these predicates have the same source and indexed-payload semantics
+// under the writer's marker. Other queries retain the streaming evaluator.
+fn count_condition(query: &Value, mapping: &Value) -> Option<(String, Value)> {
+    let object = query.as_object()?;
+    if object.len() != 1 {
+        return None;
+    }
+    let (kind, options) = object.iter().next()?;
+    let options = options.as_object()?;
+    if options.len() != 1 {
+        return None;
+    }
+    let (raw_field, value) = options.iter().next()?;
+    let field = compatibility_field(raw_field);
+    if field.starts_with('_') || field.contains(['.', '[', ']']) {
+        return None;
+    }
+    let mapped = mapping
+        .get("properties")?
+        .get(field)?
+        .get("type")?
+        .as_str()?;
+    match kind.as_str() {
+        "term" if mapped == "keyword" => {
+            let value = value.get("value").unwrap_or(value).as_str()?;
+            Some((
+                format!("v1:keyword:{field}"),
+                json!({"key":field,"match":{"value":value}}),
+            ))
+        }
+        "range"
+            if matches!(
+                mapped,
+                "integer"
+                    | "long"
+                    | "short"
+                    | "byte"
+                    | "float"
+                    | "double"
+                    | "half_float"
+                    | "scaled_float"
+            ) =>
+        {
+            let bounds = value.as_object()?;
+            if bounds.is_empty()
+                || !bounds.iter().all(|(op, value)| {
+                    matches!(op.as_str(), "gt" | "gte" | "lt" | "lte")
+                        && value
+                            .as_f64()
+                            .is_some_and(|n| n.is_finite() && n.abs() <= 9_007_199_254_740_991.0)
+                })
+            {
+                return None;
+            }
+            Some((
+                format!("v1:number:{field}"),
+                json!({"key":field,"range":bounds}),
+            ))
+        }
+        _ => None,
+    }
+}
+
+async fn marker_covered(
+    state: &AppState,
+    collection: &str,
+    filter: Option<&Value>,
+    marker: &str,
+) -> Result<bool, GatewayError> {
+    let mut coverage = json!({"must_not":[{"key":"_qeg_fast_fields","match":{"value":marker}}]});
+    if let Some(filter) = filter {
+        coverage["must"] = json!([filter]);
+    }
+    let response = state
+        .qdrant
+        .request(
+            Method::POST,
+            &format!("/collections/{collection}/points/scroll"),
+            Some(json!({"limit":1,"with_payload":false,"with_vector":false,"filter":coverage})),
+        )
+        .await?;
+    let points = response
+        .pointer("/result/points")
+        .and_then(Value::as_array)
+        .ok_or_else(|| bad("invalid Qdrant coverage response"))?;
+    Ok(points.is_empty())
+}
+
+fn facet_counts(response: &Value) -> Result<BTreeMap<String, (Value, u64)>, GatewayError> {
+    let hits = response
+        .pointer("/result/hits")
+        .and_then(Value::as_array)
+        .ok_or_else(|| bad("invalid Qdrant facet response"))?;
+    if hits.len() > MAX_BUCKETS {
+        return Err(bad(
+            "aggregation exceeds 10000 distinct buckets; narrow the query",
+        ));
+    }
+    let mut counts = BTreeMap::new();
+    let mut total = 0u64;
+    for hit in hits {
+        let value = hit
+            .get("value")
+            .filter(|value| value.is_string())
+            .ok_or_else(|| bad("invalid Qdrant keyword facet value"))?;
+        let count = hit
+            .get("count")
+            .and_then(Value::as_u64)
+            .filter(|count| *count > 0)
+            .ok_or_else(|| bad("invalid Qdrant facet count"))?;
+        total = total
+            .checked_add(count)
+            .ok_or_else(|| bad("Qdrant facet count overflow"))?;
+        if counts
+            .insert(value.to_string(), (value.clone(), count))
+            .is_some()
+        {
+            return Err(bad("duplicate Qdrant facet value"));
+        }
+    }
+    Ok(counts)
 }
 
 fn bucket_key(value: &Value, interval: &str, zone: Tz) -> Result<i64, GatewayError> {
@@ -478,6 +679,209 @@ impl Reduction {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn simple_filter_counts_push_down_exactly_with_common_scope() {
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let requests = observed.clone();
+        let mock = Router::new().fallback(any(
+            move |uri: axum::http::Uri, Json(request): Json<Value>| {
+                let requests = requests.clone();
+                async move {
+                    requests
+                        .lock()
+                        .unwrap()
+                        .push((uri.path().to_owned(), request.clone()));
+                    if uri.path().ends_with("/count") {
+                        return Json(json!({"result":{"count":7}}));
+                    }
+                    Json(json!({"result":{"points":[]}}))
+                }
+            },
+        ));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+        let state = search_test_state(format!("http://{address}"), false);
+        let plan = Plan::parse(Some(&json!({"cheap":{"filter":{"range":{"price":{"lt":250}}}},"group":{"filter":{"term":{"group":"g03"}}}}))).unwrap().unwrap();
+        let filter = json!({"must_not":[{"key":"deleted","match":{"value":true}}]});
+        let mapping = json!({"properties":{"price":{"type":"integer"},"group":{"type":"keyword"}}});
+        let result = plan
+            .execute(&state, "es_products", Some(&filter), &mapping)
+            .await
+            .unwrap();
+        assert_eq!(
+            result,
+            json!({"cheap":{"doc_count":7},"group":{"doc_count":7}})
+        );
+        let requests = observed.lock().unwrap();
+        assert_eq!(requests.len(), 4);
+        for (path, request) in requests.iter() {
+            if path.ends_with("/count") {
+                assert_eq!(request["exact"], true);
+                assert_eq!(request["filter"]["must"][1], filter);
+            } else {
+                assert_eq!(request["filter"]["must"], json!([filter]));
+            }
+        }
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn unmarked_filter_values_fall_back_to_source_predicate() {
+        let mock = Router::new().fallback(any(|uri: axum::http::Uri, Json(request): Json<Value>| async move {
+            assert!(!uri.path().ends_with("/count"));
+            let points = if request["with_payload"] == false { json!([{"id":1}]) }
+                else { json!([{"payload":{"_source":{"price":["1",2,null]}}},{"payload":{"_source":{"price":"3"}}}]) };
+            Json(json!({"result":{"points":points,"next_page_offset":null}}))
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+        let state = search_test_state(format!("http://{address}"), false);
+        let plan = Plan::parse(Some(
+            &json!({"cheap":{"filter":{"range":{"price":{"lt":10}}}}}),
+        ))
+        .unwrap()
+        .unwrap();
+        let result = plan
+            .execute(
+                &state,
+                "es_products",
+                None,
+                &json!({"properties":{"price":{"type":"integer"}}}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result, json!({"cheap":{"doc_count":1}}));
+        server.abort();
+    }
+
+    #[test]
+    fn count_optimization_rejects_predicates_without_equivalence_proof() {
+        let mapping = json!({"properties":{"price":{"type":"long"},"group":{"type":"keyword"},"a.b":{"type":"keyword"}}});
+        for query in [
+            json!({"term":{"price":1}}),
+            json!({"range":{"price":{"gte":9007199254740992u64}}}),
+            json!({"exists":{"field":"group"}}),
+            json!({"term":{"group":1}}),
+            json!({"term":{"a.b":"x"}}),
+            json!({"range":{"price":{"gte":1,"format":"x"}}}),
+        ] {
+            assert!(count_condition(&query, &mapping).is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn keyword_facets_preserve_scope_ties_other_counts_and_legacy_fallback() {
+        for legacy in [false, true] {
+            let observed = Arc::new(Mutex::new(Vec::new()));
+            let requests = observed.clone();
+            let mock = Router::new().fallback(any(move |uri: axum::http::Uri, Json(request): Json<Value>| {
+                let requests = requests.clone();
+                async move {
+                    requests.lock().unwrap().push((uri.path().to_owned(),request.clone()));
+                    if uri.path().ends_with("/facet") {
+                        return Json(json!({"result":{"hits":[{"value":"B","count":1},{"value":"A","count":1}]}}));
+                    }
+                    if request["with_payload"] == false {
+                        return Json(json!({"result":{"points":if legacy { json!([{"id":1}]) } else { json!([]) }}}));
+                    }
+                    // An older payload has no marker, but the full reducer still
+                    // counts each term once per document and ignores null values.
+                    Json(json!({"result":{"points":[{"payload":{"_source":{"brand":["B","A","A",null]}}}],"next_page_offset":null}}))
+                }
+            }));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+            let state = search_test_state(format!("http://{address}"), false);
+            let plan = Plan::parse(Some(
+                &json!({"brands":{"terms":{"field":"brand","size":1}}}),
+            ))
+            .unwrap()
+            .unwrap();
+            let filter = json!({"should":[{"key":"group","match":{"value":"g1"}}]});
+            let result = plan
+                .execute(
+                    &state,
+                    "es_products",
+                    Some(&filter),
+                    &json!({"properties":{"brand":{"type":"keyword"}}}),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                result["brands"],
+                json!({"doc_count_error_upper_bound":0,"sum_other_doc_count":1,"buckets":[{"key":"A","doc_count":1}]})
+            );
+            let requests = observed.lock().unwrap();
+            assert_eq!(requests.len(), 2);
+            assert_eq!(requests[0].1["filter"]["must"], json!([filter]));
+            assert_eq!(
+                requests[0].1["filter"]["must_not"][0]["match"]["value"],
+                "v1:keyword:brand"
+            );
+            assert_eq!(requests[1].1["filter"], filter);
+            if legacy {
+                assert!(requests[1].0.ends_with("/scroll"));
+            } else {
+                assert!(requests[1].0.ends_with("/facet"));
+                assert_eq!(requests[1].1["exact"], true);
+                assert_eq!(requests[1].1["limit"], MAX_BUCKETS + 1);
+            }
+            server.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_unmarked_payload_still_errors() {
+        let mock = Router::new().fallback(any(|Json(request): Json<Value>| async move {
+            let point = if request["with_payload"] == false {
+                json!({"id":1})
+            } else {
+                json!({"payload":{"_source":{"brand":["A",{"nested":"B"}]}}})
+            };
+            Json(json!({"result":{"points":[point],"next_page_offset":null}}))
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+        let state = search_test_state(format!("http://{address}"), false);
+        let plan = Plan::parse(Some(&json!({"brands":{"terms":{"field":"brand"}}})))
+            .unwrap()
+            .unwrap();
+        assert!(plan
+            .execute(
+                &state,
+                "es_products",
+                None,
+                &json!({"properties":{"brand":{"type":"keyword"}}})
+            )
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("scalar"));
+        server.abort();
+    }
+
+    #[test]
+    fn facet_response_rejects_truncation_duplicate_keys_and_malformed_counts() {
+        for hits in [
+            json!([{"value":"a","count":0}]),
+            json!([{"value":1,"count":1}]),
+            json!([{"value":"a","count":1},{"value":"a","count":2}]),
+            json!([{"value":"a","count":u64::MAX},{"value":"b","count":1}]),
+            Value::Array(
+                (0..=MAX_BUCKETS)
+                    .map(|n| json!({"value":n.to_string(),"count":1}))
+                    .collect(),
+            ),
+        ] {
+            assert!(facet_counts(&json!({"result":{"hits":hits}})).is_err());
+        }
+        assert!(facet_counts(&json!({"result":{}})).is_err());
+    }
 
     #[test]
     fn calendar_days_follow_dst_and_weeks_start_monday() {
@@ -768,7 +1172,7 @@ mod tests {
         .unwrap();
         let filter = json!({"must":[{"key":"in_stock","match":{"value":true}}]});
         let result = plan
-            .execute(&state, "es_products", Some(&filter))
+            .execute(&state, "es_products", Some(&filter), &json!({}))
             .await
             .unwrap();
         assert_eq!(result, json!({"low":{"value":2.0},"b":{"doc_count":1}}));
