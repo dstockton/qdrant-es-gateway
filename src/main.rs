@@ -161,7 +161,14 @@ impl Qdrant {
         if let Some(key) = &self.key {
             req = req.header("api-key", key);
         }
-        if let Some(body) = body {
+        if let Some(mut body) = body {
+            // Qdrant accepts write completion controls in the URL, not the
+            // operation body. Only this gateway-owned top-level value moves;
+            // document payloads may independently contain fields named wait.
+            if let Some(wait) = body.get("wait").and_then(Value::as_bool) {
+                body.as_object_mut().unwrap().remove("wait");
+                req = req.query(&[("wait", wait)]);
+            }
             req = req.json(&body);
         }
         if method != Method::GET && method != Method::HEAD {
@@ -4675,6 +4682,79 @@ mod tests {
     }
     use tower::ServiceExt;
 
+    #[tokio::test]
+    async fn qdrant_wait_controls_use_url_parameters_without_changing_document_fields() {
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let requests = observed.clone();
+        let mock = Router::new().fallback(any(
+            move |method: Method, uri: axum::http::Uri, Json(body): Json<Value>| {
+                let requests = requests.clone();
+                async move {
+                    requests.lock().unwrap().push((
+                        method,
+                        uri.path().to_owned(),
+                        uri.query().map(str::to_owned),
+                        body,
+                    ));
+                    Json(json!({"status":"ok","result":{"status":"completed"}}))
+                }
+            },
+        ));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
+        let qdrant = Qdrant {
+            client: Client::new(),
+            base: format!("http://{address}"),
+            key: None,
+            async_write_queue: Arc::new(Semaphore::new(1)),
+            admin_mutation_started: None,
+        };
+        for (method, path, body) in [
+            (
+                Method::PUT,
+                "/collections/items/points?ordering=strong",
+                json!({"points":[{"id":1,"payload":{"wait":false,"nested":{"wait":true}}}],"wait":true}),
+            ),
+            (
+                Method::POST,
+                "/collections/items/points/payload",
+                json!({"payload":{"wait":true},"points":[1],"wait":false}),
+            ),
+            (
+                Method::POST,
+                "/collections/items/points/payload",
+                json!({"payload":{"wait":false},"points":[1]}),
+            ),
+        ] {
+            qdrant.raw_request(method, path, Some(body)).await.unwrap();
+        }
+        assert_eq!(
+            *observed.lock().unwrap(),
+            [
+                (
+                    Method::PUT,
+                    "/collections/items/points".to_owned(),
+                    Some("ordering=strong&wait=true".to_owned()),
+                    json!({"points":[{"id":1,"payload":{"wait":false,"nested":{"wait":true}}}]}),
+                ),
+                (
+                    Method::POST,
+                    "/collections/items/points/payload".to_owned(),
+                    Some("wait=false".to_owned()),
+                    json!({"payload":{"wait":true},"points":[1]}),
+                ),
+                (
+                    Method::POST,
+                    "/collections/items/points/payload".to_owned(),
+                    None,
+                    json!({"payload":{"wait":false},"points":[1]}),
+                ),
+            ]
+        );
+        server.abort();
+    }
+
     #[test]
     fn ids_are_deterministic_and_uuid_shaped() {
         let a = point_id("products", "普通話/very-long-id");
@@ -7401,17 +7481,17 @@ mod tests {
                 (
                     Method::PUT,
                     "/collections/es_products/index".into(),
-                    json!({"field_name":"brand","field_schema":"keyword","wait":true})
+                    json!({"field_name":"brand","field_schema":"keyword"})
                 ),
                 (
                     Method::PUT,
                     "/collections/es_products/index".into(),
-                    json!({"field_name":"_qeg_fast_fields","field_schema":"keyword","wait":true})
+                    json!({"field_name":"_qeg_fast_fields","field_schema":"keyword"})
                 ),
                 (
                     Method::PUT,
                     "/collections/es_products/index".into(),
-                    json!({"field_name":"_qeg_fast_fields","field_schema":"keyword","wait":true})
+                    json!({"field_name":"_qeg_fast_fields","field_schema":"keyword"})
                 )
             ]
         );
