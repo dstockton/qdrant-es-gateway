@@ -14,8 +14,8 @@ reported two high-CPU search threads and eight high-I/O search threads, with
 high-I/O mode selected. In Qdrant 1.19.2, the automatic budgets are the detected
 CPU count and four times that count. An explicit `max_search_threads` sets each
 pool's budget instead; it does not cap every thread in the process.
-See the versioned [runtime implementation](https://github.com/qdrant/qdrant/blob/v1.19.2/lib/storage/src/content_manager/toc/runtimes.rs#L34-L107)
-and [default calculation](https://github.com/qdrant/qdrant/blob/v1.19.2/lib/common/common/src/defaults.rs#L83-L94).
+See the versioned [runtime implementation](https://github.com/qdrant/qdrant/blob/v1.19.2/lib/storage/src/content_manager/toc/runtimes.rs#L34-L115)
+and [default calculation](https://github.com/qdrant/qdrant/blob/v1.19.2/lib/common/common/src/defaults.rs#L87-L103).
 
 The pinned CPU-detection library rounds fractional cgroup quotas upward, subject
 to available CPUs: 1.25 becomes two here. That explains the reported two/eight

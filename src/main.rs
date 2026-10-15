@@ -134,6 +134,7 @@ struct AppState {
     qdrant: Qdrant,
     db: Arc<Mutex<Connection>>,
     shared_catalog: Option<shared_catalog::SharedCatalog>,
+    read_catalog: Option<Arc<shared_catalog::ReadView>>,
     cache_runtime: Option<cache_runtime::CacheRuntime>,
     analytics: Arc<Mutex<Analytics>>,
     index_admin: Arc<AsyncMutex<()>>,
@@ -553,6 +554,9 @@ fn ensure_collection_namespace_available(
 }
 
 fn resolve_index(state: &AppState, name: &str) -> Result<(String, String), GatewayError> {
+    if let Some(view) = &state.read_catalog {
+        return view.resolve_index(name);
+    }
     let db = state
         .db
         .lock()
@@ -577,6 +581,9 @@ fn get_index(
     state: &AppState,
     name: &str,
 ) -> Result<(String, String, Value, Vec<String>), GatewayError> {
+    if let Some(view) = &state.read_catalog {
+        return view.get_index(name);
+    }
     let db = state
         .db
         .lock()
@@ -4344,6 +4351,21 @@ async fn dispatch_catalog(
             }
         }
     };
+    if shared_catalog::uses_read_view(&method, &path) {
+        state.read_catalog = match catalog.read_view().await {
+            Ok(view) => Some(Arc::new(view)),
+            Err(error) => {
+                return CatalogOutcome {
+                    response: error.into_response(),
+                    publication_complete: true,
+                }
+            }
+        };
+        return CatalogOutcome {
+            response: dispatch_inner(state, method, path, query, headers, body).await,
+            publication_complete: true,
+        };
+    }
     let (db, claim) = match catalog.begin_tracked(admin).await {
         Ok(view) => view,
         Err((error, no_claim)) => {
@@ -4354,6 +4376,7 @@ async fn dispatch_catalog(
         }
     };
     state.db = Arc::new(Mutex::new(db));
+    state.read_catalog = None;
     let mutation_started = Arc::new(std::sync::atomic::AtomicBool::new(false));
     if claim.is_some() {
         state.qdrant.admin_mutation_started = Some(mutation_started.clone());
@@ -4731,6 +4754,7 @@ async fn main() -> anyhow::Result<()> {
         })),
         analytics: Arc::new(Mutex::new(Analytics::default())),
         shared_catalog,
+        read_catalog: None,
         cache_runtime,
         index_admin: Arc::new(AsyncMutex::new(())),
         cfg,
@@ -4793,6 +4817,7 @@ mod tests {
             },
             db: Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             analytics: Arc::new(Mutex::new(Analytics::default())),
             index_admin: Arc::new(AsyncMutex::new(())),
@@ -5042,6 +5067,7 @@ mod tests {
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
@@ -5085,6 +5111,7 @@ mod tests {
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
@@ -5142,6 +5169,7 @@ mod tests {
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
@@ -5241,6 +5269,7 @@ mod tests {
         .unwrap();
         let state = AppState {
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             qdrant: Qdrant {
                 admin_mutation_started: None,
@@ -5315,6 +5344,7 @@ mod tests {
         .unwrap();
         let state = AppState {
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             qdrant: Qdrant {
                 admin_mutation_started: None,
@@ -5410,6 +5440,7 @@ mod tests {
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
@@ -5466,6 +5497,7 @@ mod tests {
         .unwrap();
         let state = AppState {
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             qdrant: Qdrant {
                 admin_mutation_started: None,
@@ -5533,6 +5565,7 @@ mod tests {
             .unwrap();
         let state = AppState {
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             qdrant: Qdrant {
                 admin_mutation_started: None,
@@ -5616,6 +5649,7 @@ mod tests {
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
                 shared_catalog: None,
+                read_catalog: None,
                 cache_runtime: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
@@ -5685,6 +5719,7 @@ mod tests {
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
@@ -5781,6 +5816,7 @@ mod tests {
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
@@ -5867,6 +5903,7 @@ mod tests {
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
@@ -5930,6 +5967,7 @@ mod tests {
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
@@ -6009,6 +6047,7 @@ mod tests {
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
                 shared_catalog: None,
+                read_catalog: None,
                 cache_runtime: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
@@ -6086,6 +6125,7 @@ mod tests {
                 .unwrap();
             let state = AppState {
                 shared_catalog: None,
+                read_catalog: None,
                 cache_runtime: None,
                 qdrant: Qdrant {
                     admin_mutation_started: None,
@@ -6148,6 +6188,7 @@ mod tests {
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
                 shared_catalog: None,
+                read_catalog: None,
                 cache_runtime: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
@@ -6292,6 +6333,7 @@ mod tests {
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
                 shared_catalog: None,
+                read_catalog: None,
                 cache_runtime: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
@@ -6371,6 +6413,7 @@ mod tests {
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
                 shared_catalog: None,
+                read_catalog: None,
                 cache_runtime: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
@@ -6464,6 +6507,7 @@ mod tests {
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
@@ -6557,6 +6601,7 @@ mod tests {
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
                 shared_catalog: None,
+                read_catalog: None,
                 cache_runtime: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
@@ -6650,6 +6695,7 @@ mod tests {
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
                 shared_catalog: None,
+                read_catalog: None,
                 cache_runtime: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
@@ -6738,6 +6784,7 @@ mod tests {
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
                 shared_catalog: None,
+                read_catalog: None,
                 cache_runtime: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
@@ -6797,6 +6844,7 @@ mod tests {
         .unwrap();
         let mut state = AppState {
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             qdrant: Qdrant {
                 admin_mutation_started: None,
@@ -6913,6 +6961,7 @@ mod tests {
         .unwrap();
         let mut state = AppState {
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             qdrant: Qdrant {
                 admin_mutation_started: None,
@@ -7009,6 +7058,7 @@ mod tests {
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
@@ -7186,6 +7236,7 @@ mod tests {
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
@@ -7273,6 +7324,7 @@ mod tests {
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
@@ -7363,6 +7415,7 @@ mod tests {
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
@@ -7440,6 +7493,7 @@ mod tests {
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
@@ -7560,6 +7614,7 @@ mod tests {
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
@@ -7632,6 +7687,7 @@ mod tests {
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
@@ -7753,6 +7809,7 @@ mod tests {
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
@@ -7834,6 +7891,7 @@ mod tests {
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
                 shared_catalog: None,
+                read_catalog: None,
                 cache_runtime: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
@@ -7899,6 +7957,7 @@ mod tests {
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
@@ -7964,6 +8023,7 @@ mod tests {
                     db: Arc::new(Mutex::new(db)),
                     analytics: Arc::new(Mutex::new(Analytics::default())),
                     shared_catalog: None,
+                    read_catalog: None,
                     cache_runtime: None,
                     index_admin: Arc::new(AsyncMutex::new(())),
                     cfg,
@@ -8046,6 +8106,7 @@ mod tests {
                     db: Arc::new(Mutex::new(db)),
                     analytics: Arc::new(Mutex::new(Analytics::default())),
                     shared_catalog: None,
+                    read_catalog: None,
                     cache_runtime: None,
                     index_admin: Arc::new(AsyncMutex::new(())),
                     cfg,
@@ -8133,6 +8194,7 @@ mod tests {
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
                 shared_catalog: None,
+                read_catalog: None,
                 cache_runtime: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
@@ -8402,6 +8464,7 @@ mod tests {
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
@@ -8449,6 +8512,7 @@ mod tests {
             db: Arc::new(Mutex::new(db)),
             analytics: Arc::new(Mutex::new(Analytics::default())),
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             index_admin: Arc::new(AsyncMutex::new(())),
             cfg,
@@ -8780,6 +8844,7 @@ mod tests {
                 db: Arc::new(Mutex::new(db)),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
                 shared_catalog: None,
+                read_catalog: None,
                 cache_runtime: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,
@@ -8895,6 +8960,7 @@ mod tests {
                 db: Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
                 analytics: Arc::new(Mutex::new(Analytics::default())),
                 shared_catalog: None,
+                read_catalog: None,
                 cache_runtime: None,
                 index_admin: Arc::new(AsyncMutex::new(())),
                 cfg,

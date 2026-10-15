@@ -111,11 +111,19 @@ impl CacheRuntime {
             if let Some(snapshot) = lookup.as_ref().and_then(|v| v.catalog_snapshot.as_deref()) {
                 // The Lua miss returned this snapshot with its quiet epoch. Do not
                 // issue a second catalog read, or acquire a replacement epoch later.
-                let db = match shared_catalog::snapshot_db(snapshot) {
-                    Ok(db) => db,
-                    Err(error) => return error.into_response(),
-                };
-                state.db = Arc::new(Mutex::new(db));
+                if shared_catalog::uses_read_view(&method, &path) {
+                    state.read_catalog = match shared_catalog::snapshot_read_view(snapshot) {
+                        Ok(view) => Some(Arc::new(view)),
+                        Err(error) => return error.into_response(),
+                    };
+                } else {
+                    let db = match shared_catalog::snapshot_db(snapshot) {
+                        Ok(db) => db,
+                        Err(error) => return error.into_response(),
+                    };
+                    state.db = Arc::new(Mutex::new(db));
+                    state.read_catalog = None;
+                }
                 dispatch_inner(state, method, path, query, headers, body).await
             } else {
                 // Busy/unavailable lookup or an invalid hit envelope retains the
@@ -361,6 +369,174 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires CATALOG_TEST_REDIS_URL"]
+    async fn request_read_views_stay_fresh_for_bypass_disabled_and_uncached_reads() {
+        let (mut state, mut redis, key) = fixture().await;
+        state.cfg.document_projection = false;
+        state.db = Arc::new(Mutex::new(
+            shared_catalog::snapshot_db(br#"{"indices":[["local-only","{}","[]"]],"aliases":[]}"#)
+                .unwrap(),
+        ));
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let seen = calls.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        state.qdrant.base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, Router::new().fallback(any(move |uri: axum::http::Uri| {
+                seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                async move {
+                    if uri.path().ends_with("/count") {
+                        Json(json!({"status":"ok","result":{"count":if uri.path().contains("es_old") {1} else {2}}}))
+                    } else {
+                        Json(json!({"status":"ok","result":[{"payload":{"_source":{"n":1}}}]}))
+                    }
+                }
+            }))).await.unwrap();
+        });
+        for mode in 0..3 {
+            let mut request_state = state.clone();
+            let query = if mode == 0 {
+                Some("request_cache=false".to_owned())
+            } else {
+                None
+            };
+            if mode == 1 {
+                request_state.cache_runtime.as_mut().unwrap().serve_reads = false;
+            } else if mode == 2 {
+                request_state.cache_runtime = None;
+            }
+            for (target, count) in [("old", 1), ("new", 2)] {
+                // Change the authoritative alias between independent uncached
+                // requests. No derived metadata may survive from the first.
+                redis::cmd("SET")
+                    .arg(&key)
+                    .arg(
+                        json!({
+                            "indices":[["old","{}","[]"],["new","{}","[]"]],
+                            "aliases":[["current",target]]
+                        })
+                        .to_string(),
+                    )
+                    .query_async::<()>(&mut redis)
+                    .await
+                    .unwrap();
+                let doc = dispatch(
+                    request_state.clone(),
+                    Method::GET,
+                    "/current/_doc/a".into(),
+                    query.clone(),
+                    HeaderMap::new(),
+                    String::new(),
+                )
+                .await;
+                assert_eq!(doc.status(), StatusCode::OK);
+                let doc: Value = serde_json::from_slice(
+                    &axum::body::to_bytes(doc.into_body(), 4096).await.unwrap(),
+                )
+                .unwrap();
+                assert_eq!(doc["_index"], target);
+                let search = dispatch(
+                    request_state.clone(),
+                    Method::POST,
+                    "/current/_search".into(),
+                    query.clone(),
+                    HeaderMap::new(),
+                    "{\"size\":0}".into(),
+                )
+                .await;
+                assert_eq!(search.status(), StatusCode::OK);
+                let search: Value = serde_json::from_slice(
+                    &axum::body::to_bytes(search.into_body(), 4096)
+                        .await
+                        .unwrap(),
+                )
+                .unwrap();
+                assert_eq!(search["hits"]["total"]["value"], count);
+            }
+            let before = calls.load(std::sync::atomic::Ordering::SeqCst);
+            let missing = dispatch(
+                request_state.clone(),
+                Method::GET,
+                "/local-only/_doc/a".into(),
+                query.clone(),
+                HeaderMap::new(),
+                String::new(),
+            )
+            .await;
+            assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+            redis::cmd("SET")
+                .arg(&key)
+                .arg(
+                    json!({
+                        "indices":[["old","{}","[]"],["unrelated","invalid mapping","[]"]],
+                        "aliases":[["current","old"]]
+                    })
+                    .to_string(),
+                )
+                .query_async::<()>(&mut redis)
+                .await
+                .unwrap();
+            for (method, path, body) in [
+                (Method::GET, "/current/_doc/a", ""),
+                (Method::POST, "/current/_search", "{\"size\":0}"),
+            ] {
+                let response = dispatch(
+                    request_state.clone(),
+                    method,
+                    path.into(),
+                    query.clone(),
+                    HeaderMap::new(),
+                    body.into(),
+                )
+                .await;
+                assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+            }
+            assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), before);
+        }
+        server.abort();
+        cleanup(&mut redis, &key).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires CATALOG_TEST_REDIS_URL"]
+    async fn search_named_alias_get_keeps_sqlite_dispatch_with_or_without_cache_lookup() {
+        let (state, mut redis, key) = fixture().await;
+        redis::cmd("SET")
+            .arg(&key)
+            .arg(
+                json!({
+                    "indices":[["items","{}","[]"]],"aliases":[["_search","items"]]
+                })
+                .to_string(),
+            )
+            .query_async::<()>(&mut redis)
+            .await
+            .unwrap();
+        for path in ["/_alias/_search", "/%5Falias/%5Fsearch"] {
+            for query in [None, Some("request_cache=false".to_owned())] {
+                let response = dispatch(
+                    state.clone(),
+                    Method::GET,
+                    path.into(),
+                    query,
+                    HeaderMap::new(),
+                    String::new(),
+                )
+                .await;
+                assert_eq!(response.status(), StatusCode::OK);
+                let body: Value = serde_json::from_slice(
+                    &axum::body::to_bytes(response.into_body(), 4096)
+                        .await
+                        .unwrap(),
+                )
+                .unwrap();
+                assert_eq!(body, json!({"items":{"aliases":{"_search":{}}}}));
+            }
+        }
+        cleanup(&mut redis, &key).await;
+    }
+
+    #[tokio::test]
     async fn envelopes_preserve_big_integers_headers_and_reject_corruption() {
         let body = json!({"found":true,"_id":"one","_source":{"large":u64::MAX,"small":i64::MIN}});
         let envelope = Envelope {
@@ -436,6 +612,7 @@ mod tests {
                 client,
                 key.clone(),
             )),
+            read_catalog: None,
             cache_runtime: Some(CacheRuntime {
                 cache,
                 serve_reads: true,

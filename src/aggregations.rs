@@ -1212,6 +1212,7 @@ mod tests {
         db.execute_batch("CREATE TABLE indices(name TEXT PRIMARY KEY,mapping TEXT NOT NULL,vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY,index_name TEXT NOT NULL); INSERT INTO indices VALUES ('products','{}','[]');").unwrap();
         AppState {
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             qdrant: Qdrant {
                 admin_mutation_started: None,
@@ -1335,6 +1336,7 @@ mod tests {
         cfg.document_projection = true;
         let state = AppState {
             shared_catalog: None,
+            read_catalog: None,
             cache_runtime: None,
             qdrant: Qdrant {
                 admin_mutation_started: None,

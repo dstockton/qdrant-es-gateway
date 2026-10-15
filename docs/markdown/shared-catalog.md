@@ -4,7 +4,13 @@ The default SQLite catalog is still the simplest choice for one gateway. No meas
 
 Set `CATALOG_REDIS_URL` to a `redis://` or TLS `rediss://` URL. All replicas serving the same Qdrant collections must use the same `CATALOG_REDIS_KEY` (default `qeg:{catalog}:v1`) and collection-related configuration. The URL may contain credentials; supply it through a secret. Redis Cluster is not a supported connection topology.
 
-The authoritative catalog contains mappings, named vector metadata, and single-index aliases. Every request loads the current committed snapshot into an ephemeral SQLite database. There is no replica metadata cache and no persistent local metadata dependency in shared mode. Snapshot size is limited to 8 MiB. Index creation and mapping changes check the exact prospective serialized size before mutating Qdrant; alias batches check it before committing local metadata. Oversized changes return a validation error and release the administrative claim. Fetching and materializing the whole catalog on each request favors small catalogs and correctness; it is not a high-throughput optimization. Network operations time out after five seconds.
+The authoritative catalog contains mappings, named vector metadata, and single-index aliases. Requests that need catalog metadata load a fresh committed snapshot; there is no replica metadata cache or persistent local metadata dependency in shared mode. Network operations time out after five seconds.
+
+For exact `GET /<index>/_doc/<id>` and `GET`/`POST /<index>/_search` handlers, the gateway validates the complete snapshot into request-local typed maps instead of rebuilding an ephemeral SQLite database. This also applies when response-cache serving is disabled or the request bypasses that cache. A valid response-cache hit can return without loading a catalog. Alias-read routes, other metadata routes and mutations retain the SQLite snapshot path; route precedence is preserved, including `GET /_alias/_search`. Deployments using the default local SQLite catalog are unchanged.
+
+The read view is not retained between requests. It still fetches and validates the whole catalog, including records unrelated to the requested index, with work proportional to catalog size. Malformed metadata and duplicate records fail closed. Snapshot size remains limited to 8 MiB. This removes SQLite reconstruction from the selected shared-catalog read handlers; it does not establish a measured latency improvement or remove the small-catalog constraint.
+
+Index creation and mapping changes check the exact prospective serialized size before mutating Qdrant; alias batches check it before committing local metadata. Oversized changes return a validation error and release the administrative claim.
 
 ## Starting a new deployment
 

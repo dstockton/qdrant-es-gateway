@@ -21,6 +21,52 @@ struct Snapshot {
     aliases: Vec<(String, String)>,
 }
 
+/// Immutable metadata for one request, rebuilt from its authoritative snapshot.
+/// This is never retained across requests or used by metadata mutation handlers.
+pub(crate) struct ReadView {
+    indices: HashMap<String, IndexMetadata>,
+    aliases: HashMap<String, String>,
+}
+
+struct IndexMetadata {
+    mapping: Value,
+    vectors: Vec<String>,
+}
+
+impl ReadView {
+    fn resolve(&self, name: &str) -> Result<(&str, &IndexMetadata), GatewayError> {
+        // Match SQLite COALESCE exactly: concrete indices take precedence, and
+        // an alias resolves only one hop to an existing concrete index.
+        self.indices
+            .get_key_value(name)
+            .or_else(|| {
+                self.aliases
+                    .get(name)
+                    .and_then(|target| self.indices.get_key_value(target))
+            })
+            .map(|(index, metadata)| (index.as_str(), metadata))
+            .ok_or_else(|| GatewayError::NotFound(format!("no such index [{name}]")))
+    }
+
+    pub(crate) fn resolve_index(&self, name: &str) -> Result<(String, String), GatewayError> {
+        let (index, _) = self.resolve(name)?;
+        Ok((index.to_owned(), collection(index)))
+    }
+
+    pub(crate) fn get_index(
+        &self,
+        name: &str,
+    ) -> Result<(String, String, Value, Vec<String>), GatewayError> {
+        let (index, metadata) = self.resolve(name)?;
+        Ok((
+            index.to_owned(),
+            collection(index),
+            metadata.mapping.clone(),
+            metadata.vectors.clone(),
+        ))
+    }
+}
+
 fn unavailable() -> GatewayError {
     // Never put connection URLs or Redis authentication errors in client responses.
     GatewayError::upstream("shared catalog unavailable or administrative claim requires recovery")
@@ -123,6 +169,23 @@ impl SharedCatalog {
         &self,
         admin: bool,
     ) -> Result<(Connection, Option<String>), (GatewayError, bool)> {
+        let (snapshot, claim) = self.begin_snapshot(admin).await?;
+        let db = snapshot.into_db().map_err(|error| (error, !admin))?;
+        Ok((db, claim))
+    }
+
+    pub(crate) async fn read_view(&self) -> Result<ReadView, GatewayError> {
+        let (snapshot, _) = self
+            .begin_snapshot(false)
+            .await
+            .map_err(|(error, _)| error)?;
+        snapshot.into_read_view()
+    }
+
+    async fn begin_snapshot(
+        &self,
+        admin: bool,
+    ) -> Result<(Snapshot, Option<String>), (GatewayError, bool)> {
         let claim = admin.then(|| uuid::Uuid::new_v4().to_string());
         let result: Vec<String> = self
             .run(
@@ -149,8 +212,8 @@ impl SharedCatalog {
         if result.len() != 2 || result[0] != "ok" {
             return Err((unavailable(), !admin));
         }
-        let db = snapshot_db(result[1].as_bytes()).map_err(|error| (error, !admin))?;
-        Ok((db, claim))
+        let snapshot = parse_snapshot(result[1].as_bytes()).map_err(|error| (error, !admin))?;
+        Ok((snapshot, claim))
     }
 
     pub(crate) async fn commit(&self, state: &AppState, claim: &str) -> Result<(), GatewayError> {
@@ -204,14 +267,43 @@ impl SharedCatalog {
 
 /// Materialize the same validated request-local catalog for either transport path.
 pub(crate) fn snapshot_db(bytes: &[u8]) -> Result<Connection, GatewayError> {
+    parse_snapshot(bytes)?.into_db()
+}
+
+pub(crate) fn snapshot_read_view(bytes: &[u8]) -> Result<ReadView, GatewayError> {
+    parse_snapshot(bytes)?.into_read_view()
+}
+
+fn parse_snapshot(bytes: &[u8]) -> Result<Snapshot, GatewayError> {
     if bytes.len() > MAX_BYTES {
         return Err(unavailable());
     }
-    let snapshot: Snapshot = serde_json::from_slice(bytes).map_err(|_| unavailable())?;
-    snapshot.into_db()
+    serde_json::from_slice(bytes).map_err(|_| unavailable())
 }
 
 impl Snapshot {
+    fn into_read_view(self) -> Result<ReadView, GatewayError> {
+        let mut indices = HashMap::new();
+        for (name, mapping, vectors) in self.indices {
+            // Validate all rows, including metadata unrelated to this request.
+            // Keep the existing permissive JSON shape and vector ordering.
+            let metadata = IndexMetadata {
+                mapping: serde_json::from_str(&mapping).map_err(|_| unavailable())?,
+                vectors: serde_json::from_str(&vectors).map_err(|_| unavailable())?,
+            };
+            if indices.insert(name, metadata).is_some() {
+                return Err(unavailable());
+            }
+        }
+        let mut aliases = HashMap::new();
+        for (alias, index) in self.aliases {
+            if aliases.insert(alias, index).is_some() {
+                return Err(unavailable());
+            }
+        }
+        Ok(ReadView { indices, aliases })
+    }
+
     fn into_db(self) -> Result<Connection, GatewayError> {
         let mut db = Connection::open_in_memory().map_err(|_| unavailable())?;
         db.execute_batch(SCHEMA).map_err(|_| unavailable())?;
@@ -308,9 +400,167 @@ pub(crate) fn is_admin(method: &Method, path: &str) -> Result<bool, GatewayError
     )
 }
 
+/// Only handlers whose metadata access goes through get_index/resolve_index.
+/// Body validity and response-cache eligibility do not change this routing.
+pub(crate) fn uses_read_view(method: &Method, path: &str) -> bool {
+    let Ok(parts) = decode_path_segments(path) else {
+        return false;
+    };
+    match parts.as_slice() {
+        [_, endpoint, _] => *method == Method::GET && endpoint == "_doc",
+        [index, endpoint] => {
+            endpoint == "_search"
+                && matches!(*method, Method::GET | Method::POST)
+                // dispatch_inner gives GET /_alias/<name> precedence over search.
+                && !(*method == Method::GET && index == "_alias")
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn metadata_state(db: Connection) -> AppState {
+        AppState {
+            cfg: Config::from_env(),
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: "http://127.0.0.1:1".into(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(1)),
+                admin_mutation_started: None,
+                mutation_completion: None,
+            },
+            db: Arc::new(Mutex::new(db)),
+            shared_catalog: None,
+            read_catalog: None,
+            cache_runtime: None,
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+        }
+    }
+
+    #[test]
+    fn read_view_preserves_sqlite_resolution_and_metadata_contracts() {
+        let bytes = serde_json::to_vec(&json!({
+            "indices": [
+                ["books", "{\"large\":18446744073709551615,\"small\":-9223372036854775808}", "[\"z\",\"a\",\"z\"]"],
+                ["collision", "7", "[]"],
+                ["null", "null", "[]"],
+                ["array", "[true,1]", "[]"],
+                ["boolean", "false", "[]"],
+                ["string", "\"value\"", "[]"],
+                ["", "{}", "[]"],
+                ["é", "{}", "[]"]
+            ],
+            "aliases": [
+                ["current", "books"], ["collision", "books"],
+                ["dangling", "missing"], ["chain", "current"],
+                ["cycle-a", "cycle-b"], ["cycle-b", "cycle-a"], ["self", "self"]
+            ]
+        })).unwrap();
+        let sqlite = metadata_state(snapshot_db(&bytes).unwrap());
+        // No SQLite tables exist in this state: metadata must come entirely
+        // from the supplied view, including not-found decisions.
+        let mut typed = metadata_state(Connection::open_in_memory().unwrap());
+        typed.read_catalog = Some(Arc::new(snapshot_read_view(&bytes).unwrap()));
+        for name in [
+            "books",
+            "current",
+            "collision",
+            "null",
+            "array",
+            "boolean",
+            "string",
+            "",
+            "é",
+            "É",
+            "BOOKS",
+            "missing",
+            "dangling",
+            "chain",
+            "cycle-a",
+            "self",
+        ] {
+            assert_eq!(
+                get_index(&typed, name).map_err(|error| error.to_string()),
+                get_index(&sqlite, name).map_err(|error| error.to_string()),
+                "get_index({name})"
+            );
+            assert_eq!(
+                resolve_index(&typed, name).map_err(|error| error.to_string()),
+                resolve_index(&sqlite, name).map_err(|error| error.to_string()),
+                "resolve_index({name})"
+            );
+        }
+        typed.db = Arc::new(Mutex::new(
+            snapshot_db(br#"{"indices":[["stale-local","{}","[]"]],"aliases":[]}"#).unwrap(),
+        ));
+        assert!(matches!(
+            get_index(&typed, "stale-local"),
+            Err(GatewayError::NotFound(_))
+        ));
+        assert!(matches!(
+            resolve_index(&typed, "stale-local"),
+            Err(GatewayError::NotFound(_))
+        ));
+    }
+
+    #[test]
+    fn read_view_validates_the_complete_snapshot_like_sqlite() {
+        let invalid = [
+            "invalid json".to_owned(),
+            r#"{"indices":[],"aliases":[],"unknown":true}"#.into(),
+            r#"{"indices":[],"indices":[],"aliases":[]}"#.into(),
+            r#"{"indices":[]}"#.into(),
+            json!({"indices":[["wanted","{}","[]"],["unrelated","invalid","[]"]],"aliases":[]})
+                .to_string(),
+            json!({"indices":[["wanted","{}","[]"],["unrelated","{}","[1]"]],"aliases":[]})
+                .to_string(),
+            json!({"indices":[["wanted","{}","[]"],["unrelated","{}","{}"]],"aliases":[]})
+                .to_string(),
+            json!({"indices":[["wanted","{}","[]"],["wanted","{}","[]"]],"aliases":[]}).to_string(),
+            json!({"indices":[],"aliases":[["same","x"],["same","x"]]}).to_string(),
+            json!({"indices":[],"aliases":[["same","x"],["same","y"]]}).to_string(),
+            " ".repeat(MAX_BYTES + 1),
+        ];
+        for bytes in invalid {
+            assert!(snapshot_db(bytes.as_bytes()).is_err());
+            assert!(snapshot_read_view(bytes.as_bytes()).is_err());
+        }
+    }
+
+    #[test]
+    fn read_view_allowlist_matches_dispatch_precedence() {
+        for (method, path) in [
+            (Method::GET, "/books/_doc/a"),
+            (Method::GET, "/books/%5Fdoc/a%2Fb"),
+            (Method::GET, "/books/_search"),
+            (Method::POST, "/books/%5Fsearch"),
+            (Method::POST, "/_alias/_search"),
+        ] {
+            assert!(uses_read_view(&method, path), "{method} {path}");
+        }
+        for (method, path) in [
+            (Method::GET, "/_alias/_search"),
+            (Method::GET, "/%5Falias/%5Fsearch"),
+            (Method::GET, "/books/_mapping"),
+            (Method::GET, "/books"),
+            (Method::HEAD, "/books/_doc/a"),
+            (Method::PUT, "/books/_doc/a"),
+            (Method::POST, "/books/_update/a"),
+            (Method::POST, "/books/_bulk"),
+            (Method::POST, "/books/_count"),
+            (Method::POST, "/books/_msearch"),
+            (Method::POST, "/_aliases"),
+            (Method::GET, "/%FF/_search"),
+        ] {
+            assert!(!uses_read_view(&method, path), "{method} {path}");
+        }
+    }
+
     #[tokio::test]
     #[ignore = "requires CATALOG_TEST_REDIS_URL"]
     async fn transport_reuse_keeps_fresh_snapshots_and_never_replays_failed_admin() {
@@ -517,6 +767,7 @@ mod tests {
             },
             db: Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
             shared_catalog: Some(catalog.clone()),
+            read_catalog: None,
             cache_runtime: None,
             analytics: Arc::new(Mutex::new(Analytics::default())),
             index_admin: Arc::new(AsyncMutex::new(())),
@@ -604,6 +855,7 @@ mod tests {
             },
             db: Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
             shared_catalog: Some(catalog.clone()),
+            read_catalog: None,
             cache_runtime: None,
             analytics: Arc::new(Mutex::new(Analytics::default())),
             index_admin: Arc::new(AsyncMutex::new(())),
