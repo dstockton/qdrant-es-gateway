@@ -2943,10 +2943,25 @@ async fn ordered_numeric_hits(
     if total == 0 {
         return Ok(Some(Vec::new()));
     }
-    let mut clauses = filter.cloned().into_iter().collect::<Vec<_>>();
-    clauses.push(json!({"key":"_qeg_fast_fields","match":{"value":format!("v1:number:{field}")}}));
-    let eligible = qdrant_exact_count(state, coll, Some(&json!({"must":clauses}))).await?;
-    if eligible != total {
+    let mut coverage = json!({"must_not":[{"key":"_qeg_fast_fields","match":{"value":format!("v1:number:{field}")}}]});
+    if let Some(filter) = filter {
+        coverage["must"] = json!([filter]);
+    }
+    let coverage = state
+        .qdrant
+        .request(
+            Method::POST,
+            &format!("/collections/{coll}/points/scroll"),
+            Some(json!({"filter":coverage,"limit":1,"with_payload":false,"with_vector":false})),
+        )
+        .await?;
+    let uncovered = coverage
+        .pointer("/result/points")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            GatewayError::bad("search", "invalid ordered-scroll eligibility response")
+        })?;
+    if !uncovered.is_empty() {
         return Ok(None);
     }
     let mut clauses = filter.cloned().into_iter().collect::<Vec<_>>();
@@ -2977,7 +2992,7 @@ async fn ordered_numeric_hits(
         let payload = &point["payload"];
         json!({"_index":index,"_id":payload["_es_id"],"_score":Value::Null,"_source":payload["_source"]})
     }).collect::<Vec<_>>();
-    // Coverage can change between count and scroll. Never accept an unexpected
+    // Coverage can change between the eligibility check and ordered scroll. Never accept an unexpected
     // non-scalar source from an in-flight write as an ordered numeric hit.
     if hits
         .iter()
@@ -8292,18 +8307,20 @@ mod tests {
                 let points = points.clone();
                 let requests = requests.clone();
                 async move {
-                    let path = request.uri().path().to_owned();
                     let body: Value = serde_json::from_slice(
                         &axum::body::to_bytes(request.into_body(), usize::MAX)
                             .await
                             .unwrap(),
                     )
                     .unwrap();
+                    let ordered = body.get("order_by").is_some();
                     requests.lock().unwrap().push(body);
-                    Json(if path.ends_with("/count") {
-                        json!({"result":{"count":eligible}})
-                    } else {
+                    Json(if ordered {
                         json!({"result":{"points":points,"next_page_offset":null}})
+                    } else if eligible == 2 {
+                        json!({"result":{"points":[],"next_page_offset":null}})
+                    } else {
+                        json!({"result":{"points":[{"id":"legacy"}],"next_page_offset":null}})
                     })
                 }
             }));
@@ -8350,7 +8367,7 @@ mod tests {
             );
             let requests = observed.lock().unwrap();
             assert_eq!(
-                requests[0]["filter"]["must"][0]["match"]["value"],
+                requests[0]["filter"]["must_not"][0]["match"]["value"],
                 "v1:number:price"
             );
             if eligible == 2 {
