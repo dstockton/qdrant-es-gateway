@@ -2837,6 +2837,7 @@ async fn search_with_total_format(
         .get("query")
         .cloned()
         .unwrap_or_else(|| json!({"match_all":{}}));
+    sparse::validate_request(&body, &mapping)?;
     query = expand_more_like_this(&state, &index, query).await?;
     let mut patterns = Vec::new();
     collect_patterns(&query, &mut patterns)?;
@@ -2849,11 +2850,12 @@ async fn search_with_total_format(
             "collapse",
             "sort",
             "search_after",
+            "min_score",
         ]
         .iter()
         .any(|key| body.get(key).is_some())
     {
-        return Err(GatewayError::bad("neural_sparse", "aggregations, post_filter, collapse, sort and search_after are unsupported for explicit sparse queries"));
+        return Err(GatewayError::bad("neural_sparse", "aggregations, post_filter, collapse, sort, search_after and min_score are unsupported for explicit sparse queries"));
     }
     let (filter, _) = if sparse_query.is_some() {
         (None, Vec::new())
@@ -3317,7 +3319,8 @@ async fn count(
     Path(index): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Response, GatewayError> {
-    let (_, coll, _, _) = get_index(&state, &index)?;
+    let (_, coll, mapping, _) = get_index(&state, &index)?;
+    sparse::validate_request(&body, &mapping)?;
     let query = body
         .get("query")
         .cloned()
@@ -6131,6 +6134,27 @@ mod tests {
         assert!(
             observed.lock().unwrap().is_empty(),
             "invalid vector must not write even the authoritative source"
+        );
+        for request in [
+            json!({"query":{"exists":{"field":"v"}}}),
+            json!({"min_score":0.5,"query":{"neural_sparse":{"v":{"query_tokens":{"65536":1}}}}}),
+        ] {
+            assert!(
+                search(State(state.clone()), Path("sparse".into()), Json(request))
+                    .await
+                    .is_err()
+            );
+        }
+        assert!(count(
+            State(state.clone()),
+            Path("sparse".into()),
+            Json(json!({"query":{"term":{"v":1}}}))
+        )
+        .await
+        .is_err());
+        assert!(
+            observed.lock().unwrap().is_empty(),
+            "unsupported sparse semantics must not call Qdrant"
         );
         state.cfg.document_projection = false;
         write_docs(

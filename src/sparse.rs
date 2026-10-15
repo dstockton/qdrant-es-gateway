@@ -94,6 +94,121 @@ pub fn document(source: &Value, mapping: &Value) -> Result<Map<String, Value>, G
     Ok(result)
 }
 
+fn check_scalar_field(field: &str, mapping: &Value) -> Result<(), GatewayError> {
+    let field = field.split('^').next().unwrap_or(field);
+    if mapping
+        .get("properties")
+        .and_then(Value::as_object)
+        .is_some_and(|properties| {
+            properties.iter().any(|(name, spec)| {
+                spec.get("type").and_then(Value::as_str) == Some("sparse_vector")
+                    && (field == name
+                        || field
+                            .strip_prefix(name)
+                            .is_some_and(|suffix| suffix.starts_with('.')))
+            })
+        })
+    {
+        return Err(GatewayError::bad("sparse_vector.scalar_query", "scalar predicates and aggregations on sparse_vector fields are unsupported; use neural_sparse query_tokens"));
+    }
+    Ok(())
+}
+
+/// Sparse vectors are deliberately absent from scalar payload indexes.
+/// Walk query syntax, never user scalar values, to reject unsupported uses.
+pub fn validate_scalar_queries(query: &Value, mapping: &Value) -> Result<(), GatewayError> {
+    if let Some(clauses) = query.as_array() {
+        for clause in clauses {
+            validate_scalar_queries(clause, mapping)?;
+        }
+    }
+    if let Some(object) = query.as_object() {
+        for (kind, value) in object {
+            match kind.as_str() {
+                "term" | "terms" | "range" | "prefix" | "wildcard" | "regexp" | "match"
+                | "match_phrase" | "match_bool_prefix" | "fuzzy" => {
+                    if let Some(fields) = value.as_object() {
+                        for field in fields.keys() {
+                            check_scalar_field(field, mapping)?;
+                        }
+                    }
+                }
+                "exists" => {
+                    if let Some(field) = value.get("field").and_then(Value::as_str) {
+                        check_scalar_field(field, mapping)?;
+                    }
+                }
+                "multi_match" => {
+                    if let Some(fields) = value.get("fields").and_then(Value::as_array) {
+                        for field in fields.iter().filter_map(Value::as_str) {
+                            check_scalar_field(field, mapping)?;
+                        }
+                    }
+                }
+                "bool" => {
+                    for key in ["must", "must_not", "should", "filter"] {
+                        if let Some(clauses) = value.get(key) {
+                            validate_scalar_queries(clauses, mapping)?;
+                        }
+                    }
+                }
+                "dis_max" => {
+                    if let Some(clauses) = value.get("queries") {
+                        validate_scalar_queries(clauses, mapping)?;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn validate_request(body: &Value, mapping: &Value) -> Result<(), GatewayError> {
+    fn aggregations(value: &Value, mapping: &Value) -> Result<(), GatewayError> {
+        if let Some(aggs) = value.as_object() {
+            for spec in aggs.values() {
+                if let Some(spec) = spec.as_object() {
+                    for (kind, options) in spec {
+                        match kind.as_str() {
+                            "aggs" | "aggregations" => aggregations(options, mapping)?,
+                            "filter" => validate_scalar_queries(options, mapping)?,
+                            "filters" => {
+                                if let Some(filters) = options.get("filters") {
+                                    if let Some(filters) = filters.as_object() {
+                                        for filter in filters.values() {
+                                            validate_scalar_queries(filter, mapping)?;
+                                        }
+                                    } else {
+                                        validate_scalar_queries(filters, mapping)?;
+                                    }
+                                }
+                            }
+                            _ => {
+                                if let Some(field) = options.get("field").and_then(Value::as_str) {
+                                    check_scalar_field(field, mapping)?;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+    for key in ["query", "post_filter"] {
+        if let Some(query) = body.get(key) {
+            validate_scalar_queries(query, mapping)?;
+        }
+    }
+    for key in ["aggs", "aggregations"] {
+        if let Some(value) = body.get(key) {
+            aggregations(value, mapping)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn query(query: &Value, mapping: &Value) -> Result<Option<(String, Value)>, GatewayError> {
     let Some(sparse) = query.get("neural_sparse") else {
         return Ok(None);
@@ -155,6 +270,48 @@ mod tests {
         ] {
             assert!(vector(&bad).is_err(), "{bad}");
         }
+    }
+    #[test]
+    fn scalar_queries_on_sparse_fields_fail_explicitly() {
+        let mapping =
+            json!({"properties":{"v":{"type":"sparse_vector"},"category":{"type":"keyword"}}});
+        for query in [
+            json!({"exists":{"field":"v"}}),
+            json!({"term":{"v.65536":1}}),
+            json!({"range":{"v":{"gte":0}}}),
+            json!({"bool":{"must_not":[{"terms":{"v":[1]}}]}}),
+            json!({"multi_match":{"query":"x","fields":["v^2"]}}),
+        ] {
+            assert!(
+                (if query.get("aggs").is_some() {
+                    validate_request(&query, &mapping)
+                } else {
+                    validate_scalar_queries(&query, &mapping)
+                })
+                .is_err(),
+                "{query}"
+            );
+        }
+        assert!(validate_scalar_queries(&json!({"term":{"category":"v"}}), &mapping).is_ok());
+        assert!(validate_scalar_queries(
+            &json!({"neural_sparse":{"v":{"query_tokens":{"65536":1}}}}),
+            &mapping
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn scalar_values_are_not_mistaken_for_field_references() {
+        let mapping = json!({"properties":{"v":{"type":"sparse_vector"}}});
+        for query in [
+            json!({"term":{"field":"v"}}),
+            json!({"terms":{"fields":["v"]}}),
+        ] {
+            assert!(validate_scalar_queries(&query, &mapping).is_ok());
+        }
+        assert!(
+            validate_request(&json!({"aggs":{"term":{"min":{"field":"v"}}}}), &mapping).is_err()
+        );
     }
     #[test]
     fn names_are_collision_free() {

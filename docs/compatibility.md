@@ -46,7 +46,10 @@ when the sparse field changes, including with document projection enabled.
 `{"query":{"neural_sparse":{"v":{"query_tokens":{"65536":1.0}}}}}`
 supports one mapped field as the sole top-level query. Inference (`query_text`,
 `model_id`), `method_parameters`, bool composition, sort, search_after, collapse,
-post_filter and aggregations are rejected. `from`/`size` retain gateway limits;
-reported total hits are a lower bound. Query token objects must not be empty.
+post_filter, min_score and aggregations are rejected. `from`/`size` retain gateway limits;
+reported total hits are a lower bound. Query token objects must not be empty. Scalar predicates (including exists, term,
+range and nested bool filters), filter/metric aggregations on sparse fields or
+their token subpaths are rejected for search and count; sparse vectors are not
+scalar payload fields.
 The OpenSearch Lucene default-path comparison in `examples/explicit-sparse`
 verifies full-width token IDs; it does not reproduce SEISMIC approximation bugs.

@@ -60,5 +60,6 @@ search precomputed embeddings without another inference service or gateway
 session store. It does not establish that migrating from OpenSearch is better:
 the tested native exact path is correct too. Sparse queries currently support a
 single top-level field and bounded `from`/`size`; total hits are a lower bound.
-They reject aggregations, sorting, collapse, post-filtering and `search_after`.
+They reject aggregations, sorting, collapse, post-filtering, `min_score` and
+`search_after`. Scalar filters on the sparse field also fail explicitly.
 Use a new index when adding sparse fields to an existing mapping.
