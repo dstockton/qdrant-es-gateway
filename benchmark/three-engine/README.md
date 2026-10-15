@@ -62,3 +62,18 @@ Environment overrides: `ES_URL`, `OS_URL`, `GATEWAY_URL`, `DOCS`, `BATCH`,
 **deletes `balanced_benchmark` at the configured endpoints**; use disposable
 instances, never production endpoints. The default corpus is 10,000 documents
 with 20 balanced categories and approximately 200 bytes of source text each.
+
+## Retained comparison
+
+The October 15 comparison uses three trials of 40 measured requests per engine,
+workload and concurrency, plus warmups (`TRIALS=3 REQUESTS=40`). The default five
+trials above are useful for a longer rerun. Summarize every retained trial with:
+
+```sh
+python3 summarize.py results/baseline.json results/optimized.json
+```
+
+The script reports the median trial p50, p95 and throughput, and the range of
+trial medians. It refuses incomplete or failed runs. The gateway's reported
+Elasticsearch version is a compatibility response, not its build version; use
+the recorded gateway Git revision and container image digest for provenance.
