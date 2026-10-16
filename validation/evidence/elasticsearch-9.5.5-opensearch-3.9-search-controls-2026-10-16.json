@@ -1,0 +1,41 @@
+{
+  "recorded_at": "2026-10-16T20:12:00+01:00",
+  "purpose": "Confirm that search execution controls ignored by the gateway change native responses",
+  "environment": "Separate ephemeral single-node containers with security disabled",
+  "corpus": [
+    {"_id": "1", "title": "alpha beta"},
+    {"_id": "2", "title": "alpha"},
+    {"_id": "3", "title": "gamma"}
+  ],
+  "requests": {
+    "min_score": {"size": 10, "query": {"match_all": {}}, "min_score": 2},
+    "terminate_after": {"size": 10, "query": {"match_all": {}}, "terminate_after": 1},
+    "valid_timeout": {"size": 10, "query": {"match_all": {}}, "timeout": "1s"},
+    "invalid_timeout": {"query": {"match_all": {}}, "timeout": "banana"}
+  },
+  "targets": [
+    {
+      "engine": "Elasticsearch",
+      "version": "9.5.5",
+      "image": "docker.elastic.co/elasticsearch/elasticsearch:9.5.5",
+      "min_score": {"status": 200, "total": {"value": 0, "relation": "eq"}, "ids": []},
+      "terminate_after": {"status": 200, "terminated_early": true, "total": {"value": 3, "relation": "eq"}, "ids": ["1"]},
+      "valid_timeout": {"status": 200, "timed_out": false, "total": {"value": 3, "relation": "eq"}, "ids": ["1", "2", "3"]},
+      "invalid_timeout": {"status": 400, "error_type": "illegal_argument_exception", "reason": "failed to parse setting [timeout] with value [banana] as a time value: unit is missing or unrecognized"}
+    },
+    {
+      "engine": "OpenSearch",
+      "version": "3.9.0",
+      "image": "opensearchproject/opensearch:3.9.0",
+      "min_score": {"status": 200, "total": {"value": 0, "relation": "eq"}, "ids": []},
+      "terminate_after": {"status": 200, "terminated_early": true, "total": {"value": 1, "relation": "eq"}, "ids": ["1"]},
+      "valid_timeout": {"status": 200, "timed_out": false, "total": {"value": 3, "relation": "eq"}, "ids": ["1", "2", "3"]},
+      "invalid_timeout": {"status": 400, "error_type": "illegal_argument_exception", "reason": "failed to parse setting [timeout] with value [banana] as a time value: unit is missing or unrecognized"}
+    }
+  ],
+  "limitations": [
+    "This is a request and response compatibility probe, not a latency benchmark.",
+    "The one-shard three-document corpus demonstrates observable semantics but does not characterize distributed early termination.",
+    "The valid one-second timeout did not expire; the invalid value confirms that both engines parse the field rather than ignore it."
+  ]
+}
