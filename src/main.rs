@@ -254,6 +254,8 @@ enum GatewayError {
     IndexAlreadyExists { index: String },
     #[error("Invalid index name [{index}], {reason}")]
     InvalidIndexName { index: String, reason: String },
+    #[error("{0}")]
+    IllegalArgument(String),
     #[error("request body exceeds configured {setting} limit of {limit} bytes")]
     PayloadTooLarge { setting: &'static str, limit: usize },
     #[error("upstream error: {0}")]
@@ -281,9 +283,9 @@ impl GatewayError {
                 StatusCode::NOT_FOUND
             }
             Self::VersionConflict { .. } => StatusCode::CONFLICT,
-            Self::IndexAlreadyExists { .. } | Self::InvalidIndexName { .. } => {
-                StatusCode::BAD_REQUEST
-            }
+            Self::IndexAlreadyExists { .. }
+            | Self::InvalidIndexName { .. }
+            | Self::IllegalArgument(_) => StatusCode::BAD_REQUEST,
             Self::Bad { .. } => StatusCode::BAD_REQUEST,
             Self::PayloadTooLarge { .. } => StatusCode::PAYLOAD_TOO_LARGE,
             Self::Upstream(_) => StatusCode::BAD_GATEWAY,
@@ -320,6 +322,9 @@ impl GatewayError {
             Self::InvalidIndexName { index, reason } => {
                 let reason = format!("Invalid index name [{index}], {reason}");
                 json!({"error":{"root_cause":[{"type":"invalid_index_name_exception","reason":reason,"index_uuid":"_na_","index":index}],"type":"invalid_index_name_exception","reason":reason,"index_uuid":"_na_","index":index},"status":400})
+            }
+            Self::IllegalArgument(reason) => {
+                json!({"error":{"root_cause":[{"type":"illegal_argument_exception","reason":reason}],"type":"illegal_argument_exception","reason":reason},"status":400})
             }
             Self::PayloadTooLarge { setting, limit } => {
                 json!({"error":{"type":"content_too_long_exception","reason":format!("request body exceeds configured {setting} limit of {limit} bytes")},"status":413})
@@ -3632,12 +3637,17 @@ async fn aliases(
         Remove { alias: String, index: String },
     }
 
-    let mut actions = Vec::new();
-    for action in body
+    let request_actions = body
         .get("actions")
-        .and_then(Value::as_array)
-        .ok_or_else(|| GatewayError::bad("_aliases", "actions must be an array"))?
-    {
+        .ok_or_else(|| GatewayError::IllegalArgument("No action specified".into()))?
+        .as_array()
+        .ok_or_else(|| GatewayError::bad("_aliases", "actions must be an array"))?;
+    if request_actions.is_empty() {
+        return Err(GatewayError::IllegalArgument("No action specified".into()));
+    }
+
+    let mut actions = Vec::new();
+    for action in request_actions {
         let o = action
             .as_object()
             .filter(|object| object.len() == 1)
@@ -4979,6 +4989,53 @@ mod tests {
             )
             .unwrap();
         assert_eq!(target, "products-v2");
+    }
+
+    #[tokio::test]
+    async fn empty_alias_batches_are_rejected_without_catalogue_changes() {
+        let cfg = Config::from_env();
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); \
+             CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); \
+             INSERT INTO indices VALUES ('products', '{}', '[]'); \
+             INSERT INTO aliases VALUES ('current-products', 'products');",
+        )
+        .unwrap();
+        let state = AppState {
+            shared_catalog: None,
+            qdrant: Qdrant {
+                admin_mutation_started: None,
+                client: Client::new(),
+                base: "http://127.0.0.1:1".into(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        for body in [json!({}), json!({"actions":[]})] {
+            let error = aliases(State(state.clone()), Json(body)).await.unwrap_err();
+
+            assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(error.body()["error"]["type"], "illegal_argument_exception");
+            assert_eq!(error.body()["error"]["reason"], "No action specified");
+        }
+
+        let target: String = state
+            .db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT index_name FROM aliases WHERE alias='current-products'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(target, "products");
     }
 
     #[tokio::test]

@@ -21,6 +21,7 @@
 
 ## Articles (Markdown)
 
+- [An empty alias batch is not success](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-16-empty-alias-batches-are-not-success.md)
 - [Find the next page across the whole catalogue](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-sorted-pages-look-past-first-candidates.md)
 - [Two gateways need one view of their mappings](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-sharing-mappings-between-gateway-replicas.md)
 - [Rustls security fixes landed](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-rustls-security-fixes-landed.md)
