@@ -2828,6 +2828,29 @@ fn hit_is_after(hit: &Value, cursor: &[Value], sorts: &[(String, String)]) -> bo
     false
 }
 
+fn validate_search_execution_controls(body: &Value) -> Result<(), GatewayError> {
+    let controls = [
+        (
+            "min_score",
+            "min_score changes hit membership and totals and is not currently supported",
+        ),
+        (
+            "terminate_after",
+            "terminate_after changes hit membership and early-termination metadata and is not currently supported",
+        ),
+        (
+            "timeout",
+            "per-search timeout and partial-result semantics are not currently supported",
+        ),
+    ];
+    for (control, message) in controls {
+        if body.get(control).is_some() {
+            return Err(GatewayError::bad(control, message));
+        }
+    }
+    Ok(())
+}
+
 async fn search(
     State(state): State<AppState>,
     Path(index): Path<String>,
@@ -2843,6 +2866,7 @@ async fn search_with_total_format(
     rest_total_hits_as_int: bool,
 ) -> Result<Response, GatewayError> {
     let started = Instant::now();
+    validate_search_execution_controls(&body)?;
     if body.get("pit").is_some() {
         return Err(GatewayError::bad(
             "pit",
@@ -6726,6 +6750,9 @@ mod tests {
         };
 
         let cases = [
+            (json!({"min_score":0.5}), "min_score"),
+            (json!({"terminate_after":1}), "terminate_after"),
+            (json!({"timeout":"1s"}), "timeout"),
             (json!({"from":-1}), "from"),
             (json!({"from":"1"}), "from"),
             (json!({"size":-1}), "size"),
