@@ -53,6 +53,7 @@
 
 ## Unreleased
 
+- Reject missing or empty alias action lists with the Elasticsearch/OpenSearch HTTP 400 `illegal_argument_exception` response instead of acknowledging an empty catalogue transaction.
 - Return an `aliases_not_found_exception` when every alias removal misses instead of acknowledging a no-op; mixed batches still apply successful actions and retain the documented Elasticsearch/OpenSearch response-shape limitation.
 - Update the locked `rustls` runtime dependency to 0.23.46 to address RUSTSEC-2026-0346 through RUSTSEC-2026-0349.
 - Reject alias filters, routing, write-index/hidden flags, remove `must_exist`, and unknown action options before changing the catalogue instead of acknowledging semantics the gateway cannot apply.
