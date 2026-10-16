@@ -655,27 +655,6 @@ The merged change passed Rust tests, the dependency audit, Helm checks, and the 
 
 ---
 
-Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-reading-reddit-with-an-honest-coverage-report.md
-
-# Reading Reddit with an honest coverage report
-
-A daily search investigation is only useful if we know what it actually read. Anonymous Reddit feeds returned HTTP 403 during ours. Cached search snippets sometimes showed conflicting relative dates. Neither was enough to establish that a report had been published in the previous 24 hours.
-
-The repository now includes a small, read-only OAuth collector. Once Reddit approves the use and an account supplies a token, it walks the new-submission listings for Elasticsearch and OpenSearch, follows pagination, and selects reports using their exact UTC creation timestamps. Duplicate IDs, removed posts, and old pinned entries do not become fresh reports.
-
-Run `python3 scripts/reddit_reports.py --metadata-only` to get a coverage manifest for the preceding 24 hours. Each subreddit records how many pages were read and why reading stopped. A page cap, repeated cursor, or access error produces an incomplete status and a failing exit code. An exhausted listing means that accessible listing ended; it does not mean every Reddit conversation was reviewed.
-
-The offline tests exercise pagination, time boundaries, duplicate reports, deleted bodies, and partial listings. Live OAuth collector access has not been verified. Reddit says, [“Clients must authenticate with a registered OAuth token.”](https://support.reddithelp.com/hc/en-us/articles/16160319875092-Reddit-Data-API-Wiki) Its [Responsible Builder Policy](https://support.reddithelp.com/hc/en-us/articles/42728983564564-Responsible-Builder-Policy) also requires approval for the use case. The collector cannot grant that approval.
-
-There is no persistent content cache. Titles and bodies are available for immediate review, while metadata-only output omits them. Anyone retaining output or publishing a quotation must handle deletion and the applicable retention terms. The [setup guide](https://github.com/dstockton/qdrant-es-gateway/blob/main/research/README.md) includes a transparent access-request description covering automated technical assessment and possible articles.
-
-This improves the evidence trail, not the gateway's query speed. When a source remains inaccessible, the investigation will say so instead of treating an empty search result as proof that nobody had a problem.
-
-A follow-up browser check reached the Elasticsearch listing using the account owner's existing Chrome profile. This gives the investigation another way to read public threads when anonymous requests fail. It also exposed a different limit: the OpenSearch subreddit displayed a banned-community notice. Browser access and approved API access are separate paths, and neither makes a banned community available. We record which path supplied each source and never extract browser session credentials.
-
-
----
-
 Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-missing-alias-removals-are-not-success.md
 
 # Missing alias removals are not success
@@ -758,23 +737,6 @@ single top-level field and bounded `from`/`size`; total hits are a lower bound.
 They reject aggregations, sorting, collapse, post-filtering, `min_score` and
 `search_after`. Scalar filters on the sparse field also fail explicitly.
 Use a new index when adding sparse fields to an existing mapping.
-
-
----
-
-Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-documentation-you-can-read-as-text.md
-
-# Documentation you can read as text
-
-The blog works well in a browser. A coding assistant reviewing a migration needs something simpler: the compatibility boundary, the deployment instructions, and article text without navigation markup.
-
-Every article now has a downloadable Markdown copy. The [llms.txt index](https://dstockton.github.io/qdrant-es-gateway/llms.txt) starts with the compatibility and production guides, then links to all articles. [llms-full.txt](https://dstockton.github.io/qdrant-es-gateway/llms-full.txt) puts those guides and the articles into one text file, with source links separating them.
-
-These files are generated from the same Markdown sources that build the site. There is no second set of articles to maintain. Run `python3 scripts/export_agent_docs.py` after editing the documentation; `--check` detects stale copies in CI. The exports remove Jekyll front matter and resolve site links so a reader can follow them outside the rendered page.
-
-The format follows the [llms.txt proposal](https://llmstxt.org/). It gives tools a predictable entry point; it does not guarantee that any crawler or assistant will discover, index, or follow it. Search engines can still use the normal HTML pages and sitemap.
-
-For a migration review, start with the compatibility guide before reading a successful example. A post proves a particular workload, not full Elasticsearch or OpenSearch equivalence. Keeping that boundary beside the examples makes the repository easier to use responsibly, for people and agents alike.
 
 
 ---
@@ -1677,19 +1639,6 @@ This accuracy costs one point read per standalone index request. It is also a st
 
 ---
 
-Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-09-25-protected-main-keeps-maintenance-moving.md
-
-# A locked front door for routine maintenance
-
-Automatic dependency updates are useful right up until they can skip the tests.
-
-`main` is now protected. A change needs a pull request, and Rust tests, Clippy, the dependency audit, Helm validation, and the container security scan must all pass before it can land.
-
-That gives Dependabot a safe fast lane: it can merge boring, green updates by itself, while code changes and anything that fails a check still wait for a human. The guardrail is simple, visible, and enforced by GitHub—not by a promise in a workflow file.
-
-
----
-
 Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-09-25-one-index-one-collection-namespace.md
 
 # One index, one collection namespace
@@ -1701,19 +1650,6 @@ Those collisions are more serious than a confusing create error. If both names r
 The regression test covers punctuation normalization and the `_documents` suffix case. It also asserts that rejected creation makes zero upstream requests and publishes no index metadata.
 
 This is a guard around the existing naming scheme, not a new reversible encoder. Existing deployments keep their current collection names. Operators importing metadata created outside the gateway should still audit collection ownership before startup; the check prevents new collisions recorded through the gateway but cannot repair an already-colliding external state.
-
-
----
-
-Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-09-25-dependabot-can-finish-the-job.md
-
-# Dependabot can finish the job
-
-Dependency updates used to stop at “all checks passed”, waiting for someone to click merge.
-
-That last click is now automated for Dependabot. The gateway waits for the full CI workflow—Rust tests and Clippy, dependency audit, Helm validation, container build, and vulnerability scan—to pass. Only then does it enable GitHub’s squash auto-merge for a PR authored by Dependabot.
-
-Human review remains the default for everything else. Routine maintenance gets to be routine.
 
 
 ---
@@ -1752,21 +1688,6 @@ cargo test aliases_route_document_and_search_requests_to_the_concrete_index
 ```
 
 This does not make aliases equivalent to Elasticsearch's full alias subsystem. The current schema deliberately permits one concrete target per alias. Filtered aliases, multi-index fan-out, write-index selection, and a Qdrant-native atomic switch are still future work. Alias action batches are atomic within the gateway's SQLite catalogue, but they remain gateway-local metadata operations rather than a distributed transaction with Qdrant.
-
-
----
-
-Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-09-24-release-please.md
-
-# Releases should not depend on remembering three version files
-
-The gateway has one release version, but it appears in more than one place: Rust, the Helm chart, and the lockfile.
-
-That is exactly the sort of job a human does once, then forgets on a Friday afternoon.
-
-Release Please now watches `main` and opens a release pull request when Conventional Commit messages add a feature or fix. The pull request updates the changelog and keeps the Rust and Helm versions together. Once it is reviewed and merged, Release Please creates the tag and GitHub release; the existing publish pipeline sees that tag and adds the container, chart package, SBOM, and attestation.
-
-The useful part is the pause in the middle: automation prepares the release, but a person still gets to read it before anything ships.
 
 
 ---
@@ -2138,12 +2059,6 @@ Here is the short launch video for Qdrant ES Gateway:
 </video>
 
 The story is simple: an existing application keeps its Elasticsearch-shaped client requests, while the gateway translates the supported application-search subset to the Qdrant engine. The video compares compatibility, retrieval, mixed workloads, memory, and the supported feature boundary.
-
-## How the video was made
-
-AI helped with the production work: shaping benchmark results into a narrative, suggesting scene beats, catching confusing request-shape changes, and iterating on timing, layout, and captions. A local voice profile provided the narration; several passes fixed pronunciation, pacing, volume, and the final pause.
-
-The visuals were checked against the gateway and benchmark outputs. The numbers and compatibility claims come from the project’s tests and documentation.
 
 See the [compatibility matrix](https://dstockton.github.io/qdrant-es-gateway/compatibility/) and [production notes](https://dstockton.github.io/qdrant-es-gateway/production/) for the detail behind the demo.
 
