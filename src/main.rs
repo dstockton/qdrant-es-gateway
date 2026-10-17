@@ -2842,6 +2842,10 @@ fn validate_search_execution_controls(body: &Value) -> Result<(), GatewayError> 
             "timeout",
             "per-search timeout and partial-result semantics are not currently supported",
         ),
+        (
+            "highlight",
+            "search result highlighting is not currently supported; returned hits would omit the requested snippets",
+        ),
     ];
     for (control, message) in controls {
         if body.get(control).is_some() {
@@ -6753,6 +6757,7 @@ mod tests {
             (json!({"min_score":0.5}), "min_score"),
             (json!({"terminate_after":1}), "terminate_after"),
             (json!({"timeout":"1s"}), "timeout"),
+            (json!({"highlight":{"fields":{"title":{}}}}), "highlight"),
             (json!({"from":-1}), "from"),
             (json!({"from":"1"}), "from"),
             (json!({"size":-1}), "size"),
@@ -6787,6 +6792,21 @@ mod tests {
                 .unwrap_err();
             assert_eq!(error.body()["error"]["feature"], feature);
         }
+        let response = msearch_with_total_format(
+            State(state.clone()),
+            Some("products".into()),
+            "{}\n{\"highlight\":{\"fields\":{\"title\":{}}}}\n".into(),
+            false,
+        )
+        .await
+        .unwrap();
+        let body: Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(body["responses"][0]["error"]["feature"], "highlight");
         let error = search_with_total_format(
             State(state),
             Path("products".into()),
