@@ -21,6 +21,7 @@
 
 ## Articles (Markdown)
 
+- [Score explanations must explain the score](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-17-score-explanations-must-explain-the-score.md)
 - [Highlight snippets cannot vanish](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-17-highlight-snippets-cannot-vanish.md)
 - [AWS Retail Demo Store: compatible search requests, different trade-offs](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-17-aws-retail-demo-store-compatibility.md)
 - [Search controls cannot be decoration](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-16-search-controls-cannot-be-decoration.md)

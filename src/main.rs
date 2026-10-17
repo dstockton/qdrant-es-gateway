@@ -2854,6 +2854,20 @@ fn hit_is_after(hit: &Value, cursor: &[Value], sorts: &[(String, String)]) -> bo
 }
 
 fn validate_search_execution_controls(body: &Value) -> Result<(), GatewayError> {
+    if let Some(explain) = body.get("explain") {
+        match explain.as_bool() {
+            Some(false) => {}
+            Some(true) => {
+                return Err(GatewayError::bad(
+                    "explain",
+                    "per-hit score explanations are not currently supported; returned scores use Qdrant rather than Lucene scoring internals",
+                ));
+            }
+            None => {
+                return Err(GatewayError::bad("explain", "explain must be a boolean"));
+            }
+        }
+    }
     let controls = [
         (
             "min_score",
@@ -6787,6 +6801,8 @@ mod tests {
         };
 
         let cases = [
+            (json!({"explain":true}), "explain"),
+            (json!({"explain":"true"}), "explain"),
             (json!({"min_score":0.5}), "min_score"),
             (json!({"terminate_after":1}), "terminate_after"),
             (json!({"timeout":"1s"}), "timeout"),
@@ -6825,10 +6841,11 @@ mod tests {
                 .unwrap_err();
             assert_eq!(error.body()["error"]["feature"], feature);
         }
+        assert!(validate_search_execution_controls(&json!({"explain":false})).is_ok());
         let response = msearch_with_total_format(
             State(state.clone()),
             Some("products".into()),
-            "{}\n{\"highlight\":{\"fields\":{\"title\":{}}}}\n".into(),
+            "{}\n{\"highlight\":{\"fields\":{\"title\":{}}}}\n{}\n{\"explain\":true}\n".into(),
             false,
         )
         .await
@@ -6840,6 +6857,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(body["responses"][0]["error"]["feature"], "highlight");
+        assert_eq!(body["responses"][1]["error"]["feature"], "explain");
         let error = search_with_total_format(
             State(state),
             Path("products".into()),
