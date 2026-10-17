@@ -1,16 +1,16 @@
-# Real-application validation targets
+# Real-application validation targets for Elasticsearch and OpenSearch
 
-The validation strategy is endpoint-only: run one application workflow twice and change only its Elasticsearch-compatible base URL. This proves both that the application needs no gateway-specific client code and that returned documents are usable by the application.
+The validation strategy is endpoint-only: run one application workflow twice and change only its Elasticsearch/OpenSearch-compatible base URL. This proves both that the application needs no gateway-specific client code and that returned documents are usable by the application. Where the application uses OpenSearch, validate it against native OpenSearch separately from native Elasticsearch; shared request shapes are evidence of compatibility, not proof that the engines rank or aggregate identically.
 
-## First target: Spinscale catalogue search
+## Elasticsearch target: Spinscale catalogue search
 
 [Spinscale's ecommerce search app](https://github.com/spinscale/elasticsearch-ecommerce-search-app) is the best first published application target. It exercises index mappings, bulk ingestion, full-text product search, filters, sorting, pagination, facets, and source-bearing hits. Its original build is tied to an older Java/Gradle/Micronaut stack, so the practical validation path is to preserve its request shapes and fixture data in a modern, pinned replay harness before attempting a full application upgrade.
 
 The current gateway can validate the basic catalogue slice directly. The remaining gaps before claiming unchanged full-application compatibility are custom analyzers/synonyms, exact fuzzy and prefix ranking, search-scoped aggregation membership, and the complete Elasticsearch bulk response contract. `post_filter`, basic metric/filter aggregations, `dis_max`, fuzzy-shaped requests, and retail-style `more_like_this` plus `collapse`/`inner_hits` response shapes are now accepted, but their semantics remain explicitly approximate where the underlying Qdrant query is not Lucene-equivalent.
 
-## Second target: AWS Retail Demo Store search
+## OpenSearch target: AWS Retail Demo Store search
 
-[AWS Retail Demo Store](https://github.com/aws-samples/retail-demo-store) has a useful isolated search service, although the full storefront is AWS-heavy and uses OpenSearch. Its search API returns product IDs and then retrieves product details separately. The request shapes include typeahead `match_bool_prefix`, `dis_max`, category diversity through `collapse`/`inner_hits`, and “similar products” via `more_like_this`. The gateway now accepts these shapes, so the next step is live request replay and product-quality comparison; exact prefix ranking, category distribution, and similarity relevance still need validation before a no-code application claim.
+[AWS Retail Demo Store](https://github.com/aws-samples/retail-demo-store) has a useful isolated search service, although the full storefront is AWS-heavy and uses OpenSearch. Its search API returns product IDs and then retrieves product details separately. The request shapes include typeahead `match_bool_prefix`, `dis_max`, category diversity through `collapse`/`inner_hits`, and “similar products” via `more_like_this`. The [`retail_demo.py`](../validation/retail_demo.py) replay now passes the application's request/response contract against native OpenSearch 3.9.0 and the gateway. Exact prefix ranking, category distribution, and similarity relevance still differ and need product-level evaluation before a full semantic-equivalence claim.
 
 The smallest credible sequence is:
 

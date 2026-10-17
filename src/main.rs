@@ -657,7 +657,7 @@ async fn create_index(
             .request(
                 Method::PUT,
                 &format!("/collections/{}", document_collection(&index)),
-                // Qdrant 1.15 requires a vector field on each point. A
+                // Qdrant requires a vector field on each point. A
                 // one-dimensional on-disk vector with m=0 keeps this
                 // collection payload-first and disables HNSW construction.
                 Some(document_config),
@@ -1387,6 +1387,31 @@ fn source_field<'a>(source: &'a Value, field: &str) -> Option<&'a Value> {
 
 fn compatibility_field(field: &str) -> &str {
     field.strip_suffix(".keyword").unwrap_or(field)
+}
+
+fn search_vector_for_field(mapping: &Value, vectors: &[String], field: &str) -> Option<String> {
+    let vector = if field == "_all" {
+        "text_all".to_string()
+    } else {
+        format!("text_{}", field.replace('.', "_"))
+    };
+    if vectors.contains(&vector) {
+        return Some(vector);
+    }
+
+    // OpenSearch dynamically maps string fields when an index is created with
+    // settings but no explicit mappings. In that mode the gateway stores the
+    // source fields and a catch-all BM25 vector, so an application query for a
+    // field-specific text path can still use the same request shape. Explicit
+    // mappings remain strict: an unknown text field is not silently widened.
+    let dynamic_mapping = mapping
+        .get("properties")
+        .and_then(Value::as_object)
+        .is_none_or(Map::is_empty);
+    if dynamic_mapping && vectors.iter().any(|name| name == "text_all") {
+        return Some("text_all".into());
+    }
+    None
 }
 
 fn sortable_source_field<'a>(source: &'a Value, field: &str) -> Option<&'a Value> {
@@ -2901,6 +2926,15 @@ async fn search_with_total_format(
         (from + size).max(state.cfg.max_page_size).max(1)
     };
     let collapse_spec = parse_collapse_spec(body.get("collapse"), state.cfg.max_page_size)?;
+    let more_like_this_id = body
+        .get("query")
+        .and_then(|query| query.get("more_like_this"))
+        .and_then(|mlt| mlt.get("like"))
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+        .and_then(|item| item.get("_id"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
     let (index, coll, mapping, vectors) = get_index(&state, &index)?;
     let mut query = body
         .get("query")
@@ -3018,14 +3052,7 @@ async fn search_with_total_format(
         let requests = fields
             .into_iter()
             .filter_map(|(field, boost)| {
-            let vecname = if field == "_all" {
-                "text_all".into()
-            } else {
-                format!("text_{}", field.replace('.', "_"))
-            };
-            if !vectors.contains(&vecname) && vecname != "text_all" {
-                return None;
-            }
+            let vecname = search_vector_for_field(&mapping, &vectors, &field)?;
             let payload_fields = if state.cfg.document_projection && patterns.is_empty() { json!(["_es_id"]) } else { json!(["_es_id","_source"]) };
             let mut req = json!({"query":{"text":text,"model":"qdrant/bm25"},"using":vecname,"limit":candidate_limit,"with_payload":{"include":payload_fields}});
             if let Some(f) = &filter {
@@ -3205,6 +3232,12 @@ async fn search_with_total_format(
                 .iter()
                 .all(|pattern| pattern_matches(&source, pattern))
         });
+    }
+    if let Some(excluded_id) = &more_like_this_id {
+        // Elasticsearch's more_like_this query does not return the document
+        // supplied in `like`; keeping it would make a product's "similar"
+        // results include the product currently being viewed.
+        hits.retain(|hit| hit.get("_id").and_then(Value::as_str) != Some(excluded_id));
     }
     if let Some(post_filter) = body.get("post_filter") {
         hits.retain(|hit| {
@@ -7718,6 +7751,23 @@ mod tests {
         );
         assert_eq!(mapping["properties"]["title"]["type"], "text");
         assert_eq!(vectors, vec!["text_all", "text_body", "text_title"]);
+    }
+
+    #[test]
+    fn dynamic_mappings_fall_back_to_the_catch_all_text_vector() {
+        let vectors = vec!["text_all".to_string()];
+        assert_eq!(
+            search_vector_for_field(&json!({}), &vectors, "name"),
+            Some("text_all".into())
+        );
+        assert_eq!(
+            search_vector_for_field(
+                &json!({"properties":{"name":{"type":"text"}}}),
+                &vectors,
+                "description"
+            ),
+            None
+        );
     }
 
     #[test]

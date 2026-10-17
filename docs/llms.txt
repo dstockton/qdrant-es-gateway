@@ -22,6 +22,7 @@
 ## Articles (Markdown)
 
 - [Highlight snippets cannot vanish](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-17-highlight-snippets-cannot-vanish.md)
+- [AWS Retail Demo Store: compatible search requests, different trade-offs](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-17-aws-retail-demo-store-compatibility.md)
 - [Search controls cannot be decoration](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-16-search-controls-cannot-be-decoration.md)
 - [An empty alias batch is not success](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-16-empty-alias-batches-are-not-success.md)
 - [Find the next page across the whole catalogue](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-sorted-pages-look-past-first-candidates.md)
@@ -43,6 +44,7 @@
 - [Disabled hit totals should skip the count](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-10-disabled-hit-totals-should-skip-the-count.md)
 - [Search-after needs more than one page](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-09-search-after-needs-more-than-one-page.md)
 - [OpenSearch wildcards keep the leading star](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-09-opensearch-wildcards-keep-the-leading-star.md)
+- [Is this coastal clip cleared for the UK edit?](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-09-media-clearance-shortlist.md)
 - [Invalid pages should not query Qdrant](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-08-invalid-pages-should-not-query-qdrant.md)
 - [Inner hits need the requested name](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-08-inner-hits-need-the-requested-name.md)
 - [Unsupported post filters must fail closed](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-07-post-filters-must-fail-closed.md)

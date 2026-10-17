@@ -1,0 +1,177 @@
+{
+  "index": "field_note_media",
+  "mapping": {
+    "mappings": {
+      "properties": {
+        "title": {
+          "type": "text"
+        },
+        "topics": {
+          "type": "keyword"
+        },
+        "territories": {
+          "type": "keyword"
+        },
+        "format": {
+          "type": "keyword"
+        },
+        "duration_seconds": {
+          "type": "integer"
+        }
+      }
+    }
+  },
+  "documents": {
+    "clip-101": {
+      "title": "Whitby harbour at dawn",
+      "topics": [
+        "coast",
+        "harbour"
+      ],
+      "territories": [
+        "GB",
+        "FR"
+      ],
+      "format": "landscape",
+      "duration_seconds": 20
+    },
+    "clip-102": {
+      "title": "Cornish surf close-up",
+      "topics": [
+        "coast",
+        "surf"
+      ],
+      "territories": [
+        "GB"
+      ],
+      "format": "portrait",
+      "duration_seconds": 12
+    },
+    "clip-103": {
+      "title": "Brittany lighthouse",
+      "topics": [
+        "coast"
+      ],
+      "territories": [
+        "FR"
+      ],
+      "format": "landscape",
+      "duration_seconds": 18
+    },
+    "clip-104": {
+      "title": "Northumberland coastal walk",
+      "topics": [
+        "coast",
+        "walking"
+      ],
+      "territories": [
+        "GB"
+      ],
+      "format": "landscape",
+      "duration_seconds": 75
+    },
+    "clip-105": {
+      "title": "York market stalls",
+      "topics": [
+        "city",
+        "food"
+      ],
+      "territories": [
+        "GB"
+      ],
+      "format": "portrait",
+      "duration_seconds": 15
+    },
+    "clip-106": {
+      "title": "Uncleared beach aerial",
+      "topics": [
+        "coast"
+      ],
+      "territories": [],
+      "format": "landscape",
+      "duration_seconds": 25
+    }
+  },
+  "search": {
+    "size": 10,
+    "query": {
+      "bool": {
+        "filter": [
+          {
+            "term": {
+              "topics": "coast"
+            }
+          },
+          {
+            "term": {
+              "territories": "GB"
+            }
+          },
+          {
+            "range": {
+              "duration_seconds": {
+                "lte": 30
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "facet": {
+    "size": 0,
+    "query": {
+      "bool": {
+        "filter": [
+          {
+            "term": {
+              "topics": "coast"
+            }
+          },
+          {
+            "term": {
+              "territories": "GB"
+            }
+          },
+          {
+            "range": {
+              "duration_seconds": {
+                "lte": 30
+              }
+            }
+          }
+        ]
+      }
+    },
+    "aggs": {
+      "formats": {
+        "terms": {
+          "field": "format",
+          "size": 10
+        }
+      }
+    }
+  },
+  "update_id": "clip-101",
+  "update": {
+    "doc": {
+      "territories": [
+        "FR"
+      ]
+    }
+  },
+  "expected_search_ids": [
+    "clip-101",
+    "clip-102"
+  ],
+  "expected_search_ids_after": [
+    "clip-102"
+  ],
+  "expected_facets_before": {
+    "landscape": 1,
+    "portrait": 1
+  },
+  "expected_facets_after": {
+    "portrait": 1
+  }
+}

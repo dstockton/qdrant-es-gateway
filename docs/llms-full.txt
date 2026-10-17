@@ -188,19 +188,19 @@ Source: https://dstockton.github.io/qdrant-es-gateway/markdown/application-valid
 
 # application-validation
 
-# Real-application validation targets
+# Real-application validation targets for Elasticsearch and OpenSearch
 
-The validation strategy is endpoint-only: run one application workflow twice and change only its Elasticsearch-compatible base URL. This proves both that the application needs no gateway-specific client code and that returned documents are usable by the application.
+The validation strategy is endpoint-only: run one application workflow twice and change only its Elasticsearch/OpenSearch-compatible base URL. This proves both that the application needs no gateway-specific client code and that returned documents are usable by the application. Where the application uses OpenSearch, validate it against native OpenSearch separately from native Elasticsearch; shared request shapes are evidence of compatibility, not proof that the engines rank or aggregate identically.
 
-## First target: Spinscale catalogue search
+## Elasticsearch target: Spinscale catalogue search
 
 [Spinscale's ecommerce search app](https://github.com/spinscale/elasticsearch-ecommerce-search-app) is the best first published application target. It exercises index mappings, bulk ingestion, full-text product search, filters, sorting, pagination, facets, and source-bearing hits. Its original build is tied to an older Java/Gradle/Micronaut stack, so the practical validation path is to preserve its request shapes and fixture data in a modern, pinned replay harness before attempting a full application upgrade.
 
 The current gateway can validate the basic catalogue slice directly. The remaining gaps before claiming unchanged full-application compatibility are custom analyzers/synonyms, exact fuzzy and prefix ranking, search-scoped aggregation membership, and the complete Elasticsearch bulk response contract. `post_filter`, basic metric/filter aggregations, `dis_max`, fuzzy-shaped requests, and retail-style `more_like_this` plus `collapse`/`inner_hits` response shapes are now accepted, but their semantics remain explicitly approximate where the underlying Qdrant query is not Lucene-equivalent.
 
-## Second target: AWS Retail Demo Store search
+## OpenSearch target: AWS Retail Demo Store search
 
-[AWS Retail Demo Store](https://github.com/aws-samples/retail-demo-store) has a useful isolated search service, although the full storefront is AWS-heavy and uses OpenSearch. Its search API returns product IDs and then retrieves product details separately. The request shapes include typeahead `match_bool_prefix`, `dis_max`, category diversity through `collapse`/`inner_hits`, and “similar products” via `more_like_this`. The gateway now accepts these shapes, so the next step is live request replay and product-quality comparison; exact prefix ranking, category distribution, and similarity relevance still need validation before a no-code application claim.
+[AWS Retail Demo Store](https://github.com/aws-samples/retail-demo-store) has a useful isolated search service, although the full storefront is AWS-heavy and uses OpenSearch. Its search API returns product IDs and then retrieves product details separately. The request shapes include typeahead `match_bool_prefix`, `dis_max`, category diversity through `collapse`/`inner_hits`, and “similar products” via `more_like_this`. The [`retail_demo.py`](https://dstockton.github.io/validation/retail_demo.py) replay now passes the application's request/response contract against native OpenSearch 3.9.0 and the gateway. Exact prefix ranking, category distribution, and similarity relevance still differ and need product-level evaluation before a full semantic-equivalence claim.
 
 The smallest credible sequence is:
 
@@ -255,7 +255,7 @@ Source: https://dstockton.github.io/qdrant-es-gateway/markdown/demo-app-compatib
 
 # Demo-application compatibility
 
-This page records request-level compatibility against the two public application targets that motivated the gateway work. “Supported” means that the gateway accepts the request shape and returns the fields the application consumes. It does not mean Lucene-identical ranking, analyzer behavior, or refresh/version semantics.
+This page records request-level compatibility against the two public application targets that motivated the gateway work: one Elasticsearch application and one OpenSearch application. “Supported” means that the gateway accepts the request shape and returns the fields the application consumes. It does not mean Lucene-identical ranking, analyzer behavior, or refresh/version semantics. Treat Elasticsearch and OpenSearch as separate compatibility targets, and record which native engine and version produced each validation result.
 
 ## AWS Retail Demo Store search service
 
@@ -270,7 +270,7 @@ The isolated search service in [aws-samples/retail-demo-store](https://github.co
 | `more_like_this` by document ID | ✅ | Expanded into a gateway lexical query using the referenced source |
 | `from`/`size` | ✅ | Bounded pagination |
 
-The service's two search routes—product search and similar products—are therefore request-compatible with the gateway's supported subset. The remaining validation work is result-quality comparison on the demo corpus: category diversity, top-k overlap, and similar-product relevance must be measured rather than inferred from HTTP compatibility.
+The service's two search routes—product search and similar products—are request-compatible with the gateway's supported subset. The dependency-free [`validation/retail_demo.py`](https://dstockton.github.io/validation/retail_demo.py) replay passes the response fields consumed by the service against OpenSearch 3.9.0 and the gateway. Result quality remains a separate question: category diversity, top-k overlap, and similar-product relevance must be measured rather than inferred from HTTP compatibility.
 
 ## Spinscale Elasticsearch e-commerce search app
 
@@ -566,6 +566,71 @@ cargo test invalid_search_options_fail_before_qdrant_work
 ```
 
 This is request-level compatibility evidence, not a performance result. It covers one ordinary text field with the default highlighter; it does not claim identical Elasticsearch and OpenSearch behavior for other highlighters, analyzers, fragments, or versions. Existing searches without `highlight` are unchanged.
+
+
+---
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-17-aws-retail-demo-store-compatibility.md
+
+# AWS Retail Demo Store: compatible search requests, different trade-offs
+
+The [AWS Retail Demo Store](https://github.com/aws-samples/retail-demo-store) is a useful reality check because its search service talks to OpenSearch through the ordinary `opensearch-py` API. Its product search uses `dis_max`, `match_bool_prefix`, category collapse with named `inner_hits`, and `_source: false`. Its similar-products route uses `more_like_this`.
+
+I replayed those request bodies unchanged against native OpenSearch 3.9.0 and this gateway backed by Qdrant 1.19.2. The replay created a settings-only `products` index and wrote individual products, just as the demo's local indexing script does. Both endpoints returned the fields the application consumes, including product IDs, named category hits, and similar-product results that exclude the source product.
+
+## What passed
+
+| Check | OpenSearch | Gateway + Qdrant |
+| --- | ---: | ---: |
+| Index, search, and similar-product HTTP contract | Pass | Pass |
+| Repeated search p50 at 1K | 5.75 ms | 1.37 ms |
+| Repeated search p95 at 1K | 7.10 ms | 2.36 ms |
+| Repeated search p50 at 1M | 30.08 ms | 1.63 ms |
+| Repeated search p95 at 1M | 33.62 ms | 2.85 ms |
+| First similar-product request at 1M | 135.15 ms | 33.04 ms |
+
+The gateway also needed two small compatibility fixes exposed by this replay: settings-only indexes now route dynamically mapped text fields through the catch-all lexical vector, and a missing Qdrant point is treated like a missing Elasticsearch document. The latter matters when `more_like_this` looks up its source document.
+
+## The resource trade-off
+
+These are fresh local Docker volumes, after loading unique generated product names and descriptions and while the indexes were retained. They are footprint snapshots, not a production sizing or cloud-billing benchmark.
+
+| Corpus | Service | CPU snapshot | Memory snapshot | Data volume |
+| --- | --- | ---: | ---: | ---: |
+| 1K | OpenSearch 3.9.0 | 3.83% | 1.090 GiB | 630 KiB |
+| 1K | Gateway + Qdrant 1.19.2 | 1.31% combined | 310 MiB combined | 419 MB combined |
+| 1M | OpenSearch 3.9.0 | 0.92% | 1.241 GiB | 75.2 MB |
+| 1M | Gateway + Qdrant 1.19.2 | 0.08% combined | 581 MiB combined | 876 MB combined |
+
+The negative trade-off is real: Qdrant used more disk. At 1M documents, the gateway-plus-Qdrant volume was about 11.6× the OpenSearch volume. The gateway process itself remained small; Qdrant carries the searchable representation and sparse index. OpenSearch's JVM used more memory in these snapshots, but CPU and memory readings are instantaneous and environment-dependent.
+
+The disk did not grow linearly in this experiment. Moving from 1K to 1M documents increased the OpenSearch volume about 119× and the Qdrant volume about 2.1×. That is evidence of substantial fixed index overhead at the 1K point, not a promise that Qdrant storage is always sublinear. The generator uses five product families with unique names and descriptions; a production catalogue with more varied fields, longer text, replicas, retention, or different sparse-index settings can have a different slope.
+
+I also retried the same 10M-document bulk run after a complete Docker cleanup,
+with about 27 GiB free. Qdrant reached roughly 9.57M documents, but the
+process was killed for exceeding available memory before the final search could
+complete. That is a capacity limit of this test host, not a failed
+compatibility assertion, so there is no honest 10M performance number to
+publish from this machine. A completed 10M comparison needs more memory.
+
+## What did not become identical
+
+Passing the application contract does not make the two engines rank identically. The native result produced two category groups for the fixture; the gateway produced one bounded candidate group. Scores and similar-product ordering also differ because Qdrant's sparse retrieval is not Lucene/OpenSearch scoring. Refresh timing and the gateway's bounded candidate window remain explicit trade-offs.
+
+So the honest conclusion is narrow: the Retail Demo Store's product-search and similar-product request shapes are a good fit for the gateway, with no application-side URL or response-handling changes in this replay. If exact OpenSearch ranking or category diversity is part of the product contract, validate that separately before migrating.
+
+Reproduce the check with:
+
+```sh
+python3 validation/retail_demo.py \
+  --native http://localhost:19311 \
+  --gateway http://localhost:19313 \
+  --docs 1000000 \
+  --workers 32 \
+  --output validation/evidence/retail-demo-2026-10-17-1m-clean.json
+```
+
+The request shapes come from the demo's [search service](https://github.com/aws-samples/retail-demo-store/blob/master/src/search/src/search-service/app.py), and its settings-only indexing flow is shown in [`local_index_products.py`](https://github.com/aws-samples/retail-demo-store/blob/master/src/search/local_index_products.py). The clean 1K and 1M reports are [`retail-demo-2026-10-17-1k-clean.json`](https://dstockton.github.io/validation/evidence/retail-demo-2026-10-17-1k-clean.json) and [`retail-demo-2026-10-17-1m-clean.json`](https://dstockton.github.io/validation/evidence/retail-demo-2026-10-17-1m-clean.json).
 
 
 ---
@@ -1087,6 +1152,76 @@ The reproducible endpoint replay used native OpenSearch 3.6.0, Qdrant ES Gateway
 The settle is part of the result, not a hidden correction. OpenSearch honored `refresh=wait_for`; the gateway's sparse search projection still needs a convergence allowance. The replay now records that allowance and sends `refresh=wait_for` for the final delete on both endpoints, preventing unmatched refresh timing from masquerading as a count incompatibility.
 
 The current official Python client was checked separately at the transport boundary: `opensearch-py` 3.2.0 completed info, index creation, bulk indexing, search, count, update, get, and delete against the gateway. That is client-shape evidence, not a claim that the gateway identifies itself as OpenSearch or implements the full OpenSearch API.
+
+
+---
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-09-media-clearance-shortlist.md
+
+# Is this coastal clip cleared for the UK edit?
+
+A media producer needs coastal footage under 31 seconds with UK clearance. A French-only clip, a long coastal walk, and an uncleared aerial should stay out of the shortlist. These six synthetic archive records use topic and territory arrays; matching either array means matching any element.
+
+Use running Elasticsearch-compatible servers and a fresh `field_note_media` index. Curl is the client: execute the same commands against each server, changing only `ES` to the gateway URL (for example, `http://localhost:9200`).
+
+```sh
+ES=http://localhost:19200
+curl -fsS -X PUT "$ES/field_note_media" \
+  -H 'Content-Type: application/json' -d '{"mappings":{"properties":{"title":{"type":"text"},"topics":{"type":"keyword"},"territories":{"type":"keyword"},"format":{"type":"keyword"},"duration_seconds":{"type":"integer"}}}}'
+curl -fsS -X POST "$ES/field_note_media/_bulk?refresh=wait_for" \
+  -H 'Content-Type: application/x-ndjson' --data-binary @- <<'NDJSON'
+{"index":{"_id":"clip-101"}}
+{"title":"Whitby harbour at dawn","topics":["coast","harbour"],"territories":["GB","FR"],"format":"landscape","duration_seconds":20}
+{"index":{"_id":"clip-102"}}
+{"title":"Cornish surf close-up","topics":["coast","surf"],"territories":["GB"],"format":"portrait","duration_seconds":12}
+{"index":{"_id":"clip-103"}}
+{"title":"Brittany lighthouse","topics":["coast"],"territories":["FR"],"format":"landscape","duration_seconds":18}
+{"index":{"_id":"clip-104"}}
+{"title":"Northumberland coastal walk","topics":["coast","walking"],"territories":["GB"],"format":"landscape","duration_seconds":75}
+{"index":{"_id":"clip-105"}}
+{"title":"York market stalls","topics":["city","food"],"territories":["GB"],"format":"portrait","duration_seconds":15}
+{"index":{"_id":"clip-106"}}
+{"title":"Uncleared beach aerial","topics":["coast"],"territories":[],"format":"landscape","duration_seconds":25}
+NDJSON
+sleep 5
+```
+
+The same five-second settling pause is used on both endpoints; it does not establish immediate gateway refresh visibility.
+
+Find clips with the `coast` topic, `GB` clearance, and at most 30 seconds of footage:
+
+```sh
+curl -fsS -X POST "$ES/field_note_media/_search" \
+  -H 'Content-Type: application/json' -d '{"size":10,"query":{"bool":{"filter":[{"term":{"topics":"coast"}},{"term":{"territories":"GB"}},{"range":{"duration_seconds":{"lte":30}}}]}}}'
+```
+
+Expect exactly `clip-101` (Whitby harbour) and `clip-102` (Cornish surf), with their complete sources and total `2`. Hit order is immaterial. Count formats over that same filtered shortlist:
+
+```sh
+curl -fsS -X POST "$ES/field_note_media/_search" \
+  -H 'Content-Type: application/json' -d '{"size":0,"query":{"bool":{"filter":[{"term":{"topics":"coast"}},{"term":{"territories":"GB"}},{"range":{"duration_seconds":{"lte":30}}}]}},"aggs":{"formats":{"terms":{"field":"format","size":10}}}}'
+```
+
+Expect `landscape: 1` and `portrait: 1`, with no hits. Now the archive removes UK clearance from the harbour clip, leaving France:
+
+```sh
+curl -fsS -X POST "$ES/field_note_media/_update/clip-101?refresh=wait_for" \
+  -H 'Content-Type: application/json' -d '{"doc":{"territories":["FR"]}}'
+sleep 5
+curl -fsS "$ES/field_note_media/_doc/clip-101"
+```
+
+The update returns `updated`. The read must show `territories: ["FR"]`, preserving the title, both topics, landscape format, and 20-second duration. Repeat the two search requests above: only `clip-102` remains, total `1`, and the sole format bucket is `portrait: 1`. Replacing an array must remove the old clearance, not append to it. This is metadata retrieval; the archive remains responsible for clearance decisions.
+
+The [fixture](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/fixtures/media.json) and [replay](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/media.py) check statuses, bulk results, every stored ID/source, exact search totals, format counts, and clearance removal. The [recorded run](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/evidence/media-2026-10-09.json) passed 70/70 checks on Elasticsearch 8.15.0 and gateway 0.2.0 with Qdrant 1.15.5, using identical requests and default embedded-source, synchronous writes. The curl blocks were also run on both endpoints. No gateway code change or performance claim is involved.
+
+Boundary: concurrent atomic updates and Elasticsearch `nested` semantics for per-territory rights objects remain [unsupported](https://dstockton.github.io/qdrant-es-gateway/compatibility/).
+
+Remove this example's index when finished:
+
+```sh
+curl -fsS -X DELETE "$ES/field_note_media"
+```
 
 
 ---

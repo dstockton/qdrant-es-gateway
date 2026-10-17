@@ -1,0 +1,96 @@
+{
+  "fixture": "AWS Retail Demo Store search-service request bodies",
+  "documents": 1000,
+  "workers": 16,
+  "native_opensearch": {
+    "reported_statuses": {
+      "index": 200,
+      "search": 200,
+      "similar": 200
+    },
+    "search_group_ids": [
+      "p-001-0",
+      "p-005-74"
+    ],
+    "search_inner_ids": [
+      "p-001-0",
+      "p-001-75",
+      "p-001-100",
+      "p-001-110",
+      "p-001-135",
+      "p-001-140",
+      "p-001-195",
+      "p-001-200",
+      "p-001-205",
+      "p-001-225",
+      "p-001-230",
+      "p-001-240",
+      "p-001-250",
+      "p-001-315",
+      "p-001-320",
+      "p-005-74",
+      "p-005-79",
+      "p-005-104",
+      "p-005-119",
+      "p-005-124",
+      "p-005-134",
+      "p-005-129",
+      "p-005-139",
+      "p-005-194",
+      "p-005-229",
+      "p-005-259",
+      "p-005-284",
+      "p-005-289",
+      "p-005-294",
+      "p-005-299"
+    ],
+    "search_compatible": true,
+    "similar_ids": [
+      "p-001-75",
+      "p-001-100",
+      "p-001-110",
+      "p-001-135",
+      "p-001-140"
+    ],
+    "similar_compatible": true,
+    "first_search_ms": 54.14,
+    "similar_search_ms": 27.48,
+    "repeated_search_ms": {
+      "p50": 5.75,
+      "p95": 7.1
+    }
+  },
+  "qdrant_gateway": {
+    "reported_statuses": {
+      "index": 200,
+      "search": 200,
+      "similar": 200
+    },
+    "search_group_ids": [
+      "p-005-129"
+    ],
+    "search_inner_ids": [
+      "p-005-129",
+      "p-005-229",
+      "p-005-99",
+      "p-005-204",
+      "p-005-44"
+    ],
+    "search_compatible": true,
+    "similar_ids": [
+      "p-001-65",
+      "p-001-80",
+      "p-001-95",
+      "p-001-25"
+    ],
+    "similar_compatible": true,
+    "first_search_ms": 6.54,
+    "similar_search_ms": 4.52,
+    "repeated_search_ms": {
+      "p50": 1.37,
+      "p95": 2.36
+    }
+  },
+  "identical_request_shapes": true,
+  "ok": true
+}
