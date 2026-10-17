@@ -1,0 +1,60 @@
+{
+  "recorded_at": "2026-10-17T09:09:46+01:00",
+  "purpose": "Confirm that a basic highlight request adds response data which the gateway must not silently omit",
+  "environment": "Separate ephemeral single-node containers with security disabled",
+  "corpus": [
+    {
+      "_id": "1",
+      "title": "wireless headphones for travel"
+    }
+  ],
+  "request": {
+    "query": {
+      "match": {
+        "title": "headphones"
+      }
+    },
+    "highlight": {
+      "fields": {
+        "title": {}
+      }
+    }
+  },
+  "targets": [
+    {
+      "engine": "Elasticsearch",
+      "version": "8.15.0",
+      "image": "docker.elastic.co/elasticsearch/elasticsearch:8.15.0",
+      "status": 200,
+      "id": "1",
+      "highlight": {
+        "title": [
+          "wireless <em>headphones</em> for travel"
+        ]
+      }
+    },
+    {
+      "engine": "OpenSearch",
+      "version": "3.9.0",
+      "image": "opensearchproject/opensearch:3.9.0",
+      "status": 200,
+      "id": "1",
+      "highlight": {
+        "title": [
+          "wireless <em>headphones</em> for travel"
+        ]
+      }
+    }
+  ],
+  "reproduction": [
+    "Start each recorded image as an isolated single-node container with its security plugin disabled.",
+    "Create highlight-probe with title mapped as text.",
+    "PUT document 1 with refresh=true and the recorded source.",
+    "POST highlight-probe/_search with the recorded request and inspect hits.hits[0].highlight."
+  ],
+  "limitations": [
+    "This is a request and response compatibility probe, not a latency benchmark.",
+    "The single-document corpus verifies the presence and basic shape of highlight output, not every highlighter, analyzer, fragment, or multi-field option.",
+    "Equal snippets in this case do not establish identical highlighting semantics across Elasticsearch and OpenSearch versions."
+  ]
+}

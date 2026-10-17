@@ -53,6 +53,7 @@
 
 ## Unreleased
 
+- Reject `highlight` before index lookup or Qdrant work instead of returning hits without the requested Elasticsearch/OpenSearch highlight snippets.
 - Reject `min_score`, `terminate_after`, and per-search `timeout` before index lookup or Qdrant work instead of silently returning complete, unfiltered results without the requested execution semantics.
 - Reject missing or empty alias action lists with the Elasticsearch/OpenSearch HTTP 400 `illegal_argument_exception` response instead of acknowledging an empty catalogue transaction.
 - Return an `aliases_not_found_exception` when every alias removal misses instead of acknowledging a no-op; mixed batches still apply successful actions and retain the documented Elasticsearch/OpenSearch response-shape limitation.
