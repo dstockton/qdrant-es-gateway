@@ -1,0 +1,171 @@
+{
+  "index": "field_note_support",
+  "mapping": {
+    "mappings": {
+      "properties": {
+        "subject": {
+          "type": "text"
+        },
+        "team": {
+          "type": "keyword"
+        },
+        "status": {
+          "type": "keyword"
+        },
+        "channel": {
+          "type": "keyword"
+        },
+        "reply_count": {
+          "type": "integer"
+        },
+        "assignee": {
+          "type": "keyword"
+        }
+      }
+    }
+  },
+  "documents": {
+    "ticket-101": {
+      "subject": "Duplicate subscription charge",
+      "team": "billing",
+      "status": "open",
+      "channel": "email",
+      "reply_count": 0
+    },
+    "ticket-102": {
+      "subject": "Invoice address correction",
+      "team": "billing",
+      "status": "open",
+      "channel": "chat",
+      "reply_count": 0,
+      "assignee": null
+    },
+    "ticket-103": {
+      "subject": "Refund progress",
+      "team": "billing",
+      "status": "open",
+      "channel": "email",
+      "reply_count": 0,
+      "assignee": "agent-7"
+    },
+    "ticket-104": {
+      "subject": "Receipt request",
+      "team": "billing",
+      "status": "open",
+      "channel": "chat",
+      "reply_count": 1
+    },
+    "ticket-105": {
+      "subject": "Cannot sign in",
+      "team": "technical",
+      "status": "open",
+      "channel": "email",
+      "reply_count": 0
+    },
+    "ticket-106": {
+      "subject": "Payment confirmation",
+      "team": "billing",
+      "status": "closed",
+      "channel": "email",
+      "reply_count": 0
+    },
+    "ticket-107": {
+      "subject": "Missing invoice number",
+      "team": "billing",
+      "status": "open",
+      "channel": "email",
+      "reply_count": 0,
+      "assignee": ""
+    }
+  },
+  "search": {
+    "size": 10,
+    "query": {
+      "bool": {
+        "filter": [
+          {
+            "term": {
+              "team": "billing"
+            }
+          },
+          {
+            "term": {
+              "status": "open"
+            }
+          },
+          {
+            "term": {
+              "reply_count": 0
+            }
+          }
+        ],
+        "must_not": [
+          {
+            "exists": {
+              "field": "assignee"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "facet": {
+    "size": 0,
+    "query": {
+      "bool": {
+        "filter": [
+          {
+            "term": {
+              "team": "billing"
+            }
+          },
+          {
+            "term": {
+              "status": "open"
+            }
+          },
+          {
+            "term": {
+              "reply_count": 0
+            }
+          }
+        ],
+        "must_not": [
+          {
+            "exists": {
+              "field": "assignee"
+            }
+          }
+        ]
+      }
+    },
+    "aggs": {
+      "channels": {
+        "terms": {
+          "field": "channel",
+          "size": 10
+        }
+      }
+    }
+  },
+  "update_id": "ticket-101",
+  "update": {
+    "doc": {
+      "assignee": "agent-12"
+    }
+  },
+  "expected_search_ids": [
+    "ticket-101",
+    "ticket-102"
+  ],
+  "expected_search_ids_after": [
+    "ticket-102"
+  ],
+  "expected_facets_before": {
+    "email": 1,
+    "chat": 1
+  },
+  "expected_facets_after": {
+    "chat": 1
+  }
+}
