@@ -6,6 +6,10 @@
   <meta name="google-site-verification" content="xQLcaALPyIE2tMlGkUW-szdM2nLS9U2Xntk7xi8AglI" />
   <link rel="stylesheet" href="{{ "/assets/main.css" | relative_url }}">
   {%- feed_meta -%}
+  <link rel="describedby" type="text/plain" title="Documentation for agents" href="{{ '/llms.txt' | relative_url }}">
+  {%- if page.layout == 'post' -%}
+  <link rel="alternate" type="text/markdown" title="Markdown" href="{{ '/markdown/' | append: page.path | remove: '_posts/' | relative_url }}">
+  {%- endif -%}
   {%- if jekyll.environment == 'production' and site.google_analytics -%}
     {%- include google-analytics.html -%}
   {%- endif -%}

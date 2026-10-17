@@ -1,0 +1,35 @@
+{
+  "scope": "Single post-replay docker stats observation, not peak memory or a performance comparison. Native JVM heaps configured512MiB. Shared local Docker runtime.",
+  "observations": [
+    {
+      "role": "Elasticsearch",
+      "memory_usage": "1.054GiB / 7.748GiB",
+      "cpu_percent": "0.97%"
+    },
+    {
+      "role": "Qdrant for aggregation replay",
+      "memory_usage": "394.3MiB / 7.748GiB",
+      "cpu_percent": "0.13%"
+    },
+    {
+      "role": "Gateway for aggregation replay",
+      "memory_usage": "5.191MiB / 7.748GiB",
+      "cpu_percent": "0.00%"
+    },
+    {
+      "role": "OpenSearch",
+      "memory_usage": "1.131GiB / 7.748GiB",
+      "cpu_percent": "1.41%"
+    },
+    {
+      "role": "Qdrant for sparse replay",
+      "memory_usage": "302.1MiB / 7.748GiB",
+      "cpu_percent": "0.15%"
+    },
+    {
+      "role": "Gateway for sparse replay",
+      "memory_usage": "4.684MiB / 7.748GiB",
+      "cpu_percent": "0.00%"
+    }
+  ]
+}

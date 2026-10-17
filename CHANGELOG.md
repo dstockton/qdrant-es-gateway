@@ -53,6 +53,14 @@
 
 ## Unreleased
 
+- Reject `min_score`, `terminate_after`, and per-search `timeout` before index lookup or Qdrant work instead of silently returning complete, unfiltered results without the requested execution semantics.
+- Reject missing or empty alias action lists with the Elasticsearch/OpenSearch HTTP 400 `illegal_argument_exception` response instead of acknowledging an empty catalogue transaction.
+- Return an `aliases_not_found_exception` when every alias removal misses instead of acknowledging a no-op; mixed batches still apply successful actions and retain the documented Elasticsearch/OpenSearch response-shape limitation.
+- Update the locked `rustls` runtime dependency to 0.23.46 to address RUSTSEC-2026-0346 through RUSTSEC-2026-0349.
+- Reject alias filters, routing, write-index/hidden flags, remove `must_exist`, and unknown action options before changing the catalogue instead of acknowledging semantics the gateway cannot apply.
+- Reject invalid index names before catalogue or Qdrant work and return an Elasticsearch/OpenSearch-shaped HTTP 400 `invalid_index_name_exception`, including the native 255-byte UTF-8 boundary.
+- Reject alias action batches whose final state would require a multi-index alias instead of silently retargeting the gateway's single-target alias; explicit atomic remove+add swaps remain supported.
+- Return an Elasticsearch/OpenSearch-shaped HTTP 400 `resource_already_exists_exception` without contacting Qdrant or changing mappings when index creation targets an existing index.
 - Recursively merge inner objects during partial document updates so changing one nested member preserves its siblings, while arrays and scalar values retain Elasticsearch's replacement behavior.
 - Support a separate `upsert` source in standalone and bulk partial updates, and avoid a redundant second existence read when a missing document is created by either supported upsert form.
 - Preserve successful bulk `create`, `update`, and `delete` operation metadata, including the concrete index name when requests use an alias.

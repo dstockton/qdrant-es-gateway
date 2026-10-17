@@ -1,5 +1,5 @@
-# Gateway metadata is stored in SQLite on the data volume. Keep the safe
-# default at one replica; see the chart README before scaling horizontally.
+# SQLite is the default for one replica. Shared catalog setup is documented
+# in docs/shared-catalog.md; document writes still lack distributed CAS.
 replicaCount: 1
 
 image:
@@ -43,6 +43,12 @@ gateway:
   maxBodyBytes: 268435456
   maxBulkBytes: 268435456
   maxPageSize: 1000
+
+catalog:
+  # Secret containing a redis:// or rediss:// URL. Empty keeps SQLite.
+  existingSecret: ""
+  existingSecretKey: redis-url
+  key: "qeg:{catalog}:v1"
 
 persistence:
   enabled: true

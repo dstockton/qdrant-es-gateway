@@ -1,0 +1,64 @@
+# production
+
+# Production deployment guide
+
+The gateway is designed to be a stateless HTTP tier for document and search state held in Qdrant. It does not provide authentication, authorization, TLS termination, or Elasticsearch cluster semantics; place it behind an ingress/API gateway and restrict network access to the Qdrant endpoint.
+
+## Container
+
+Images are published to `ghcr.io/dstockton/qdrant-es-gateway` for version tags. The image runs as UID 10001, has no Linux capabilities, and uses a read-only root filesystem in the Helm chart. Persist `/data` when using the default SQLite catalog. Shared-catalog deployments instead require durable Redis/Valkey storage; see [shared catalog operation and recovery](https://dstockton.github.io/qdrant-es-gateway/shared-catalog.md).
+
+Use immutable version tags or image digests in production:
+
+```bash
+docker pull ghcr.io/dstockton/qdrant-es-gateway:0.1.0
+```
+
+Every release workflow produces a multi-architecture image, BuildKit provenance, an SPDX SBOM, a cosign SBOM attestation, and Trivy vulnerability results. The release job fails on known fixed HIGH or CRITICAL image vulnerabilities; unfixed findings are retained in the scan results for review.
+
+The gateway applies a 5-second Qdrant connection timeout and a 180-second upstream request timeout by default. Set `QDRANT_CONNECT_TIMEOUT_MS` and `QDRANT_REQUEST_TIMEOUT_MS` to change them. When `ASYNC_PAYLOAD_WRITES=true`, `ASYNC_WRITE_QUEUE` bounds detached writes (256 by default); a full queue returns an upstream error instead of allowing background tasks to grow without limit.
+
+The SQLite metadata connection uses a five-second busy timeout and `synchronous=FULL`. This helps with short local lock contention, but it does not make a shared network filesystem safe for multiple gateway replicas.
+
+After the first release, open the repository's Packages settings and change the GHCR package visibility to Public if GitHub created it privately. Link the package to this repository and enable Dependabot alerts, security updates, and secret scanning in repository Security settings.
+
+## Kubernetes
+
+The chart is in `deploy/helm/qdrant-es-gateway`. Qdrant is intentionally external so its clustering, replication, backups, and storage lifecycle can be managed independently.
+
+```bash
+helm upgrade --install search-gateway deploy/helm/qdrant-es-gateway \
+  --set image.tag=0.1.0 \
+  --set qdrant.url=https://qdrant.example.internal:6334 \
+  --set qdrant.existingSecret=qdrant-credentials
+```
+
+Before exposing the service:
+
+1. Configure ingress TLS and client authentication.
+2. Create a Kubernetes NetworkPolicy allowing egress only to Qdrant and DNS.
+3. Set resource requests and limits from workload measurements.
+4. Keep the default SQLite deployment at one replica. For multiple replicas, configure the optional shared catalog, initialize or migrate it deliberately, and follow its durability and recovery requirements. Do not share SQLite files over a network filesystem.
+5. Configure Qdrant replication, snapshots, monitoring, and disk alerts independently.
+6. Enable `DOCUMENT_PROJECTION=true` and `ASYNC_SEARCH_PROJECTION=true` only with a durable reconciliation process for projection lag or failed asynchronous operations.
+
+## Operational checks
+
+- `/healthz` is a liveness check.
+- `/readyz` checks Qdrant connectivity and should gate traffic.
+- `GET /` exposes the compatibility/version response.
+- Watch Qdrant segment growth, optimizer backlog, disk utilization, search latency, and projection lag.
+- Keep request and bulk limits bounded; request bodies are buffered in memory, and each concurrent `POST /_bulk` or `POST /<index>/_bulk` may consume up to `MAX_BULK_BYTES` before parsing. Do not expose the service directly to the public internet.
+- Test the actual mappings and unsupported-query behavior before migration.
+
+## Release process
+
+1. Bump the package version in `Cargo.toml` and the chart version in `deploy/helm/qdrant-es-gateway/Chart.yaml`.
+2. Merge the tested change to `main`.
+3. The release workflow creates the matching `vX.Y.Z` tag, publishes the multi-architecture GHCR image, packages the Helm chart, and creates the GitHub release. If that version tag already exists, the workflow skips publishing.
+4. Review the GitHub Actions image scan and SBOM attestation.
+5. Promote the immutable image digest through environments.
+
+Use the manually triggered `Release dry run` workflow to validate version metadata, build the image, scan it, and package the chart without creating a tag, logging into GHCR, or publishing anything.
+
+The repository's CI does not publish private voice, video-generation, or local development artifacts.
