@@ -178,3 +178,37 @@ recorded revision, and Qdrant **1.15.5**, with embedded sources and synchronous
 writes. Optional `--gateway-version` and `--qdrant-version` arguments record
 operator-verified versions; the endpoint's `reported_version` is its API
 advertisement. No gateway implementation change or performance claim was needed.
+
+## Renewable-energy dispatch shortlist
+
+The [energy field note](../docs/_posts/2026-10-17-energy-dispatch-shortlist.md)
+uses six synthetic battery-site snapshots in
+[`fixtures/energy.json`](fixtures/energy.json). It checks northern, ready sites
+with at least 100 kWh available, operator facets, and a hold update that must
+exclude a site while preserving capacity and the rest of its source.
+
+```sh
+python3 validation/energy.py \
+  --elasticsearch http://localhost:19200 \
+  --opensearch http://localhost:19201 \
+  --gateway http://localhost:9200 \
+  --output validation/results/energy.json
+```
+
+Use endpoints without `field_note_energy`. The standard-library replay creates
+and removes only that index; a failed create aborts without deleting existing
+data. All three engines receive identical requests and five-second pauses after
+bulk ingestion and update (`--settle-seconds` changes the pause for all three).
+Exact HTTP statuses, bulk IDs/results, every stored source, search IDs/totals,
+operator buckets, and held-site exclusion have independent fixture expectations.
+Failures produce a nonzero exit and remain in the evidence.
+
+The [2026-10-17 replay](evidence/energy-2026-10-17.json) passed **105/105**
+checks on Elasticsearch **8.15.0**, OpenSearch **3.9.0**, and gateway **0.2.0**
+with Qdrant **1.15.5**. The [article curl run](evidence/energy-curl-2026-10-17.json)
+separately verified all nine responses per engine, including the repeated
+post-update searches. The gateway source revision is recorded; its advertised
+API version is separate from its binary version. Optional `--gateway-version`
+and `--qdrant-version` record operator-verified versions. No OpenSearch-specific
+behavior or difference in the asserted semantics was observed. This checks
+settled snapshots, not refresh timing, atomic reservations, or performance.
