@@ -1,6 +1,6 @@
 # Demo-application compatibility
 
-This page records request-level compatibility against the two public application targets that motivated the gateway work. “Supported” means that the gateway accepts the request shape and returns the fields the application consumes. It does not mean Lucene-identical ranking, analyzer behavior, or refresh/version semantics.
+This page records request-level compatibility against the two public application targets that motivated the gateway work: one Elasticsearch application and one OpenSearch application. “Supported” means that the gateway accepts the request shape and returns the fields the application consumes. It does not mean Lucene-identical ranking, analyzer behavior, or refresh/version semantics. Treat Elasticsearch and OpenSearch as separate compatibility targets, and record which native engine and version produced each validation result.
 
 ## AWS Retail Demo Store search service
 
@@ -15,7 +15,7 @@ The isolated search service in [aws-samples/retail-demo-store](https://github.co
 | `more_like_this` by document ID | ✅ | Expanded into a gateway lexical query using the referenced source |
 | `from`/`size` | ✅ | Bounded pagination |
 
-The service's two search routes—product search and similar products—are therefore request-compatible with the gateway's supported subset. The remaining validation work is result-quality comparison on the demo corpus: category diversity, top-k overlap, and similar-product relevance must be measured rather than inferred from HTTP compatibility.
+The service's two search routes—product search and similar products—are request-compatible with the gateway's supported subset. The dependency-free [`validation/retail_demo.py`](../validation/retail_demo.py) replay passes the response fields consumed by the service against OpenSearch 3.9.0 and the gateway. Result quality remains a separate question: category diversity, top-k overlap, and similar-product relevance must be measured rather than inferred from HTTP compatibility.
 
 ## Spinscale Elasticsearch e-commerce search app
 

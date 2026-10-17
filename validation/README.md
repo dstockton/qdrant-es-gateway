@@ -40,7 +40,44 @@ The command exits non-zero when transport errors occur or when a required semant
 
 For an endpoint-only application check, point the same client at each URL. For example, the repository's Python example changes only its `Elasticsearch(...)` URL; its index, index, search, and response-handling calls remain the same.
 
-The AWS Retail Demo Store and Spinscale applications are useful follow-on targets, but both use features outside this gateway's deliberately supported subset. Their request shapes and current gaps are documented in `docs/application-validation.md`.
+The AWS Retail Demo Store and Spinscale applications are useful follow-on targets. Their request shapes and current gaps are documented in `docs/application-validation.md`.
+
+## AWS Retail Demo Store replay
+
+[`retail_demo.py`](retail_demo.py) replays the isolated search service from the
+[AWS Retail Demo Store](https://github.com/aws-samples/retail-demo-store) against
+native OpenSearch and the gateway. It creates the `products` index with settings
+only, writes individual products, then sends the application's real
+`dis_max`/`match_bool_prefix` search and `more_like_this` similar-products
+requests. It checks the response fields the service consumes, including named
+`inner_hits` and `_source: false`.
+
+```sh
+python3 validation/retail_demo.py \
+  --native http://localhost:19311 \
+  --gateway http://localhost:19313 \
+  --docs 1000 \
+  --output validation/evidence/retail-demo-2026-10-17.json
+```
+
+For a larger generated corpus, `--workers` keeps the writes as individual
+document PUTs while avoiding an unnecessarily serial harness run. The clean
+1,000 and 1,000,000 document comparison used 16 and 32 workers respectively;
+the generated names and descriptions are unique while retaining five product
+families. Resource snapshots from both runs are recorded in
+`validation/evidence/retail-demo-2026-10-17-1k-clean.json` and
+`validation/evidence/retail-demo-2026-10-17-1m-clean.json`.
+
+A 10,000,000-document bulk attempt is recorded in
+`validation/evidence/retail-demo-2026-10-17-10m-capacity-limit.json`. After a
+complete Docker cleanup, it reached about 9.57M documents before Qdrant was
+killed with exit code 137 during the final search phase. Treat that as a
+test-host memory limit, not as a completed 10M benchmark.
+
+This is an application-contract replay, not a claim of identical OpenSearch
+ranking. The gateway's lexical scores, category diversity, and similar-product
+ordering can differ even when the application's request and response contract
+passes.
 
 ## Manufacturing maintenance queue
 

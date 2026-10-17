@@ -523,7 +523,7 @@ async fn create_index(
             .request(
                 Method::PUT,
                 &format!("/collections/{}", document_collection(&index)),
-                // Qdrant 1.15 requires a vector field on each point. A
+                // Qdrant requires a vector field on each point. A
                 // one-dimensional on-disk vector with m=0 keeps this
                 // collection payload-first and disables HNSW construction.
                 Some(document_config),
@@ -780,7 +780,7 @@ async fn retrieve_source(
             .await?
             .remove(id));
     }
-    let point = state
+    let point = match state
         .qdrant
         .request(
             Method::GET,
@@ -790,7 +790,17 @@ async fn retrieve_source(
             ),
             None,
         )
-        .await?;
+        .await
+    {
+        Ok(point) => point,
+        // Qdrant 1.19 returns HTTP 404 for a missing point, while older
+        // versions returned a successful response with a null result. Both
+        // represent the same Elasticsearch preflight state.
+        Err(GatewayError::Upstream(message)) if message.starts_with("Qdrant returned 404") => {
+            return Ok(None)
+        }
+        Err(error) => return Err(error),
+    };
     Ok(point
         .get("result")
         .filter(|result| !result.is_null())
@@ -1263,6 +1273,31 @@ fn source_field<'a>(source: &'a Value, field: &str) -> Option<&'a Value> {
 
 fn compatibility_field(field: &str) -> &str {
     field.strip_suffix(".keyword").unwrap_or(field)
+}
+
+fn search_vector_for_field(mapping: &Value, vectors: &[String], field: &str) -> Option<String> {
+    let vector = if field == "_all" {
+        "text_all".to_string()
+    } else {
+        format!("text_{}", field.replace('.', "_"))
+    };
+    if vectors.contains(&vector) {
+        return Some(vector);
+    }
+
+    // OpenSearch dynamically maps string fields when an index is created with
+    // settings but no explicit mappings. In that mode the gateway stores the
+    // source fields and a catch-all BM25 vector, so an application query for a
+    // field-specific text path can still use the same request shape. Explicit
+    // mappings remain strict: an unknown text field is not silently widened.
+    let dynamic_mapping = mapping
+        .get("properties")
+        .and_then(Value::as_object)
+        .is_none_or(Map::is_empty);
+    if dynamic_mapping && vectors.iter().any(|name| name == "text_all") {
+        return Some("text_all".into());
+    }
+    None
 }
 
 fn sortable_source_field<'a>(source: &'a Value, field: &str) -> Option<&'a Value> {
@@ -2470,7 +2505,16 @@ async fn search(
     let sort_specs = parse_sort_specs(body.get("sort"))?;
     validate_search_after(&body, &sort_specs, from)?;
     let collapse_spec = parse_collapse_spec(body.get("collapse"), state.cfg.max_page_size)?;
-    let (index, coll, _, vectors) = get_index(&state, &index)?;
+    let more_like_this_id = body
+        .get("query")
+        .and_then(|query| query.get("more_like_this"))
+        .and_then(|mlt| mlt.get("like"))
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+        .and_then(|item| item.get("_id"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let (index, coll, mapping, vectors) = get_index(&state, &index)?;
     let mut query = body
         .get("query")
         .cloned()
@@ -2538,14 +2582,7 @@ async fn search(
         let requests = fields
             .into_iter()
             .filter_map(|(field, boost)| {
-            let vecname = if field == "_all" {
-                "text_all".into()
-            } else {
-                format!("text_{}", field.replace('.', "_"))
-            };
-            if !vectors.contains(&vecname) && vecname != "text_all" {
-                return None;
-            }
+            let vecname = search_vector_for_field(&mapping, &vectors, &field)?;
             let payload_fields = if state.cfg.document_projection && patterns.is_empty() { json!(["_es_id"]) } else { json!(["_es_id","_source"]) };
             let mut req = json!({"query":{"text":text,"model":"qdrant/bm25"},"using":vecname,"limit":(from+size).max(1),"with_payload":{"include":payload_fields}});
             if let Some(f) = &filter {
@@ -2675,6 +2712,12 @@ async fn search(
                 .iter()
                 .all(|pattern| pattern_matches(&source, pattern))
         });
+    }
+    if let Some(excluded_id) = &more_like_this_id {
+        // Elasticsearch's more_like_this query does not return the document
+        // supplied in `like`; keeping it would make a product's "similar"
+        // results include the product currently being viewed.
+        hits.retain(|hit| hit.get("_id").and_then(Value::as_str) != Some(excluded_id));
     }
     // Elasticsearch applies post_filter, collapse, and search_after only to
     // hits. Preserve the query-matched candidate window for gateway-computed
@@ -3398,7 +3441,7 @@ async fn mapping(
             if field_type == "text" {
                 return Err(GatewayError::bad(
                     format!("_mapping.properties.{field}"),
-                    "adding text fields requires a new index because Qdrant 1.15 cannot add the required named sparse vector",
+                    "adding text fields requires a new index because the gateway does not add the required named sparse vector to an existing collection",
                 ));
             }
             if let Some(schema) = payload_field_schema(spec) {
@@ -6013,6 +6056,23 @@ mod tests {
         );
         assert_eq!(mapping["properties"]["title"]["type"], "text");
         assert_eq!(vectors, vec!["text_all", "text_body", "text_title"]);
+    }
+
+    #[test]
+    fn dynamic_mappings_fall_back_to_the_catch_all_text_vector() {
+        let vectors = vec!["text_all".to_string()];
+        assert_eq!(
+            search_vector_for_field(&json!({}), &vectors, "name"),
+            Some("text_all".into())
+        );
+        assert_eq!(
+            search_vector_for_field(
+                &json!({"properties":{"name":{"type":"text"}}}),
+                &vectors,
+                "description"
+            ),
+            None
+        );
     }
 
     #[test]

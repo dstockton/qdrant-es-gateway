@@ -1,0 +1,12 @@
+{
+  "fixture": "AWS Retail Demo Store search-service request bodies",
+  "requested_documents": 10000000,
+  "ingestion": "bulk",
+  "batch_documents": 5000,
+  "initial_free_disk_gib": 27,
+  "qdrant_documents_before_process_oom": 9570000,
+  "failure": "Qdrant was killed with exit code 137 (OOM) during the final search phase",
+  "completed": false,
+  "compatibility_result": null,
+  "note": "The clean retry had ample disk but the local Qdrant process exceeded available memory before the 10M search could complete. This is a test-host capacity limit, not a completed 10M performance or compatibility result."
+}
