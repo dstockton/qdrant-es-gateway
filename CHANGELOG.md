@@ -53,6 +53,7 @@
 
 ## Unreleased
 
+- Reject `profile: true` before index lookup or Qdrant work instead of returning search results without the requested query and collector timing trees; explicit `false` remains accepted.
 - Reject `explain: true` before index lookup or Qdrant work instead of returning hits without the requested per-hit score explanations; explicit `false` remains accepted.
 - Reject `highlight` before index lookup or Qdrant work instead of returning hits without the requested Elasticsearch/OpenSearch highlight snippets.
 - Reject `min_score`, `terminate_after`, and per-search `timeout` before index lookup or Qdrant work instead of silently returning complete, unfiltered results without the requested execution semantics.
