@@ -2,6 +2,13 @@
 
 This stack runs native Elasticsearch, Qdrant, the gateway, and a containerized client/runner. The profile supports large corpora such as 500,000 documents in batches of 5,000, and concurrency levels 1, 10, and 50. It measures bulk setup, a representative update pass, full-source search/read responses, and a mixed workload of 40% search, 30% read, 20% update, and 10% delete operations. Resource limits total approximately four CPUs and fifteen GB of memory across the services.
 
+The current images are for new benchmark volumes. Before reusing an
+Elasticsearch 8.15 volume with 9.5.5, back it up and upgrade through the
+latest 8.19 patch, following [Elastic's preparation steps](https://www.elastic.co/docs/deploy-manage/upgrade/prepare-to-upgrade).
+Existing Qdrant volumes must follow the consecutive-minor path in the
+[migration guide](../docs/migration.md). Do not start old volumes directly
+with the new images.
+
 Run on a benchmark host:
 
 ```bash

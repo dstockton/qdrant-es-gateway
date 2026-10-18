@@ -1,6 +1,6 @@
 services:
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.5
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
@@ -16,7 +16,7 @@ services:
       timeout: 5s
       retries: 40
   qdrant:
-    image: qdrant/qdrant:v1.15.5
+    image: qdrant/qdrant:v1.19.2
     cpus: "1.0"
     mem_limit: 4g
     volumes:
