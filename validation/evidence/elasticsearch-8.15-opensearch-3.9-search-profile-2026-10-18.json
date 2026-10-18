@@ -1,0 +1,79 @@
+{
+  "recorded_at": "2026-10-18T09:10:00+01:00",
+  "purpose": "Confirm that profile=true adds query and collector timing data which the gateway must not silently omit or mislabel as Qdrant execution",
+  "environment": "Separate ephemeral single-node containers with security disabled",
+  "corpus": [
+    {
+      "_id": "1",
+      "title": "wireless headphones for travel",
+      "category": "audio"
+    },
+    {
+      "_id": "2",
+      "title": "noise cancelling headphones",
+      "category": "audio"
+    },
+    {
+      "_id": "3",
+      "title": "travel adapter",
+      "category": "power"
+    }
+  ],
+  "request": {
+    "profile": true,
+    "query": {
+      "match": {
+        "title": "headphones"
+      }
+    }
+  },
+  "targets": [
+    {
+      "engine": "Elasticsearch",
+      "version": "8.15.0",
+      "image": "docker.elastic.co/elasticsearch/elasticsearch:8.15.0",
+      "status": 200,
+      "hits": 2,
+      "profile_shards": 1,
+      "query_types": [
+        "TermQuery"
+      ],
+      "collector_names": [
+        "QueryPhaseCollector"
+      ],
+      "score_timing_breakdown_present": true,
+      "compact_response_bytes_without_profile": 419,
+      "compact_response_bytes_with_profile": 2124
+    },
+    {
+      "engine": "OpenSearch",
+      "version": "3.9.0",
+      "image": "opensearchproject/opensearch:3.9.0",
+      "status": 200,
+      "hits": 2,
+      "profile_shards": 1,
+      "query_types": [
+        "TermQuery"
+      ],
+      "collector_names": [
+        "TopScoreDocCollector"
+      ],
+      "score_timing_breakdown_present": true,
+      "compact_response_bytes_without_profile": 420,
+      "compact_response_bytes_with_profile": 1758
+    }
+  ],
+  "reproduction": [
+    "Start each recorded image as an isolated single-node container with its security plugin disabled and a 512 MiB JVM heap.",
+    "Create profile-probe with title mapped as text and category mapped as keyword.",
+    "Bulk index the three recorded documents with refresh=true.",
+    "POST profile-probe/_search with the recorded request and inspect the top-level profile.shards searches, query breakdown, and collectors.",
+    "Repeat the same request without profile and count the compact HTTP response body bytes for the recorded payload observation."
+  ],
+  "limitations": [
+    "This is request and response compatibility evidence, not a latency, CPU, allocation, or throughput benchmark.",
+    "Response byte counts are single compact JSON bodies from this corpus and are not representative sizing estimates.",
+    "The one-shard, three-document corpus verifies the profiling contract and an observed engine divergence; it does not characterize every query, aggregation, collector, plugin, shard layout, or engine version.",
+    "The collector names and response sizes are observations for Elasticsearch 8.15.0 and OpenSearch 3.9.0 only and should not be generalized to other versions."
+  ]
+}
