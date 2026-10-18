@@ -1,10 +1,10 @@
-FROM rust:1.88-bookworm AS builder
+FROM rust:1.99.1-slim-trixie AS builder
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 RUN cargo build --release
 
-FROM debian:bookworm-slim AS runtime
+FROM debian:trixie-slim AS runtime
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && apt-get upgrade -y \
