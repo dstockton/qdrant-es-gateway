@@ -2854,6 +2854,29 @@ fn hit_is_after(hit: &Value, cursor: &[Value], sorts: &[(String, String)]) -> bo
 }
 
 fn validate_search_execution_controls(body: &Value) -> Result<(), GatewayError> {
+    for (control, message) in [
+        (
+            "version",
+            "per-hit document versions are not currently supported; the gateway cannot provide Elasticsearch or OpenSearch version concurrency metadata",
+        ),
+        (
+            "seq_no_primary_term",
+            "per-hit sequence numbers and primary terms are not currently supported; gateway write metadata is not an Elasticsearch or OpenSearch concurrency token",
+        ),
+    ] {
+        if let Some(enabled) = body.get(control) {
+            match enabled.as_bool() {
+                Some(false) => {}
+                Some(true) => return Err(GatewayError::bad(control, message)),
+                None => {
+                    return Err(GatewayError::bad(
+                        control,
+                        format!("{control} must be a boolean"),
+                    ));
+                }
+            }
+        }
+    }
     if let Some(profile) = body.get("profile") {
         match profile.as_bool() {
             Some(false) => {}
@@ -6815,6 +6838,10 @@ mod tests {
         };
 
         let cases = [
+            (json!({"version":true}), "version"),
+            (json!({"version":"true"}), "version"),
+            (json!({"seq_no_primary_term":true}), "seq_no_primary_term"),
+            (json!({"seq_no_primary_term":1}), "seq_no_primary_term"),
             (json!({"profile":true}), "profile"),
             (json!({"profile":"true"}), "profile"),
             (json!({"explain":true}), "explain"),
@@ -6858,6 +6885,8 @@ mod tests {
             assert_eq!(error.body()["error"]["feature"], feature);
         }
         assert!(validate_search_execution_controls(&json!({
+            "version": false,
+            "seq_no_primary_term": false,
             "profile": false,
             "explain": false
         }))
@@ -6865,7 +6894,7 @@ mod tests {
         let response = msearch_with_total_format(
             State(state.clone()),
             Some("products".into()),
-            "{}\n{\"highlight\":{\"fields\":{\"title\":{}}}}\n{}\n{\"explain\":true}\n{}\n{\"profile\":true}\n".into(),
+            "{}\n{\"highlight\":{\"fields\":{\"title\":{}}}}\n{}\n{\"explain\":true}\n{}\n{\"profile\":true}\n{}\n{\"version\":true}\n{}\n{\"seq_no_primary_term\":true}\n".into(),
             false,
         )
         .await
@@ -6879,6 +6908,11 @@ mod tests {
         assert_eq!(body["responses"][0]["error"]["feature"], "highlight");
         assert_eq!(body["responses"][1]["error"]["feature"], "explain");
         assert_eq!(body["responses"][2]["error"]["feature"], "profile");
+        assert_eq!(body["responses"][3]["error"]["feature"], "version");
+        assert_eq!(
+            body["responses"][4]["error"]["feature"],
+            "seq_no_primary_term"
+        );
         let error = search_with_total_format(
             State(state),
             Path("products".into()),
