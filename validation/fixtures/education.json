@@ -1,0 +1,154 @@
+{
+  "index": "field_note_courses",
+  "mapping": {
+    "mappings": {
+      "properties": {
+        "title": {
+          "type": "text"
+        },
+        "campus": {
+          "type": "keyword"
+        },
+        "session": {
+          "type": "keyword"
+        },
+        "level": {
+          "type": "keyword"
+        },
+        "places": {
+          "type": "integer"
+        }
+      }
+    }
+  },
+  "documents": {
+    "course-101": {
+      "title": "Python for beginners",
+      "campus": "York",
+      "session": "evening",
+      "level": "introductory",
+      "places": 1
+    },
+    "course-102": {
+      "title": "Python data analysis",
+      "campus": "York",
+      "session": "evening",
+      "level": "intermediate",
+      "places": 4
+    },
+    "course-103": {
+      "title": "Python automation",
+      "campus": "York",
+      "session": "evening",
+      "level": "intermediate",
+      "places": 0
+    },
+    "course-104": {
+      "title": "Python for beginners",
+      "campus": "York",
+      "session": "daytime",
+      "level": "introductory",
+      "places": 8
+    },
+    "course-105": {
+      "title": "Python for beginners",
+      "campus": "Leeds",
+      "session": "evening",
+      "level": "introductory",
+      "places": 6
+    },
+    "course-106": {
+      "title": "Watercolour basics",
+      "campus": "York",
+      "session": "evening",
+      "level": "introductory",
+      "places": 3
+    }
+  },
+  "search": {
+    "size": 10,
+    "query": {
+      "bool": {
+        "must": {
+          "match": {
+            "title": "python"
+          }
+        },
+        "filter": [
+          {
+            "term": {
+              "campus": "York"
+            }
+          },
+          {
+            "term": {
+              "session": "evening"
+            }
+          },
+          {
+            "range": {
+              "places": {
+                "gte": 1
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "update_id": "course-101",
+  "update": {
+    "doc": {
+      "places": 0
+    }
+  },
+  "expected_search_ids": [
+    "course-101",
+    "course-102"
+  ],
+  "expected_search_ids_after": [
+    "course-102"
+  ],
+  "expected_facets_before": {
+    "introductory": 2,
+    "intermediate": 1
+  },
+  "expected_facets_after": {
+    "intermediate": 1,
+    "introductory": 1
+  },
+  "facet": {
+    "size": 0,
+    "query": {
+      "bool": {
+        "filter": [
+          {
+            "term": {
+              "campus": "York"
+            }
+          },
+          {
+            "term": {
+              "session": "evening"
+            }
+          },
+          {
+            "range": {
+              "places": {
+                "gte": 1
+              }
+            }
+          }
+        ]
+      }
+    },
+    "aggs": {
+      "levels": {
+        "terms": {
+          "field": "level",
+          "size": 10
+        }
+      }
+    }
+  }
+}

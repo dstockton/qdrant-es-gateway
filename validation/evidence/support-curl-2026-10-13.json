@@ -1,0 +1,600 @@
+{
+  "run_at": "2026-10-13T10:05:07.265157+00:00",
+  "article": "docs/_posts/2026-10-13-support-first-reply-queue.md",
+  "only_endpoint_changed": true,
+  "native": {
+    "ok": true,
+    "responses": [
+      {
+        "status": 200,
+        "body": {
+          "acknowledged": true,
+          "shards_acknowledged": true,
+          "index": "field_note_support"
+        }
+      },
+      {
+        "status": 200,
+        "body": {
+          "errors": false,
+          "took": 103043,
+          "items": [
+            {
+              "index": {
+                "_index": "field_note_support",
+                "_id": "ticket-101",
+                "_version": 1,
+                "result": "created",
+                "_shards": {
+                  "total": 2,
+                  "successful": 1,
+                  "failed": 0
+                },
+                "_seq_no": 0,
+                "_primary_term": 1,
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_index": "field_note_support",
+                "_id": "ticket-102",
+                "_version": 1,
+                "result": "created",
+                "_shards": {
+                  "total": 2,
+                  "successful": 1,
+                  "failed": 0
+                },
+                "_seq_no": 1,
+                "_primary_term": 1,
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_index": "field_note_support",
+                "_id": "ticket-103",
+                "_version": 1,
+                "result": "created",
+                "_shards": {
+                  "total": 2,
+                  "successful": 1,
+                  "failed": 0
+                },
+                "_seq_no": 2,
+                "_primary_term": 1,
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_index": "field_note_support",
+                "_id": "ticket-104",
+                "_version": 1,
+                "result": "created",
+                "_shards": {
+                  "total": 2,
+                  "successful": 1,
+                  "failed": 0
+                },
+                "_seq_no": 3,
+                "_primary_term": 1,
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_index": "field_note_support",
+                "_id": "ticket-105",
+                "_version": 1,
+                "result": "created",
+                "_shards": {
+                  "total": 2,
+                  "successful": 1,
+                  "failed": 0
+                },
+                "_seq_no": 4,
+                "_primary_term": 1,
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_index": "field_note_support",
+                "_id": "ticket-106",
+                "_version": 1,
+                "result": "created",
+                "_shards": {
+                  "total": 2,
+                  "successful": 1,
+                  "failed": 0
+                },
+                "_seq_no": 5,
+                "_primary_term": 1,
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_index": "field_note_support",
+                "_id": "ticket-107",
+                "_version": 1,
+                "result": "created",
+                "_shards": {
+                  "total": 2,
+                  "successful": 1,
+                  "failed": 0
+                },
+                "_seq_no": 6,
+                "_primary_term": 1,
+                "status": 201
+              }
+            }
+          ]
+        }
+      },
+      {
+        "status": 200,
+        "body": {
+          "took": 5,
+          "timed_out": false,
+          "_shards": {
+            "total": 1,
+            "successful": 1,
+            "skipped": 0,
+            "failed": 0
+          },
+          "hits": {
+            "total": {
+              "value": 2,
+              "relation": "eq"
+            },
+            "max_score": 0.0,
+            "hits": [
+              {
+                "_index": "field_note_support",
+                "_id": "ticket-101",
+                "_score": 0.0,
+                "_source": {
+                  "subject": "Duplicate subscription charge",
+                  "team": "billing",
+                  "status": "open",
+                  "channel": "email",
+                  "reply_count": 0
+                }
+              },
+              {
+                "_index": "field_note_support",
+                "_id": "ticket-102",
+                "_score": 0.0,
+                "_source": {
+                  "subject": "Invoice address correction",
+                  "team": "billing",
+                  "status": "open",
+                  "channel": "chat",
+                  "reply_count": 0,
+                  "assignee": null
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "status": 200,
+        "body": {
+          "took": 6,
+          "timed_out": false,
+          "_shards": {
+            "total": 1,
+            "successful": 1,
+            "skipped": 0,
+            "failed": 0
+          },
+          "hits": {
+            "total": {
+              "value": 2,
+              "relation": "eq"
+            },
+            "max_score": null,
+            "hits": []
+          },
+          "aggregations": {
+            "channels": {
+              "doc_count_error_upper_bound": 0,
+              "sum_other_doc_count": 0,
+              "buckets": [
+                {
+                  "key": "chat",
+                  "doc_count": 1
+                },
+                {
+                  "key": "email",
+                  "doc_count": 1
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "status": 200,
+        "body": {
+          "_index": "field_note_support",
+          "_id": "ticket-101",
+          "_version": 2,
+          "result": "updated",
+          "_shards": {
+            "total": 2,
+            "successful": 1,
+            "failed": 0
+          },
+          "_seq_no": 7,
+          "_primary_term": 1
+        }
+      },
+      {
+        "status": 200,
+        "body": {
+          "_index": "field_note_support",
+          "_id": "ticket-101",
+          "_version": 2,
+          "_seq_no": 7,
+          "_primary_term": 1,
+          "found": true,
+          "_source": {
+            "subject": "Duplicate subscription charge",
+            "team": "billing",
+            "status": "open",
+            "channel": "email",
+            "reply_count": 0,
+            "assignee": "agent-12"
+          }
+        }
+      },
+      {
+        "status": 200,
+        "body": {
+          "took": 3,
+          "timed_out": false,
+          "_shards": {
+            "total": 1,
+            "successful": 1,
+            "skipped": 0,
+            "failed": 0
+          },
+          "hits": {
+            "total": {
+              "value": 1,
+              "relation": "eq"
+            },
+            "max_score": 0.0,
+            "hits": [
+              {
+                "_index": "field_note_support",
+                "_id": "ticket-102",
+                "_score": 0.0,
+                "_source": {
+                  "subject": "Invoice address correction",
+                  "team": "billing",
+                  "status": "open",
+                  "channel": "chat",
+                  "reply_count": 0,
+                  "assignee": null
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "status": 200,
+        "body": {
+          "took": 4,
+          "timed_out": false,
+          "_shards": {
+            "total": 1,
+            "successful": 1,
+            "skipped": 0,
+            "failed": 0
+          },
+          "hits": {
+            "total": {
+              "value": 1,
+              "relation": "eq"
+            },
+            "max_score": null,
+            "hits": []
+          },
+          "aggregations": {
+            "channels": {
+              "doc_count_error_upper_bound": 0,
+              "sum_other_doc_count": 0,
+              "buckets": [
+                {
+                  "key": "chat",
+                  "doc_count": 1
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "status": 200,
+        "body": {
+          "acknowledged": true
+        }
+      }
+    ]
+  },
+  "gateway": {
+    "ok": true,
+    "responses": [
+      {
+        "status": 200,
+        "body": {
+          "acknowledged": true,
+          "index": "field_note_support",
+          "shards_acknowledged": true
+        }
+      },
+      {
+        "status": 200,
+        "body": {
+          "errors": false,
+          "items": [
+            {
+              "index": {
+                "_id": "ticket-101",
+                "_index": "field_note_support",
+                "result": "created",
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_id": "ticket-102",
+                "_index": "field_note_support",
+                "result": "created",
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_id": "ticket-103",
+                "_index": "field_note_support",
+                "result": "created",
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_id": "ticket-104",
+                "_index": "field_note_support",
+                "result": "created",
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_id": "ticket-105",
+                "_index": "field_note_support",
+                "result": "created",
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_id": "ticket-106",
+                "_index": "field_note_support",
+                "result": "created",
+                "status": 201
+              }
+            },
+            {
+              "index": {
+                "_id": "ticket-107",
+                "_index": "field_note_support",
+                "result": "created",
+                "status": 201
+              }
+            }
+          ],
+          "took": 0
+        }
+      },
+      {
+        "status": 200,
+        "body": {
+          "_shards": {
+            "failed": 0,
+            "skipped": 0,
+            "successful": 1,
+            "total": 1
+          },
+          "hits": {
+            "hits": [
+              {
+                "_id": "ticket-102",
+                "_index": "field_note_support",
+                "_score": null,
+                "_source": {
+                  "assignee": null,
+                  "channel": "chat",
+                  "reply_count": 0,
+                  "status": "open",
+                  "subject": "Invoice address correction",
+                  "team": "billing"
+                }
+              },
+              {
+                "_id": "ticket-101",
+                "_index": "field_note_support",
+                "_score": null,
+                "_source": {
+                  "channel": "email",
+                  "reply_count": 0,
+                  "status": "open",
+                  "subject": "Duplicate subscription charge",
+                  "team": "billing"
+                }
+              }
+            ],
+            "max_score": 0.0,
+            "total": {
+              "relation": "eq",
+              "value": 2
+            }
+          },
+          "timed_out": false,
+          "took": 4
+        }
+      },
+      {
+        "status": 200,
+        "body": {
+          "_shards": {
+            "failed": 0,
+            "skipped": 0,
+            "successful": 1,
+            "total": 1
+          },
+          "aggregations": {
+            "channels": {
+              "buckets": [
+                {
+                  "doc_count": 1,
+                  "key": "chat"
+                },
+                {
+                  "doc_count": 1,
+                  "key": "email"
+                }
+              ],
+              "doc_count_error_upper_bound": 0,
+              "sum_other_doc_count": 0
+            }
+          },
+          "hits": {
+            "hits": [],
+            "max_score": 0.0,
+            "total": {
+              "relation": "eq",
+              "value": 2
+            }
+          },
+          "timed_out": false,
+          "took": 2
+        }
+      },
+      {
+        "status": 200,
+        "body": {
+          "_id": "ticket-101",
+          "_index": "field_note_support",
+          "_shards": {
+            "failed": 0,
+            "successful": 1,
+            "total": 1
+          },
+          "_version": 1,
+          "result": "updated"
+        }
+      },
+      {
+        "status": 200,
+        "body": {
+          "_id": "ticket-101",
+          "_index": "field_note_support",
+          "_source": {
+            "assignee": "agent-12",
+            "channel": "email",
+            "reply_count": 0,
+            "status": "open",
+            "subject": "Duplicate subscription charge",
+            "team": "billing"
+          },
+          "_version": 1,
+          "found": true
+        }
+      },
+      {
+        "status": 200,
+        "body": {
+          "_shards": {
+            "failed": 0,
+            "skipped": 0,
+            "successful": 1,
+            "total": 1
+          },
+          "hits": {
+            "hits": [
+              {
+                "_id": "ticket-102",
+                "_index": "field_note_support",
+                "_score": null,
+                "_source": {
+                  "assignee": null,
+                  "channel": "chat",
+                  "reply_count": 0,
+                  "status": "open",
+                  "subject": "Invoice address correction",
+                  "team": "billing"
+                }
+              }
+            ],
+            "max_score": 0.0,
+            "total": {
+              "relation": "eq",
+              "value": 1
+            }
+          },
+          "timed_out": false,
+          "took": 2
+        }
+      },
+      {
+        "status": 200,
+        "body": {
+          "_shards": {
+            "failed": 0,
+            "skipped": 0,
+            "successful": 1,
+            "total": 1
+          },
+          "aggregations": {
+            "channels": {
+              "buckets": [
+                {
+                  "doc_count": 1,
+                  "key": "chat"
+                }
+              ],
+              "doc_count_error_upper_bound": 0,
+              "sum_other_doc_count": 0
+            }
+          },
+          "hits": {
+            "hits": [],
+            "max_score": 0.0,
+            "total": {
+              "relation": "eq",
+              "value": 1
+            }
+          },
+          "timed_out": false,
+          "took": 1
+        }
+      },
+      {
+        "status": 200,
+        "body": {
+          "acknowledged": true
+        }
+      }
+    ]
+  },
+  "ok": true
+}

@@ -1,0 +1,148 @@
+{
+  "index": "field_note_energy",
+  "mapping": {
+    "mappings": {
+      "properties": {
+        "site": {
+          "type": "keyword"
+        },
+        "region": {
+          "type": "keyword"
+        },
+        "operator": {
+          "type": "keyword"
+        },
+        "state": {
+          "type": "keyword"
+        },
+        "available_kwh": {
+          "type": "integer"
+        }
+      }
+    }
+  },
+  "documents": {
+    "battery-101": {
+      "site": "Moor Lane",
+      "region": "north",
+      "operator": "Aster",
+      "state": "ready",
+      "available_kwh": 120
+    },
+    "battery-102": {
+      "site": "Quarry Farm",
+      "region": "north",
+      "operator": "Birch",
+      "state": "ready",
+      "available_kwh": 100
+    },
+    "battery-103": {
+      "site": "Mill Yard",
+      "region": "north",
+      "operator": "Aster",
+      "state": "ready",
+      "available_kwh": 99
+    },
+    "battery-104": {
+      "site": "South Meadow",
+      "region": "south",
+      "operator": "Birch",
+      "state": "ready",
+      "available_kwh": 180
+    },
+    "battery-105": {
+      "site": "Hill Barn",
+      "region": "north",
+      "operator": "Cedar",
+      "state": "hold",
+      "available_kwh": 200
+    },
+    "battery-106": {
+      "site": "Canal Depot",
+      "region": "north",
+      "operator": "Cedar",
+      "state": "offline",
+      "available_kwh": 250
+    }
+  },
+  "search": {
+    "size": 10,
+    "query": {
+      "bool": {
+        "filter": [
+          {
+            "term": {
+              "region": "north"
+            }
+          },
+          {
+            "term": {
+              "state": "ready"
+            }
+          },
+          {
+            "range": {
+              "available_kwh": {
+                "gte": 100
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "facet": {
+    "size": 0,
+    "query": {
+      "bool": {
+        "filter": [
+          {
+            "term": {
+              "region": "north"
+            }
+          },
+          {
+            "term": {
+              "state": "ready"
+            }
+          },
+          {
+            "range": {
+              "available_kwh": {
+                "gte": 100
+              }
+            }
+          }
+        ]
+      }
+    },
+    "aggs": {
+      "operators": {
+        "terms": {
+          "field": "operator",
+          "size": 10
+        }
+      }
+    }
+  },
+  "update_id": "battery-101",
+  "update": {
+    "doc": {
+      "state": "hold"
+    }
+  },
+  "expected_search_ids": [
+    "battery-101",
+    "battery-102"
+  ],
+  "expected_search_ids_after": [
+    "battery-102"
+  ],
+  "expected_facets_before": {
+    "Aster": 1,
+    "Birch": 1
+  },
+  "expected_facets_after": {
+    "Birch": 1
+  }
+}

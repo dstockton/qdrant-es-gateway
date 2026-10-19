@@ -1,0 +1,148 @@
+{
+  "index": "field_note_library",
+  "mapping": {
+    "mappings": {
+      "properties": {
+        "title": {
+          "type": "text"
+        },
+        "branch": {
+          "type": "keyword"
+        },
+        "format": {
+          "type": "keyword"
+        },
+        "genre": {
+          "type": "keyword"
+        },
+        "available_copies": {
+          "type": "integer"
+        }
+      }
+    }
+  },
+  "documents": {
+    "book-101": {
+      "title": "The Harbour Mystery",
+      "branch": "York",
+      "format": "large-print",
+      "genre": "crime",
+      "available_copies": 1
+    },
+    "book-102": {
+      "title": "A Garden in Winter",
+      "branch": "York",
+      "format": "large-print",
+      "genre": "fiction",
+      "available_copies": 2
+    },
+    "book-103": {
+      "title": "The Harbour Mystery",
+      "branch": "York",
+      "format": "standard",
+      "genre": "crime",
+      "available_copies": 3
+    },
+    "book-104": {
+      "title": "Mountain Letters",
+      "branch": "York",
+      "format": "large-print",
+      "genre": "biography",
+      "available_copies": 0
+    },
+    "book-105": {
+      "title": "River Detectives",
+      "branch": "Leeds",
+      "format": "large-print",
+      "genre": "crime",
+      "available_copies": 2
+    },
+    "book-106": {
+      "title": "Summer on the Moors",
+      "branch": "York",
+      "format": "ebook",
+      "genre": "fiction",
+      "available_copies": 4
+    }
+  },
+  "search": {
+    "size": 10,
+    "query": {
+      "bool": {
+        "filter": [
+          {
+            "term": {
+              "branch": "York"
+            }
+          },
+          {
+            "term": {
+              "format": "large-print"
+            }
+          },
+          {
+            "range": {
+              "available_copies": {
+                "gte": 1
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "facet": {
+    "size": 0,
+    "query": {
+      "bool": {
+        "filter": [
+          {
+            "term": {
+              "branch": "York"
+            }
+          },
+          {
+            "term": {
+              "format": "large-print"
+            }
+          },
+          {
+            "range": {
+              "available_copies": {
+                "gte": 1
+              }
+            }
+          }
+        ]
+      }
+    },
+    "aggs": {
+      "genres": {
+        "terms": {
+          "field": "genre",
+          "size": 10
+        }
+      }
+    }
+  },
+  "update_id": "book-101",
+  "update": {
+    "doc": {
+      "available_copies": 0
+    }
+  },
+  "expected_search_ids": [
+    "book-101",
+    "book-102"
+  ],
+  "expected_search_ids_after": [
+    "book-102"
+  ],
+  "expected_facets_before": {
+    "crime": 1,
+    "fiction": 1
+  },
+  "expected_facets_after": {
+    "fiction": 1
+  }
+}
