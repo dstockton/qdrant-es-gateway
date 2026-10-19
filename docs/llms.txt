@@ -23,6 +23,7 @@
 ## Articles (Markdown)
 
 - [Hit concurrency metadata cannot be invented](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-19-hit-concurrency-metadata-cannot-be-invented.md)
+- [Requested doc values cannot silently disappear](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-19-doc-values-cannot-silently-disappear.md)
 - [Which dry plots need an irrigation inspection?](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-19-agriculture-irrigation-inspection.md)
 - [Query profiles cannot be empty](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-18-query-profiles-cannot-be-empty.md)
 - [Refreshing the production stack without opening old volumes](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-18-production-stack-refresh.md)

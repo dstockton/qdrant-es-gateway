@@ -3182,6 +3182,17 @@ async fn ordered_numeric_hits(
 }
 
 fn validate_search_execution_controls(body: &Value) -> Result<(), GatewayError> {
+    if let Some(docvalue_fields) = body.get("docvalue_fields") {
+        let fields = docvalue_fields.as_array().ok_or_else(|| {
+            GatewayError::bad("docvalue_fields", "docvalue_fields must be an array")
+        })?;
+        if !fields.is_empty() {
+            return Err(GatewayError::bad(
+                "docvalue_fields",
+                "doc value field retrieval is not currently supported; the gateway cannot return Elasticsearch or OpenSearch doc values in each hit's fields object",
+            ));
+        }
+    }
     for (control, message) in [
         (
             "version",
@@ -4841,6 +4852,12 @@ fn validate_request_parameters(query: Option<&str>) -> Result<(), GatewayError> 
         let name = percent_decode_str(name).decode_utf8().map_err(|_| {
             GatewayError::bad("request.query", "query parameter is not valid UTF-8")
         })?;
+        if name == "docvalue_fields" {
+            return Err(GatewayError::bad(
+                "request.query",
+                "unsupported query parameter docvalue_fields; the gateway cannot return Elasticsearch or OpenSearch doc values in each hit's fields object",
+            ));
+        }
         if matches!(
             name.as_ref(),
             "if_seq_no"
@@ -4980,7 +4997,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unsupported_consistency_parameters_are_not_silently_ignored() {
+    fn unsupported_request_parameters_are_not_silently_ignored() {
         for query in [
             "if_seq_no=0&if_primary_term=1",
             "%69f_seq_no=0",
@@ -4989,6 +5006,8 @@ mod tests {
             "op_type=create",
             "scroll=1m",
             "retry_on_conflict=3",
+            "docvalue_fields=price%2Csku",
+            "%64ocvalue_fields=price",
         ] {
             assert_eq!(
                 validate_request_parameters(Some(query))
@@ -7583,6 +7602,8 @@ mod tests {
             (json!({"terminate_after":1}), "terminate_after"),
             (json!({"timeout":"1s"}), "timeout"),
             (json!({"highlight":{"fields":{"title":{}}}}), "highlight"),
+            (json!({"docvalue_fields":["price"]}), "docvalue_fields"),
+            (json!({"docvalue_fields":"price"}), "docvalue_fields"),
             (json!({"from":-1}), "from"),
             (json!({"from":"1"}), "from"),
             (json!({"size":-1}), "size"),
@@ -7621,13 +7642,14 @@ mod tests {
             "version": false,
             "seq_no_primary_term": false,
             "profile": false,
-            "explain": false
+            "explain": false,
+            "docvalue_fields": []
         }))
         .is_ok());
         let response = msearch_with_total_format(
             State(state.clone()),
             Some("products".into()),
-            "{}\n{\"highlight\":{\"fields\":{\"title\":{}}}}\n{}\n{\"explain\":true}\n{}\n{\"profile\":true}\n{}\n{\"version\":true}\n{}\n{\"seq_no_primary_term\":true}\n".into(),
+            "{}\n{\"highlight\":{\"fields\":{\"title\":{}}}}\n{}\n{\"explain\":true}\n{}\n{\"profile\":true}\n{}\n{\"version\":true}\n{}\n{\"seq_no_primary_term\":true}\n{}\n{\"docvalue_fields\":[\"price\"]}\n".into(),
             false,
         )
         .await
@@ -7646,6 +7668,7 @@ mod tests {
             body["responses"][4]["error"]["feature"],
             "seq_no_primary_term"
         );
+        assert_eq!(body["responses"][5]["error"]["feature"], "docvalue_fields");
         let error = search_with_total_format(
             State(state),
             Path("products".into()),
