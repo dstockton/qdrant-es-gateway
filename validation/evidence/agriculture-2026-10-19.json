@@ -1,0 +1,3354 @@
+{
+  "run_at": "2026-10-19T10:01:34.760599+00:00",
+  "gateway_revision": "85b0e22365e502a55f54b41c9cc8be1bbabcd4bc",
+  "fixture": "validation/fixtures/agriculture.json",
+  "gateway_binary_version": "0.2.0",
+  "qdrant_version": "1.15.5",
+  "gateway_mode": "embedded-source, synchronous writes",
+  "settle_seconds_after_each_write_phase": 5,
+  "native": {
+    "calls": [
+      {
+        "name": "create",
+        "method": "PUT",
+        "path": "/field_note_irrigation",
+        "request": {
+          "mappings": {
+            "properties": {
+              "plot": {
+                "type": "keyword"
+              },
+              "crop": {
+                "type": "keyword"
+              },
+              "state": {
+                "type": "keyword"
+              },
+              "moisture_percent": {
+                "type": "integer"
+              },
+              "reading_age_minutes": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "acknowledged": true,
+            "shards_acknowledged": true,
+            "index": "field_note_irrigation"
+          }
+        }
+      },
+      {
+        "name": "bulk",
+        "method": "POST",
+        "path": "/field_note_irrigation/_bulk?refresh=wait_for",
+        "request": "{\"index\": {\"_id\": \"plot-101\"}}\n{\"plot\": \"North tunnel\", \"crop\": \"tomato\", \"state\": \"open\", \"moisture_percent\": 18, \"reading_age_minutes\": 10}\n{\"index\": {\"_id\": \"plot-102\"}}\n{\"plot\": \"East beds\", \"crop\": \"lettuce\", \"state\": \"open\", \"moisture_percent\": 19, \"reading_age_minutes\": 30}\n{\"index\": {\"_id\": \"plot-103\"}}\n{\"plot\": \"West beds\", \"crop\": \"lettuce\", \"state\": \"open\", \"moisture_percent\": 20, \"reading_age_minutes\": 5}\n{\"index\": {\"_id\": \"plot-104\"}}\n{\"plot\": \"South tunnel\", \"crop\": \"tomato\", \"state\": \"open\", \"moisture_percent\": 12, \"reading_age_minutes\": 31}\n{\"index\": {\"_id\": \"plot-105\"}}\n{\"plot\": \"Trial beds\", \"crop\": \"lettuce\", \"state\": \"closed\", \"moisture_percent\": 15, \"reading_age_minutes\": 8}\n{\"index\": {\"_id\": \"plot-106\"}}\n{\"plot\": \"Herb beds\", \"crop\": \"basil\", \"state\": \"open\", \"moisture_percent\": 16}\n",
+        "response": {
+          "status": 200,
+          "body": {
+            "errors": false,
+            "took": 180250547,
+            "items": [
+              {
+                "index": {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-101",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 0,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-102",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 1,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-103",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 2,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-104",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 3,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-105",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 4,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-106",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 5,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "read plot-101",
+        "method": "GET",
+        "path": "/field_note_irrigation/_doc/plot-101",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_irrigation",
+            "_id": "plot-101",
+            "_version": 1,
+            "_seq_no": 0,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "plot": "North tunnel",
+              "crop": "tomato",
+              "state": "open",
+              "moisture_percent": 18,
+              "reading_age_minutes": 10
+            }
+          }
+        }
+      },
+      {
+        "name": "read plot-102",
+        "method": "GET",
+        "path": "/field_note_irrigation/_doc/plot-102",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_irrigation",
+            "_id": "plot-102",
+            "_version": 1,
+            "_seq_no": 1,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "plot": "East beds",
+              "crop": "lettuce",
+              "state": "open",
+              "moisture_percent": 19,
+              "reading_age_minutes": 30
+            }
+          }
+        }
+      },
+      {
+        "name": "read plot-103",
+        "method": "GET",
+        "path": "/field_note_irrigation/_doc/plot-103",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_irrigation",
+            "_id": "plot-103",
+            "_version": 1,
+            "_seq_no": 2,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "plot": "West beds",
+              "crop": "lettuce",
+              "state": "open",
+              "moisture_percent": 20,
+              "reading_age_minutes": 5
+            }
+          }
+        }
+      },
+      {
+        "name": "read plot-104",
+        "method": "GET",
+        "path": "/field_note_irrigation/_doc/plot-104",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_irrigation",
+            "_id": "plot-104",
+            "_version": 1,
+            "_seq_no": 3,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "plot": "South tunnel",
+              "crop": "tomato",
+              "state": "open",
+              "moisture_percent": 12,
+              "reading_age_minutes": 31
+            }
+          }
+        }
+      },
+      {
+        "name": "read plot-105",
+        "method": "GET",
+        "path": "/field_note_irrigation/_doc/plot-105",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_irrigation",
+            "_id": "plot-105",
+            "_version": 1,
+            "_seq_no": 4,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "plot": "Trial beds",
+              "crop": "lettuce",
+              "state": "closed",
+              "moisture_percent": 15,
+              "reading_age_minutes": 8
+            }
+          }
+        }
+      },
+      {
+        "name": "read plot-106",
+        "method": "GET",
+        "path": "/field_note_irrigation/_doc/plot-106",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_irrigation",
+            "_id": "plot-106",
+            "_version": 1,
+            "_seq_no": 5,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "plot": "Herb beds",
+              "crop": "basil",
+              "state": "open",
+              "moisture_percent": 16
+            }
+          }
+        }
+      },
+      {
+        "name": "dry plots with recent readings",
+        "method": "POST",
+        "path": "/field_note_irrigation/_search",
+        "request": {
+          "size": 10,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "state": "open"
+                  }
+                },
+                {
+                  "range": {
+                    "moisture_percent": {
+                      "lt": 20
+                    }
+                  }
+                },
+                {
+                  "range": {
+                    "reading_age_minutes": {
+                      "lte": 30
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "took": 5,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 2,
+                "relation": "eq"
+              },
+              "max_score": 0.0,
+              "hits": [
+                {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-101",
+                  "_score": 0.0,
+                  "_source": {
+                    "plot": "North tunnel",
+                    "crop": "tomato",
+                    "state": "open",
+                    "moisture_percent": 18,
+                    "reading_age_minutes": 10
+                  }
+                },
+                {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-102",
+                  "_score": 0.0,
+                  "_source": {
+                    "plot": "East beds",
+                    "crop": "lettuce",
+                    "state": "open",
+                    "moisture_percent": 19,
+                    "reading_age_minutes": 30
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "name": "crop counts",
+        "method": "POST",
+        "path": "/field_note_irrigation/_search",
+        "request": {
+          "size": 0,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "state": "open"
+                  }
+                },
+                {
+                  "range": {
+                    "moisture_percent": {
+                      "lt": 20
+                    }
+                  }
+                },
+                {
+                  "range": {
+                    "reading_age_minutes": {
+                      "lte": 30
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "aggs": {
+            "crops": {
+              "terms": {
+                "field": "crop",
+                "size": 10
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "took": 19,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 2,
+                "relation": "eq"
+              },
+              "max_score": null,
+              "hits": []
+            },
+            "aggregations": {
+              "crops": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": [
+                  {
+                    "key": "lettuce",
+                    "doc_count": 1
+                  },
+                  {
+                    "key": "tomato",
+                    "doc_count": 1
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "mark inspected",
+        "method": "POST",
+        "path": "/field_note_irrigation/_update/plot-101?refresh=wait_for",
+        "request": {
+          "doc": {
+            "state": "inspected"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_irrigation",
+            "_id": "plot-101",
+            "_version": 2,
+            "result": "updated",
+            "_shards": {
+              "total": 2,
+              "successful": 1,
+              "failed": 0
+            },
+            "_seq_no": 6,
+            "_primary_term": 1
+          }
+        }
+      },
+      {
+        "name": "read inspected plot",
+        "method": "GET",
+        "path": "/field_note_irrigation/_doc/plot-101",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_irrigation",
+            "_id": "plot-101",
+            "_version": 2,
+            "_seq_no": 6,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "plot": "North tunnel",
+              "crop": "tomato",
+              "state": "inspected",
+              "moisture_percent": 18,
+              "reading_age_minutes": 10
+            }
+          }
+        }
+      },
+      {
+        "name": "inspected plot excluded",
+        "method": "POST",
+        "path": "/field_note_irrigation/_search",
+        "request": {
+          "size": 10,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "state": "open"
+                  }
+                },
+                {
+                  "range": {
+                    "moisture_percent": {
+                      "lt": 20
+                    }
+                  }
+                },
+                {
+                  "range": {
+                    "reading_age_minutes": {
+                      "lte": 30
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "took": 8,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 1,
+                "relation": "eq"
+              },
+              "max_score": 0.0,
+              "hits": [
+                {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-102",
+                  "_score": 0.0,
+                  "_source": {
+                    "plot": "East beds",
+                    "crop": "lettuce",
+                    "state": "open",
+                    "moisture_percent": 19,
+                    "reading_age_minutes": 30
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "name": "remaining crops",
+        "method": "POST",
+        "path": "/field_note_irrigation/_search",
+        "request": {
+          "size": 0,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "state": "open"
+                  }
+                },
+                {
+                  "range": {
+                    "moisture_percent": {
+                      "lt": 20
+                    }
+                  }
+                },
+                {
+                  "range": {
+                    "reading_age_minutes": {
+                      "lte": 30
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "aggs": {
+            "crops": {
+              "terms": {
+                "field": "crop",
+                "size": 10
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "took": 6,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 1,
+                "relation": "eq"
+              },
+              "max_score": null,
+              "hits": []
+            },
+            "aggregations": {
+              "crops": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": [
+                  {
+                    "key": "lettuce",
+                    "doc_count": 1
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "cleanup",
+        "method": "DELETE",
+        "path": "/field_note_irrigation",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "acknowledged": true
+          }
+        }
+      }
+    ],
+    "checks": [
+      {
+        "name": "create HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "bulk HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "bulk errors",
+        "ok": true,
+        "actual": false,
+        "expected": false
+      },
+      {
+        "name": "bulk items",
+        "ok": true,
+        "actual": [
+          {
+            "_id": "plot-101",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-102",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-103",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-104",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-105",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-106",
+            "status": 201,
+            "result": "created"
+          }
+        ],
+        "expected": [
+          {
+            "_id": "plot-101",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-102",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-103",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-104",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-105",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-106",
+            "status": 201,
+            "result": "created"
+          }
+        ]
+      },
+      {
+        "name": "read plot-101 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read plot-101 ID/source",
+        "ok": true,
+        "actual": [
+          "plot-101",
+          {
+            "plot": "North tunnel",
+            "crop": "tomato",
+            "state": "open",
+            "moisture_percent": 18,
+            "reading_age_minutes": 10
+          }
+        ],
+        "expected": [
+          "plot-101",
+          {
+            "plot": "North tunnel",
+            "crop": "tomato",
+            "state": "open",
+            "moisture_percent": 18,
+            "reading_age_minutes": 10
+          }
+        ]
+      },
+      {
+        "name": "read plot-102 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read plot-102 ID/source",
+        "ok": true,
+        "actual": [
+          "plot-102",
+          {
+            "plot": "East beds",
+            "crop": "lettuce",
+            "state": "open",
+            "moisture_percent": 19,
+            "reading_age_minutes": 30
+          }
+        ],
+        "expected": [
+          "plot-102",
+          {
+            "plot": "East beds",
+            "crop": "lettuce",
+            "state": "open",
+            "moisture_percent": 19,
+            "reading_age_minutes": 30
+          }
+        ]
+      },
+      {
+        "name": "read plot-103 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read plot-103 ID/source",
+        "ok": true,
+        "actual": [
+          "plot-103",
+          {
+            "plot": "West beds",
+            "crop": "lettuce",
+            "state": "open",
+            "moisture_percent": 20,
+            "reading_age_minutes": 5
+          }
+        ],
+        "expected": [
+          "plot-103",
+          {
+            "plot": "West beds",
+            "crop": "lettuce",
+            "state": "open",
+            "moisture_percent": 20,
+            "reading_age_minutes": 5
+          }
+        ]
+      },
+      {
+        "name": "read plot-104 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read plot-104 ID/source",
+        "ok": true,
+        "actual": [
+          "plot-104",
+          {
+            "plot": "South tunnel",
+            "crop": "tomato",
+            "state": "open",
+            "moisture_percent": 12,
+            "reading_age_minutes": 31
+          }
+        ],
+        "expected": [
+          "plot-104",
+          {
+            "plot": "South tunnel",
+            "crop": "tomato",
+            "state": "open",
+            "moisture_percent": 12,
+            "reading_age_minutes": 31
+          }
+        ]
+      },
+      {
+        "name": "read plot-105 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read plot-105 ID/source",
+        "ok": true,
+        "actual": [
+          "plot-105",
+          {
+            "plot": "Trial beds",
+            "crop": "lettuce",
+            "state": "closed",
+            "moisture_percent": 15,
+            "reading_age_minutes": 8
+          }
+        ],
+        "expected": [
+          "plot-105",
+          {
+            "plot": "Trial beds",
+            "crop": "lettuce",
+            "state": "closed",
+            "moisture_percent": 15,
+            "reading_age_minutes": 8
+          }
+        ]
+      },
+      {
+        "name": "read plot-106 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read plot-106 ID/source",
+        "ok": true,
+        "actual": [
+          "plot-106",
+          {
+            "plot": "Herb beds",
+            "crop": "basil",
+            "state": "open",
+            "moisture_percent": 16
+          }
+        ],
+        "expected": [
+          "plot-106",
+          {
+            "plot": "Herb beds",
+            "crop": "basil",
+            "state": "open",
+            "moisture_percent": 16
+          }
+        ]
+      },
+      {
+        "name": "dry plots with recent readings HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "dry plots with recent readings exact total",
+        "ok": true,
+        "actual": {
+          "value": 2,
+          "relation": "eq"
+        },
+        "expected": {
+          "value": 2,
+          "relation": "eq"
+        }
+      },
+      {
+        "name": "dry plots with recent readings IDs",
+        "ok": true,
+        "actual": [
+          "plot-101",
+          "plot-102"
+        ],
+        "expected": [
+          "plot-101",
+          "plot-102"
+        ]
+      },
+      {
+        "name": "dry plots with recent readings sources",
+        "ok": true,
+        "actual": {
+          "plot-101": {
+            "plot": "North tunnel",
+            "crop": "tomato",
+            "state": "open",
+            "moisture_percent": 18,
+            "reading_age_minutes": 10
+          },
+          "plot-102": {
+            "plot": "East beds",
+            "crop": "lettuce",
+            "state": "open",
+            "moisture_percent": 19,
+            "reading_age_minutes": 30
+          }
+        },
+        "expected": {
+          "plot-101": {
+            "plot": "North tunnel",
+            "crop": "tomato",
+            "state": "open",
+            "moisture_percent": 18,
+            "reading_age_minutes": 10
+          },
+          "plot-102": {
+            "plot": "East beds",
+            "crop": "lettuce",
+            "state": "open",
+            "moisture_percent": 19,
+            "reading_age_minutes": 30
+          }
+        }
+      },
+      {
+        "name": "crop counts HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "crop counts counts",
+        "ok": true,
+        "actual": {
+          "lettuce": 1,
+          "tomato": 1
+        },
+        "expected": {
+          "tomato": 1,
+          "lettuce": 1
+        }
+      },
+      {
+        "name": "crop counts zero hits",
+        "ok": true,
+        "actual": [],
+        "expected": []
+      },
+      {
+        "name": "mark inspected HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "inspection update ID/result",
+        "ok": true,
+        "actual": [
+          "plot-101",
+          "updated"
+        ],
+        "expected": [
+          "plot-101",
+          "updated"
+        ]
+      },
+      {
+        "name": "read inspected plot HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "inspection preserves sensor snapshot",
+        "ok": true,
+        "actual": [
+          "plot-101",
+          {
+            "plot": "North tunnel",
+            "crop": "tomato",
+            "state": "inspected",
+            "moisture_percent": 18,
+            "reading_age_minutes": 10
+          }
+        ],
+        "expected": [
+          "plot-101",
+          {
+            "plot": "North tunnel",
+            "crop": "tomato",
+            "state": "inspected",
+            "moisture_percent": 18,
+            "reading_age_minutes": 10
+          }
+        ]
+      },
+      {
+        "name": "inspected plot excluded HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "inspected plot excluded exact total",
+        "ok": true,
+        "actual": {
+          "value": 1,
+          "relation": "eq"
+        },
+        "expected": {
+          "value": 1,
+          "relation": "eq"
+        }
+      },
+      {
+        "name": "inspected plot excluded IDs",
+        "ok": true,
+        "actual": [
+          "plot-102"
+        ],
+        "expected": [
+          "plot-102"
+        ]
+      },
+      {
+        "name": "inspected plot excluded sources",
+        "ok": true,
+        "actual": {
+          "plot-102": {
+            "plot": "East beds",
+            "crop": "lettuce",
+            "state": "open",
+            "moisture_percent": 19,
+            "reading_age_minutes": 30
+          }
+        },
+        "expected": {
+          "plot-102": {
+            "plot": "East beds",
+            "crop": "lettuce",
+            "state": "open",
+            "moisture_percent": 19,
+            "reading_age_minutes": 30
+          }
+        }
+      },
+      {
+        "name": "remaining crops HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "remaining crops counts",
+        "ok": true,
+        "actual": {
+          "lettuce": 1
+        },
+        "expected": {
+          "lettuce": 1
+        }
+      },
+      {
+        "name": "remaining crops zero hits",
+        "ok": true,
+        "actual": [],
+        "expected": []
+      },
+      {
+        "name": "cleanup HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      }
+    ],
+    "reported_version": "8.15.0"
+  },
+  "opensearch": {
+    "calls": [
+      {
+        "name": "create",
+        "method": "PUT",
+        "path": "/field_note_irrigation",
+        "request": {
+          "mappings": {
+            "properties": {
+              "plot": {
+                "type": "keyword"
+              },
+              "crop": {
+                "type": "keyword"
+              },
+              "state": {
+                "type": "keyword"
+              },
+              "moisture_percent": {
+                "type": "integer"
+              },
+              "reading_age_minutes": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "acknowledged": true,
+            "shards_acknowledged": true,
+            "index": "field_note_irrigation"
+          }
+        }
+      },
+      {
+        "name": "bulk",
+        "method": "POST",
+        "path": "/field_note_irrigation/_bulk?refresh=wait_for",
+        "request": "{\"index\": {\"_id\": \"plot-101\"}}\n{\"plot\": \"North tunnel\", \"crop\": \"tomato\", \"state\": \"open\", \"moisture_percent\": 18, \"reading_age_minutes\": 10}\n{\"index\": {\"_id\": \"plot-102\"}}\n{\"plot\": \"East beds\", \"crop\": \"lettuce\", \"state\": \"open\", \"moisture_percent\": 19, \"reading_age_minutes\": 30}\n{\"index\": {\"_id\": \"plot-103\"}}\n{\"plot\": \"West beds\", \"crop\": \"lettuce\", \"state\": \"open\", \"moisture_percent\": 20, \"reading_age_minutes\": 5}\n{\"index\": {\"_id\": \"plot-104\"}}\n{\"plot\": \"South tunnel\", \"crop\": \"tomato\", \"state\": \"open\", \"moisture_percent\": 12, \"reading_age_minutes\": 31}\n{\"index\": {\"_id\": \"plot-105\"}}\n{\"plot\": \"Trial beds\", \"crop\": \"lettuce\", \"state\": \"closed\", \"moisture_percent\": 15, \"reading_age_minutes\": 8}\n{\"index\": {\"_id\": \"plot-106\"}}\n{\"plot\": \"Herb beds\", \"crop\": \"basil\", \"state\": \"open\", \"moisture_percent\": 16}\n",
+        "response": {
+          "status": 200,
+          "body": {
+            "took": 975,
+            "errors": false,
+            "items": [
+              {
+                "index": {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-101",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 0,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-102",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 1,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-103",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 2,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-104",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 3,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-105",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 4,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-106",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 5,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "read plot-101",
+        "method": "GET",
+        "path": "/field_note_irrigation/_doc/plot-101",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_irrigation",
+            "_id": "plot-101",
+            "_version": 1,
+            "_seq_no": 0,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "plot": "North tunnel",
+              "crop": "tomato",
+              "state": "open",
+              "moisture_percent": 18,
+              "reading_age_minutes": 10
+            }
+          }
+        }
+      },
+      {
+        "name": "read plot-102",
+        "method": "GET",
+        "path": "/field_note_irrigation/_doc/plot-102",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_irrigation",
+            "_id": "plot-102",
+            "_version": 1,
+            "_seq_no": 1,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "plot": "East beds",
+              "crop": "lettuce",
+              "state": "open",
+              "moisture_percent": 19,
+              "reading_age_minutes": 30
+            }
+          }
+        }
+      },
+      {
+        "name": "read plot-103",
+        "method": "GET",
+        "path": "/field_note_irrigation/_doc/plot-103",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_irrigation",
+            "_id": "plot-103",
+            "_version": 1,
+            "_seq_no": 2,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "plot": "West beds",
+              "crop": "lettuce",
+              "state": "open",
+              "moisture_percent": 20,
+              "reading_age_minutes": 5
+            }
+          }
+        }
+      },
+      {
+        "name": "read plot-104",
+        "method": "GET",
+        "path": "/field_note_irrigation/_doc/plot-104",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_irrigation",
+            "_id": "plot-104",
+            "_version": 1,
+            "_seq_no": 3,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "plot": "South tunnel",
+              "crop": "tomato",
+              "state": "open",
+              "moisture_percent": 12,
+              "reading_age_minutes": 31
+            }
+          }
+        }
+      },
+      {
+        "name": "read plot-105",
+        "method": "GET",
+        "path": "/field_note_irrigation/_doc/plot-105",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_irrigation",
+            "_id": "plot-105",
+            "_version": 1,
+            "_seq_no": 4,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "plot": "Trial beds",
+              "crop": "lettuce",
+              "state": "closed",
+              "moisture_percent": 15,
+              "reading_age_minutes": 8
+            }
+          }
+        }
+      },
+      {
+        "name": "read plot-106",
+        "method": "GET",
+        "path": "/field_note_irrigation/_doc/plot-106",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_irrigation",
+            "_id": "plot-106",
+            "_version": 1,
+            "_seq_no": 5,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "plot": "Herb beds",
+              "crop": "basil",
+              "state": "open",
+              "moisture_percent": 16
+            }
+          }
+        }
+      },
+      {
+        "name": "dry plots with recent readings",
+        "method": "POST",
+        "path": "/field_note_irrigation/_search",
+        "request": {
+          "size": 10,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "state": "open"
+                  }
+                },
+                {
+                  "range": {
+                    "moisture_percent": {
+                      "lt": 20
+                    }
+                  }
+                },
+                {
+                  "range": {
+                    "reading_age_minutes": {
+                      "lte": 30
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "took": 8,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 2,
+                "relation": "eq"
+              },
+              "max_score": 0.0,
+              "hits": [
+                {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-101",
+                  "_score": 0.0,
+                  "_source": {
+                    "plot": "North tunnel",
+                    "crop": "tomato",
+                    "state": "open",
+                    "moisture_percent": 18,
+                    "reading_age_minutes": 10
+                  }
+                },
+                {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-102",
+                  "_score": 0.0,
+                  "_source": {
+                    "plot": "East beds",
+                    "crop": "lettuce",
+                    "state": "open",
+                    "moisture_percent": 19,
+                    "reading_age_minutes": 30
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "name": "crop counts",
+        "method": "POST",
+        "path": "/field_note_irrigation/_search",
+        "request": {
+          "size": 0,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "state": "open"
+                  }
+                },
+                {
+                  "range": {
+                    "moisture_percent": {
+                      "lt": 20
+                    }
+                  }
+                },
+                {
+                  "range": {
+                    "reading_age_minutes": {
+                      "lte": 30
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "aggs": {
+            "crops": {
+              "terms": {
+                "field": "crop",
+                "size": 10
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "took": 16,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 2,
+                "relation": "eq"
+              },
+              "max_score": null,
+              "hits": []
+            },
+            "aggregations": {
+              "crops": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": [
+                  {
+                    "key": "lettuce",
+                    "doc_count": 1
+                  },
+                  {
+                    "key": "tomato",
+                    "doc_count": 1
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "mark inspected",
+        "method": "POST",
+        "path": "/field_note_irrigation/_update/plot-101?refresh=wait_for",
+        "request": {
+          "doc": {
+            "state": "inspected"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_irrigation",
+            "_id": "plot-101",
+            "_version": 2,
+            "result": "updated",
+            "_shards": {
+              "total": 2,
+              "successful": 1,
+              "failed": 0
+            },
+            "_seq_no": 6,
+            "_primary_term": 1
+          }
+        }
+      },
+      {
+        "name": "read inspected plot",
+        "method": "GET",
+        "path": "/field_note_irrigation/_doc/plot-101",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_irrigation",
+            "_id": "plot-101",
+            "_version": 2,
+            "_seq_no": 6,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "plot": "North tunnel",
+              "crop": "tomato",
+              "state": "inspected",
+              "moisture_percent": 18,
+              "reading_age_minutes": 10
+            }
+          }
+        }
+      },
+      {
+        "name": "inspected plot excluded",
+        "method": "POST",
+        "path": "/field_note_irrigation/_search",
+        "request": {
+          "size": 10,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "state": "open"
+                  }
+                },
+                {
+                  "range": {
+                    "moisture_percent": {
+                      "lt": 20
+                    }
+                  }
+                },
+                {
+                  "range": {
+                    "reading_age_minutes": {
+                      "lte": 30
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "took": 3,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 1,
+                "relation": "eq"
+              },
+              "max_score": 0.0,
+              "hits": [
+                {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-102",
+                  "_score": 0.0,
+                  "_source": {
+                    "plot": "East beds",
+                    "crop": "lettuce",
+                    "state": "open",
+                    "moisture_percent": 19,
+                    "reading_age_minutes": 30
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "name": "remaining crops",
+        "method": "POST",
+        "path": "/field_note_irrigation/_search",
+        "request": {
+          "size": 0,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "state": "open"
+                  }
+                },
+                {
+                  "range": {
+                    "moisture_percent": {
+                      "lt": 20
+                    }
+                  }
+                },
+                {
+                  "range": {
+                    "reading_age_minutes": {
+                      "lte": 30
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "aggs": {
+            "crops": {
+              "terms": {
+                "field": "crop",
+                "size": 10
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "took": 3,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 1,
+                "relation": "eq"
+              },
+              "max_score": null,
+              "hits": []
+            },
+            "aggregations": {
+              "crops": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": [
+                  {
+                    "key": "lettuce",
+                    "doc_count": 1
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "cleanup",
+        "method": "DELETE",
+        "path": "/field_note_irrigation",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "acknowledged": true
+          }
+        }
+      }
+    ],
+    "checks": [
+      {
+        "name": "create HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "bulk HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "bulk errors",
+        "ok": true,
+        "actual": false,
+        "expected": false
+      },
+      {
+        "name": "bulk items",
+        "ok": true,
+        "actual": [
+          {
+            "_id": "plot-101",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-102",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-103",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-104",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-105",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-106",
+            "status": 201,
+            "result": "created"
+          }
+        ],
+        "expected": [
+          {
+            "_id": "plot-101",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-102",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-103",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-104",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-105",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-106",
+            "status": 201,
+            "result": "created"
+          }
+        ]
+      },
+      {
+        "name": "read plot-101 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read plot-101 ID/source",
+        "ok": true,
+        "actual": [
+          "plot-101",
+          {
+            "plot": "North tunnel",
+            "crop": "tomato",
+            "state": "open",
+            "moisture_percent": 18,
+            "reading_age_minutes": 10
+          }
+        ],
+        "expected": [
+          "plot-101",
+          {
+            "plot": "North tunnel",
+            "crop": "tomato",
+            "state": "open",
+            "moisture_percent": 18,
+            "reading_age_minutes": 10
+          }
+        ]
+      },
+      {
+        "name": "read plot-102 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read plot-102 ID/source",
+        "ok": true,
+        "actual": [
+          "plot-102",
+          {
+            "plot": "East beds",
+            "crop": "lettuce",
+            "state": "open",
+            "moisture_percent": 19,
+            "reading_age_minutes": 30
+          }
+        ],
+        "expected": [
+          "plot-102",
+          {
+            "plot": "East beds",
+            "crop": "lettuce",
+            "state": "open",
+            "moisture_percent": 19,
+            "reading_age_minutes": 30
+          }
+        ]
+      },
+      {
+        "name": "read plot-103 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read plot-103 ID/source",
+        "ok": true,
+        "actual": [
+          "plot-103",
+          {
+            "plot": "West beds",
+            "crop": "lettuce",
+            "state": "open",
+            "moisture_percent": 20,
+            "reading_age_minutes": 5
+          }
+        ],
+        "expected": [
+          "plot-103",
+          {
+            "plot": "West beds",
+            "crop": "lettuce",
+            "state": "open",
+            "moisture_percent": 20,
+            "reading_age_minutes": 5
+          }
+        ]
+      },
+      {
+        "name": "read plot-104 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read plot-104 ID/source",
+        "ok": true,
+        "actual": [
+          "plot-104",
+          {
+            "plot": "South tunnel",
+            "crop": "tomato",
+            "state": "open",
+            "moisture_percent": 12,
+            "reading_age_minutes": 31
+          }
+        ],
+        "expected": [
+          "plot-104",
+          {
+            "plot": "South tunnel",
+            "crop": "tomato",
+            "state": "open",
+            "moisture_percent": 12,
+            "reading_age_minutes": 31
+          }
+        ]
+      },
+      {
+        "name": "read plot-105 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read plot-105 ID/source",
+        "ok": true,
+        "actual": [
+          "plot-105",
+          {
+            "plot": "Trial beds",
+            "crop": "lettuce",
+            "state": "closed",
+            "moisture_percent": 15,
+            "reading_age_minutes": 8
+          }
+        ],
+        "expected": [
+          "plot-105",
+          {
+            "plot": "Trial beds",
+            "crop": "lettuce",
+            "state": "closed",
+            "moisture_percent": 15,
+            "reading_age_minutes": 8
+          }
+        ]
+      },
+      {
+        "name": "read plot-106 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read plot-106 ID/source",
+        "ok": true,
+        "actual": [
+          "plot-106",
+          {
+            "plot": "Herb beds",
+            "crop": "basil",
+            "state": "open",
+            "moisture_percent": 16
+          }
+        ],
+        "expected": [
+          "plot-106",
+          {
+            "plot": "Herb beds",
+            "crop": "basil",
+            "state": "open",
+            "moisture_percent": 16
+          }
+        ]
+      },
+      {
+        "name": "dry plots with recent readings HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "dry plots with recent readings exact total",
+        "ok": true,
+        "actual": {
+          "value": 2,
+          "relation": "eq"
+        },
+        "expected": {
+          "value": 2,
+          "relation": "eq"
+        }
+      },
+      {
+        "name": "dry plots with recent readings IDs",
+        "ok": true,
+        "actual": [
+          "plot-101",
+          "plot-102"
+        ],
+        "expected": [
+          "plot-101",
+          "plot-102"
+        ]
+      },
+      {
+        "name": "dry plots with recent readings sources",
+        "ok": true,
+        "actual": {
+          "plot-101": {
+            "plot": "North tunnel",
+            "crop": "tomato",
+            "state": "open",
+            "moisture_percent": 18,
+            "reading_age_minutes": 10
+          },
+          "plot-102": {
+            "plot": "East beds",
+            "crop": "lettuce",
+            "state": "open",
+            "moisture_percent": 19,
+            "reading_age_minutes": 30
+          }
+        },
+        "expected": {
+          "plot-101": {
+            "plot": "North tunnel",
+            "crop": "tomato",
+            "state": "open",
+            "moisture_percent": 18,
+            "reading_age_minutes": 10
+          },
+          "plot-102": {
+            "plot": "East beds",
+            "crop": "lettuce",
+            "state": "open",
+            "moisture_percent": 19,
+            "reading_age_minutes": 30
+          }
+        }
+      },
+      {
+        "name": "crop counts HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "crop counts counts",
+        "ok": true,
+        "actual": {
+          "lettuce": 1,
+          "tomato": 1
+        },
+        "expected": {
+          "tomato": 1,
+          "lettuce": 1
+        }
+      },
+      {
+        "name": "crop counts zero hits",
+        "ok": true,
+        "actual": [],
+        "expected": []
+      },
+      {
+        "name": "mark inspected HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "inspection update ID/result",
+        "ok": true,
+        "actual": [
+          "plot-101",
+          "updated"
+        ],
+        "expected": [
+          "plot-101",
+          "updated"
+        ]
+      },
+      {
+        "name": "read inspected plot HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "inspection preserves sensor snapshot",
+        "ok": true,
+        "actual": [
+          "plot-101",
+          {
+            "plot": "North tunnel",
+            "crop": "tomato",
+            "state": "inspected",
+            "moisture_percent": 18,
+            "reading_age_minutes": 10
+          }
+        ],
+        "expected": [
+          "plot-101",
+          {
+            "plot": "North tunnel",
+            "crop": "tomato",
+            "state": "inspected",
+            "moisture_percent": 18,
+            "reading_age_minutes": 10
+          }
+        ]
+      },
+      {
+        "name": "inspected plot excluded HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "inspected plot excluded exact total",
+        "ok": true,
+        "actual": {
+          "value": 1,
+          "relation": "eq"
+        },
+        "expected": {
+          "value": 1,
+          "relation": "eq"
+        }
+      },
+      {
+        "name": "inspected plot excluded IDs",
+        "ok": true,
+        "actual": [
+          "plot-102"
+        ],
+        "expected": [
+          "plot-102"
+        ]
+      },
+      {
+        "name": "inspected plot excluded sources",
+        "ok": true,
+        "actual": {
+          "plot-102": {
+            "plot": "East beds",
+            "crop": "lettuce",
+            "state": "open",
+            "moisture_percent": 19,
+            "reading_age_minutes": 30
+          }
+        },
+        "expected": {
+          "plot-102": {
+            "plot": "East beds",
+            "crop": "lettuce",
+            "state": "open",
+            "moisture_percent": 19,
+            "reading_age_minutes": 30
+          }
+        }
+      },
+      {
+        "name": "remaining crops HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "remaining crops counts",
+        "ok": true,
+        "actual": {
+          "lettuce": 1
+        },
+        "expected": {
+          "lettuce": 1
+        }
+      },
+      {
+        "name": "remaining crops zero hits",
+        "ok": true,
+        "actual": [],
+        "expected": []
+      },
+      {
+        "name": "cleanup HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      }
+    ],
+    "reported_version": "3.9.0"
+  },
+  "gateway": {
+    "calls": [
+      {
+        "name": "create",
+        "method": "PUT",
+        "path": "/field_note_irrigation",
+        "request": {
+          "mappings": {
+            "properties": {
+              "plot": {
+                "type": "keyword"
+              },
+              "crop": {
+                "type": "keyword"
+              },
+              "state": {
+                "type": "keyword"
+              },
+              "moisture_percent": {
+                "type": "integer"
+              },
+              "reading_age_minutes": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "acknowledged": true,
+            "index": "field_note_irrigation",
+            "shards_acknowledged": true
+          }
+        }
+      },
+      {
+        "name": "bulk",
+        "method": "POST",
+        "path": "/field_note_irrigation/_bulk?refresh=wait_for",
+        "request": "{\"index\": {\"_id\": \"plot-101\"}}\n{\"plot\": \"North tunnel\", \"crop\": \"tomato\", \"state\": \"open\", \"moisture_percent\": 18, \"reading_age_minutes\": 10}\n{\"index\": {\"_id\": \"plot-102\"}}\n{\"plot\": \"East beds\", \"crop\": \"lettuce\", \"state\": \"open\", \"moisture_percent\": 19, \"reading_age_minutes\": 30}\n{\"index\": {\"_id\": \"plot-103\"}}\n{\"plot\": \"West beds\", \"crop\": \"lettuce\", \"state\": \"open\", \"moisture_percent\": 20, \"reading_age_minutes\": 5}\n{\"index\": {\"_id\": \"plot-104\"}}\n{\"plot\": \"South tunnel\", \"crop\": \"tomato\", \"state\": \"open\", \"moisture_percent\": 12, \"reading_age_minutes\": 31}\n{\"index\": {\"_id\": \"plot-105\"}}\n{\"plot\": \"Trial beds\", \"crop\": \"lettuce\", \"state\": \"closed\", \"moisture_percent\": 15, \"reading_age_minutes\": 8}\n{\"index\": {\"_id\": \"plot-106\"}}\n{\"plot\": \"Herb beds\", \"crop\": \"basil\", \"state\": \"open\", \"moisture_percent\": 16}\n",
+        "response": {
+          "status": 200,
+          "body": {
+            "errors": false,
+            "items": [
+              {
+                "index": {
+                  "_id": "plot-101",
+                  "_index": "field_note_irrigation",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "plot-102",
+                  "_index": "field_note_irrigation",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "plot-103",
+                  "_index": "field_note_irrigation",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "plot-104",
+                  "_index": "field_note_irrigation",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "plot-105",
+                  "_index": "field_note_irrigation",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "plot-106",
+                  "_index": "field_note_irrigation",
+                  "result": "created",
+                  "status": 201
+                }
+              }
+            ],
+            "took": 0
+          }
+        }
+      },
+      {
+        "name": "read plot-101",
+        "method": "GET",
+        "path": "/field_note_irrigation/_doc/plot-101",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "plot-101",
+            "_index": "field_note_irrigation",
+            "_source": {
+              "crop": "tomato",
+              "moisture_percent": 18,
+              "plot": "North tunnel",
+              "reading_age_minutes": 10,
+              "state": "open"
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "read plot-102",
+        "method": "GET",
+        "path": "/field_note_irrigation/_doc/plot-102",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "plot-102",
+            "_index": "field_note_irrigation",
+            "_source": {
+              "crop": "lettuce",
+              "moisture_percent": 19,
+              "plot": "East beds",
+              "reading_age_minutes": 30,
+              "state": "open"
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "read plot-103",
+        "method": "GET",
+        "path": "/field_note_irrigation/_doc/plot-103",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "plot-103",
+            "_index": "field_note_irrigation",
+            "_source": {
+              "crop": "lettuce",
+              "moisture_percent": 20,
+              "plot": "West beds",
+              "reading_age_minutes": 5,
+              "state": "open"
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "read plot-104",
+        "method": "GET",
+        "path": "/field_note_irrigation/_doc/plot-104",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "plot-104",
+            "_index": "field_note_irrigation",
+            "_source": {
+              "crop": "tomato",
+              "moisture_percent": 12,
+              "plot": "South tunnel",
+              "reading_age_minutes": 31,
+              "state": "open"
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "read plot-105",
+        "method": "GET",
+        "path": "/field_note_irrigation/_doc/plot-105",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "plot-105",
+            "_index": "field_note_irrigation",
+            "_source": {
+              "crop": "lettuce",
+              "moisture_percent": 15,
+              "plot": "Trial beds",
+              "reading_age_minutes": 8,
+              "state": "closed"
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "read plot-106",
+        "method": "GET",
+        "path": "/field_note_irrigation/_doc/plot-106",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "plot-106",
+            "_index": "field_note_irrigation",
+            "_source": {
+              "crop": "basil",
+              "moisture_percent": 16,
+              "plot": "Herb beds",
+              "state": "open"
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "dry plots with recent readings",
+        "method": "POST",
+        "path": "/field_note_irrigation/_search",
+        "request": {
+          "size": 10,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "state": "open"
+                  }
+                },
+                {
+                  "range": {
+                    "moisture_percent": {
+                      "lt": 20
+                    }
+                  }
+                },
+                {
+                  "range": {
+                    "reading_age_minutes": {
+                      "lte": 30
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "_shards": {
+              "failed": 0,
+              "skipped": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "hits": {
+              "hits": [
+                {
+                  "_id": "plot-101",
+                  "_index": "field_note_irrigation",
+                  "_score": null,
+                  "_source": {
+                    "crop": "tomato",
+                    "moisture_percent": 18,
+                    "plot": "North tunnel",
+                    "reading_age_minutes": 10,
+                    "state": "open"
+                  }
+                },
+                {
+                  "_id": "plot-102",
+                  "_index": "field_note_irrigation",
+                  "_score": null,
+                  "_source": {
+                    "crop": "lettuce",
+                    "moisture_percent": 19,
+                    "plot": "East beds",
+                    "reading_age_minutes": 30,
+                    "state": "open"
+                  }
+                }
+              ],
+              "max_score": 0.0,
+              "total": {
+                "relation": "eq",
+                "value": 2
+              }
+            },
+            "timed_out": false,
+            "took": 2
+          }
+        }
+      },
+      {
+        "name": "crop counts",
+        "method": "POST",
+        "path": "/field_note_irrigation/_search",
+        "request": {
+          "size": 0,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "state": "open"
+                  }
+                },
+                {
+                  "range": {
+                    "moisture_percent": {
+                      "lt": 20
+                    }
+                  }
+                },
+                {
+                  "range": {
+                    "reading_age_minutes": {
+                      "lte": 30
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "aggs": {
+            "crops": {
+              "terms": {
+                "field": "crop",
+                "size": 10
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "_shards": {
+              "failed": 0,
+              "skipped": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "aggregations": {
+              "crops": {
+                "buckets": [
+                  {
+                    "doc_count": 1,
+                    "key": "lettuce"
+                  },
+                  {
+                    "doc_count": 1,
+                    "key": "tomato"
+                  }
+                ],
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0
+              }
+            },
+            "hits": {
+              "hits": [],
+              "max_score": 0.0,
+              "total": {
+                "relation": "eq",
+                "value": 2
+              }
+            },
+            "timed_out": false,
+            "took": 2
+          }
+        }
+      },
+      {
+        "name": "mark inspected",
+        "method": "POST",
+        "path": "/field_note_irrigation/_update/plot-101?refresh=wait_for",
+        "request": {
+          "doc": {
+            "state": "inspected"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "plot-101",
+            "_index": "field_note_irrigation",
+            "_shards": {
+              "failed": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "_version": 1,
+            "result": "updated"
+          }
+        }
+      },
+      {
+        "name": "read inspected plot",
+        "method": "GET",
+        "path": "/field_note_irrigation/_doc/plot-101",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "plot-101",
+            "_index": "field_note_irrigation",
+            "_source": {
+              "crop": "tomato",
+              "moisture_percent": 18,
+              "plot": "North tunnel",
+              "reading_age_minutes": 10,
+              "state": "inspected"
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "inspected plot excluded",
+        "method": "POST",
+        "path": "/field_note_irrigation/_search",
+        "request": {
+          "size": 10,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "state": "open"
+                  }
+                },
+                {
+                  "range": {
+                    "moisture_percent": {
+                      "lt": 20
+                    }
+                  }
+                },
+                {
+                  "range": {
+                    "reading_age_minutes": {
+                      "lte": 30
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "_shards": {
+              "failed": 0,
+              "skipped": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "hits": {
+              "hits": [
+                {
+                  "_id": "plot-102",
+                  "_index": "field_note_irrigation",
+                  "_score": null,
+                  "_source": {
+                    "crop": "lettuce",
+                    "moisture_percent": 19,
+                    "plot": "East beds",
+                    "reading_age_minutes": 30,
+                    "state": "open"
+                  }
+                }
+              ],
+              "max_score": 0.0,
+              "total": {
+                "relation": "eq",
+                "value": 1
+              }
+            },
+            "timed_out": false,
+            "took": 3
+          }
+        }
+      },
+      {
+        "name": "remaining crops",
+        "method": "POST",
+        "path": "/field_note_irrigation/_search",
+        "request": {
+          "size": 0,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "state": "open"
+                  }
+                },
+                {
+                  "range": {
+                    "moisture_percent": {
+                      "lt": 20
+                    }
+                  }
+                },
+                {
+                  "range": {
+                    "reading_age_minutes": {
+                      "lte": 30
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "aggs": {
+            "crops": {
+              "terms": {
+                "field": "crop",
+                "size": 10
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "_shards": {
+              "failed": 0,
+              "skipped": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "aggregations": {
+              "crops": {
+                "buckets": [
+                  {
+                    "doc_count": 1,
+                    "key": "lettuce"
+                  }
+                ],
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0
+              }
+            },
+            "hits": {
+              "hits": [],
+              "max_score": 0.0,
+              "total": {
+                "relation": "eq",
+                "value": 1
+              }
+            },
+            "timed_out": false,
+            "took": 4
+          }
+        }
+      },
+      {
+        "name": "cleanup",
+        "method": "DELETE",
+        "path": "/field_note_irrigation",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "acknowledged": true
+          }
+        }
+      }
+    ],
+    "checks": [
+      {
+        "name": "create HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "bulk HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "bulk errors",
+        "ok": true,
+        "actual": false,
+        "expected": false
+      },
+      {
+        "name": "bulk items",
+        "ok": true,
+        "actual": [
+          {
+            "_id": "plot-101",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-102",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-103",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-104",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-105",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-106",
+            "status": 201,
+            "result": "created"
+          }
+        ],
+        "expected": [
+          {
+            "_id": "plot-101",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-102",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-103",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-104",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-105",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "plot-106",
+            "status": 201,
+            "result": "created"
+          }
+        ]
+      },
+      {
+        "name": "read plot-101 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read plot-101 ID/source",
+        "ok": true,
+        "actual": [
+          "plot-101",
+          {
+            "crop": "tomato",
+            "moisture_percent": 18,
+            "plot": "North tunnel",
+            "reading_age_minutes": 10,
+            "state": "open"
+          }
+        ],
+        "expected": [
+          "plot-101",
+          {
+            "plot": "North tunnel",
+            "crop": "tomato",
+            "state": "open",
+            "moisture_percent": 18,
+            "reading_age_minutes": 10
+          }
+        ]
+      },
+      {
+        "name": "read plot-102 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read plot-102 ID/source",
+        "ok": true,
+        "actual": [
+          "plot-102",
+          {
+            "crop": "lettuce",
+            "moisture_percent": 19,
+            "plot": "East beds",
+            "reading_age_minutes": 30,
+            "state": "open"
+          }
+        ],
+        "expected": [
+          "plot-102",
+          {
+            "plot": "East beds",
+            "crop": "lettuce",
+            "state": "open",
+            "moisture_percent": 19,
+            "reading_age_minutes": 30
+          }
+        ]
+      },
+      {
+        "name": "read plot-103 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read plot-103 ID/source",
+        "ok": true,
+        "actual": [
+          "plot-103",
+          {
+            "crop": "lettuce",
+            "moisture_percent": 20,
+            "plot": "West beds",
+            "reading_age_minutes": 5,
+            "state": "open"
+          }
+        ],
+        "expected": [
+          "plot-103",
+          {
+            "plot": "West beds",
+            "crop": "lettuce",
+            "state": "open",
+            "moisture_percent": 20,
+            "reading_age_minutes": 5
+          }
+        ]
+      },
+      {
+        "name": "read plot-104 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read plot-104 ID/source",
+        "ok": true,
+        "actual": [
+          "plot-104",
+          {
+            "crop": "tomato",
+            "moisture_percent": 12,
+            "plot": "South tunnel",
+            "reading_age_minutes": 31,
+            "state": "open"
+          }
+        ],
+        "expected": [
+          "plot-104",
+          {
+            "plot": "South tunnel",
+            "crop": "tomato",
+            "state": "open",
+            "moisture_percent": 12,
+            "reading_age_minutes": 31
+          }
+        ]
+      },
+      {
+        "name": "read plot-105 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read plot-105 ID/source",
+        "ok": true,
+        "actual": [
+          "plot-105",
+          {
+            "crop": "lettuce",
+            "moisture_percent": 15,
+            "plot": "Trial beds",
+            "reading_age_minutes": 8,
+            "state": "closed"
+          }
+        ],
+        "expected": [
+          "plot-105",
+          {
+            "plot": "Trial beds",
+            "crop": "lettuce",
+            "state": "closed",
+            "moisture_percent": 15,
+            "reading_age_minutes": 8
+          }
+        ]
+      },
+      {
+        "name": "read plot-106 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read plot-106 ID/source",
+        "ok": true,
+        "actual": [
+          "plot-106",
+          {
+            "crop": "basil",
+            "moisture_percent": 16,
+            "plot": "Herb beds",
+            "state": "open"
+          }
+        ],
+        "expected": [
+          "plot-106",
+          {
+            "plot": "Herb beds",
+            "crop": "basil",
+            "state": "open",
+            "moisture_percent": 16
+          }
+        ]
+      },
+      {
+        "name": "dry plots with recent readings HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "dry plots with recent readings exact total",
+        "ok": true,
+        "actual": {
+          "relation": "eq",
+          "value": 2
+        },
+        "expected": {
+          "value": 2,
+          "relation": "eq"
+        }
+      },
+      {
+        "name": "dry plots with recent readings IDs",
+        "ok": true,
+        "actual": [
+          "plot-101",
+          "plot-102"
+        ],
+        "expected": [
+          "plot-101",
+          "plot-102"
+        ]
+      },
+      {
+        "name": "dry plots with recent readings sources",
+        "ok": true,
+        "actual": {
+          "plot-101": {
+            "crop": "tomato",
+            "moisture_percent": 18,
+            "plot": "North tunnel",
+            "reading_age_minutes": 10,
+            "state": "open"
+          },
+          "plot-102": {
+            "crop": "lettuce",
+            "moisture_percent": 19,
+            "plot": "East beds",
+            "reading_age_minutes": 30,
+            "state": "open"
+          }
+        },
+        "expected": {
+          "plot-101": {
+            "plot": "North tunnel",
+            "crop": "tomato",
+            "state": "open",
+            "moisture_percent": 18,
+            "reading_age_minutes": 10
+          },
+          "plot-102": {
+            "plot": "East beds",
+            "crop": "lettuce",
+            "state": "open",
+            "moisture_percent": 19,
+            "reading_age_minutes": 30
+          }
+        }
+      },
+      {
+        "name": "crop counts HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "crop counts counts",
+        "ok": true,
+        "actual": {
+          "lettuce": 1,
+          "tomato": 1
+        },
+        "expected": {
+          "tomato": 1,
+          "lettuce": 1
+        }
+      },
+      {
+        "name": "crop counts zero hits",
+        "ok": true,
+        "actual": [],
+        "expected": []
+      },
+      {
+        "name": "mark inspected HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "inspection update ID/result",
+        "ok": true,
+        "actual": [
+          "plot-101",
+          "updated"
+        ],
+        "expected": [
+          "plot-101",
+          "updated"
+        ]
+      },
+      {
+        "name": "read inspected plot HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "inspection preserves sensor snapshot",
+        "ok": true,
+        "actual": [
+          "plot-101",
+          {
+            "crop": "tomato",
+            "moisture_percent": 18,
+            "plot": "North tunnel",
+            "reading_age_minutes": 10,
+            "state": "inspected"
+          }
+        ],
+        "expected": [
+          "plot-101",
+          {
+            "plot": "North tunnel",
+            "crop": "tomato",
+            "state": "inspected",
+            "moisture_percent": 18,
+            "reading_age_minutes": 10
+          }
+        ]
+      },
+      {
+        "name": "inspected plot excluded HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "inspected plot excluded exact total",
+        "ok": true,
+        "actual": {
+          "relation": "eq",
+          "value": 1
+        },
+        "expected": {
+          "value": 1,
+          "relation": "eq"
+        }
+      },
+      {
+        "name": "inspected plot excluded IDs",
+        "ok": true,
+        "actual": [
+          "plot-102"
+        ],
+        "expected": [
+          "plot-102"
+        ]
+      },
+      {
+        "name": "inspected plot excluded sources",
+        "ok": true,
+        "actual": {
+          "plot-102": {
+            "crop": "lettuce",
+            "moisture_percent": 19,
+            "plot": "East beds",
+            "reading_age_minutes": 30,
+            "state": "open"
+          }
+        },
+        "expected": {
+          "plot-102": {
+            "plot": "East beds",
+            "crop": "lettuce",
+            "state": "open",
+            "moisture_percent": 19,
+            "reading_age_minutes": 30
+          }
+        }
+      },
+      {
+        "name": "remaining crops HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "remaining crops counts",
+        "ok": true,
+        "actual": {
+          "lettuce": 1
+        },
+        "expected": {
+          "lettuce": 1
+        }
+      },
+      {
+        "name": "remaining crops zero hits",
+        "ok": true,
+        "actual": [],
+        "expected": []
+      },
+      {
+        "name": "cleanup HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      }
+    ],
+    "reported_version": "8.15.0"
+  },
+  "identical_requests": true,
+  "passed": 105,
+  "total": 105,
+  "ok": true
+}

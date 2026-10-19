@@ -178,3 +178,38 @@ recorded revision, and Qdrant **1.15.5**, with embedded sources and synchronous
 writes. Optional `--gateway-version` and `--qdrant-version` arguments record
 operator-verified versions; the endpoint's `reported_version` is its API
 advertisement. No gateway implementation change or performance claim was needed.
+
+## Agriculture irrigation inspection queue
+
+The [field note](../docs/_posts/2026-10-19-agriculture-irrigation-inspection.md)
+uses six synthetic sensor snapshots in
+[`fixtures/agriculture.json`](fixtures/agriculture.json). It excludes readings
+at the moisture threshold, stale or missing reading ages, and closed plots,
+then checks that marking a plot inspected preserves its source and removes it
+from both the queue and crop facets.
+
+```sh
+python3 validation/agriculture.py \
+  --native http://localhost:19200 \
+  --opensearch http://localhost:19201 \
+  --gateway http://localhost:9200 \
+  --output validation/results/agriculture.json
+```
+
+Use disposable endpoints without `field_note_irrigation`. The replay creates
+and removes that index; a failed create leaves existing data untouched.
+Python 3 alone is required. All engines use the same five-second settling pauses
+(`--settle-seconds` changes all three); a pass does not guarantee refresh timing.
+Reading ages are fixed snapshots, not a live clock. No irrigation advice or
+atomic equipment-control behavior is asserted.
+
+The [2026-10-19 evidence](evidence/agriculture-2026-10-19.json) records **105/105**
+checks passing on Elasticsearch **8.15.0**, OpenSearch **3.9.0**, and gateway
+**0.2.0** at the recorded revision with Qdrant **1.15.5**, embedded sources,
+and synchronous writes. Requests are identical across all three endpoints;
+statuses, bulk IDs/results, all stored sources, filtered IDs/totals, facets,
+and the updated source are asserted independently against the fixture.
+No OpenSearch-specific assertion difference was observed. The
+[article curl evidence](evidence/agriculture-curl-2026-10-19.json) separately
+records all nine article responses per engine, including the repeated searches.
+No gateway implementation change or performance claim was needed.

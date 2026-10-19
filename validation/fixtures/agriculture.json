@@ -1,0 +1,151 @@
+{
+  "index": "field_note_irrigation",
+  "mapping": {
+    "mappings": {
+      "properties": {
+        "plot": {
+          "type": "keyword"
+        },
+        "crop": {
+          "type": "keyword"
+        },
+        "state": {
+          "type": "keyword"
+        },
+        "moisture_percent": {
+          "type": "integer"
+        },
+        "reading_age_minutes": {
+          "type": "integer"
+        }
+      }
+    }
+  },
+  "documents": {
+    "plot-101": {
+      "plot": "North tunnel",
+      "crop": "tomato",
+      "state": "open",
+      "moisture_percent": 18,
+      "reading_age_minutes": 10
+    },
+    "plot-102": {
+      "plot": "East beds",
+      "crop": "lettuce",
+      "state": "open",
+      "moisture_percent": 19,
+      "reading_age_minutes": 30
+    },
+    "plot-103": {
+      "plot": "West beds",
+      "crop": "lettuce",
+      "state": "open",
+      "moisture_percent": 20,
+      "reading_age_minutes": 5
+    },
+    "plot-104": {
+      "plot": "South tunnel",
+      "crop": "tomato",
+      "state": "open",
+      "moisture_percent": 12,
+      "reading_age_minutes": 31
+    },
+    "plot-105": {
+      "plot": "Trial beds",
+      "crop": "lettuce",
+      "state": "closed",
+      "moisture_percent": 15,
+      "reading_age_minutes": 8
+    },
+    "plot-106": {
+      "plot": "Herb beds",
+      "crop": "basil",
+      "state": "open",
+      "moisture_percent": 16
+    }
+  },
+  "search": {
+    "size": 10,
+    "query": {
+      "bool": {
+        "filter": [
+          {
+            "term": {
+              "state": "open"
+            }
+          },
+          {
+            "range": {
+              "moisture_percent": {
+                "lt": 20
+              }
+            }
+          },
+          {
+            "range": {
+              "reading_age_minutes": {
+                "lte": 30
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "facet": {
+    "size": 0,
+    "query": {
+      "bool": {
+        "filter": [
+          {
+            "term": {
+              "state": "open"
+            }
+          },
+          {
+            "range": {
+              "moisture_percent": {
+                "lt": 20
+              }
+            }
+          },
+          {
+            "range": {
+              "reading_age_minutes": {
+                "lte": 30
+              }
+            }
+          }
+        ]
+      }
+    },
+    "aggs": {
+      "crops": {
+        "terms": {
+          "field": "crop",
+          "size": 10
+        }
+      }
+    }
+  },
+  "expected_search_ids": [
+    "plot-101",
+    "plot-102"
+  ],
+  "expected_search_ids_after": [
+    "plot-102"
+  ],
+  "expected_facets_before": {
+    "tomato": 1,
+    "lettuce": 1
+  },
+  "expected_facets_after": {
+    "lettuce": 1
+  },
+  "update_id": "plot-101",
+  "update": {
+    "doc": {
+      "state": "inspected"
+    }
+  }
+}
