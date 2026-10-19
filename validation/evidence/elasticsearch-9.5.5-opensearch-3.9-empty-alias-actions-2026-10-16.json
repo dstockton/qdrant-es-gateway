@@ -1,0 +1,29 @@
+{
+  "recorded_at": "2026-10-16T09:08:10+01:00",
+  "purpose": "Compare empty and missing alias action-list behavior before correcting a false-success response",
+  "environment": "Separate ephemeral single-node containers with security disabled",
+  "limitations": [
+    "This is a request and response compatibility probe, not a performance benchmark.",
+    "Only missing and empty action lists are compared; other malformed alias bodies may have engine-specific parse errors."
+  ],
+  "requests": {
+    "empty_actions": {"actions": []},
+    "missing_actions": {}
+  },
+  "targets": [
+    {
+      "engine": "Elasticsearch",
+      "version": "9.5.5",
+      "image": "docker.elastic.co/elasticsearch/elasticsearch:9.5.5",
+      "empty_actions": {"status": 400, "error_type": "illegal_argument_exception", "reason": "No action specified"},
+      "missing_actions": {"status": 400, "error_type": "illegal_argument_exception", "reason": "No action specified"}
+    },
+    {
+      "engine": "OpenSearch",
+      "version": "3.9.0",
+      "image": "opensearchproject/opensearch:3.9.0",
+      "empty_actions": {"status": 400, "error_type": "illegal_argument_exception", "reason": "No action specified"},
+      "missing_actions": {"status": 400, "error_type": "illegal_argument_exception", "reason": "No action specified"}
+    }
+  ]
+}

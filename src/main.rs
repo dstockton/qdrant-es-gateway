@@ -353,6 +353,8 @@ enum GatewayError {
     IndexAlreadyExists { index: String },
     #[error("Invalid index name [{index}], {reason}")]
     InvalidIndexName { index: String, reason: String },
+    #[error("{0}")]
+    IllegalArgument(String),
     #[error("request body exceeds configured {setting} limit of {limit} bytes")]
     PayloadTooLarge { setting: &'static str, limit: usize },
     #[error("upstream error: {0}")]
@@ -380,9 +382,9 @@ impl GatewayError {
                 StatusCode::NOT_FOUND
             }
             Self::VersionConflict { .. } => StatusCode::CONFLICT,
-            Self::IndexAlreadyExists { .. } | Self::InvalidIndexName { .. } => {
-                StatusCode::BAD_REQUEST
-            }
+            Self::IndexAlreadyExists { .. }
+            | Self::InvalidIndexName { .. }
+            | Self::IllegalArgument(_) => StatusCode::BAD_REQUEST,
             Self::Bad { .. } => StatusCode::BAD_REQUEST,
             Self::PayloadTooLarge { .. } => StatusCode::PAYLOAD_TOO_LARGE,
             Self::Upstream(_) => StatusCode::BAD_GATEWAY,
@@ -419,6 +421,9 @@ impl GatewayError {
             Self::InvalidIndexName { index, reason } => {
                 let reason = format!("Invalid index name [{index}], {reason}");
                 json!({"error":{"root_cause":[{"type":"invalid_index_name_exception","reason":reason,"index_uuid":"_na_","index":index}],"type":"invalid_index_name_exception","reason":reason,"index_uuid":"_na_","index":index},"status":400})
+            }
+            Self::IllegalArgument(reason) => {
+                json!({"error":{"root_cause":[{"type":"illegal_argument_exception","reason":reason}],"type":"illegal_argument_exception","reason":reason},"status":400})
             }
             Self::PayloadTooLarge { setting, limit } => {
                 json!({"error":{"type":"content_too_long_exception","reason":format!("request body exceeds configured {setting} limit of {limit} bytes")},"status":413})
@@ -782,7 +787,7 @@ async fn create_index(
             .mutation(
                 Method::PUT,
                 &format!("/collections/{}", document_collection(&index)),
-                // Qdrant 1.15 requires a vector field on each point. A
+                // Qdrant requires a vector field on each point. A
                 // one-dimensional on-disk vector with m=0 keeps this
                 // collection payload-first and disables HNSW construction.
                 Some(document_config),
@@ -1599,6 +1604,31 @@ fn source_field<'a>(source: &'a Value, field: &str) -> Option<&'a Value> {
 
 fn compatibility_field(field: &str) -> &str {
     field.strip_suffix(".keyword").unwrap_or(field)
+}
+
+fn search_vector_for_field(mapping: &Value, vectors: &[String], field: &str) -> Option<String> {
+    let vector = if field == "_all" {
+        "text_all".to_string()
+    } else {
+        format!("text_{}", field.replace('.', "_"))
+    };
+    if vectors.contains(&vector) {
+        return Some(vector);
+    }
+
+    // OpenSearch dynamically maps string fields when an index is created with
+    // settings but no explicit mappings. In that mode the gateway stores the
+    // source fields and a catch-all BM25 vector, so an application query for a
+    // field-specific text path can still use the same request shape. Explicit
+    // mappings remain strict: an unknown text field is not silently widened.
+    let dynamic_mapping = mapping
+        .get("properties")
+        .and_then(Value::as_object)
+        .is_none_or(Map::is_empty);
+    if dynamic_mapping && vectors.iter().any(|name| name == "text_all") {
+        return Some("text_all".into());
+    }
+    None
 }
 
 fn sortable_source_field<'a>(source: &'a Value, field: &str) -> Option<&'a Value> {
@@ -3151,6 +3181,84 @@ async fn ordered_numeric_hits(
     Ok(Some(hits))
 }
 
+fn validate_search_execution_controls(body: &Value) -> Result<(), GatewayError> {
+    for (control, message) in [
+        (
+            "version",
+            "per-hit document versions are not currently supported; the gateway cannot provide Elasticsearch or OpenSearch version concurrency metadata",
+        ),
+        (
+            "seq_no_primary_term",
+            "per-hit sequence numbers and primary terms are not currently supported; gateway write metadata is not an Elasticsearch or OpenSearch concurrency token",
+        ),
+    ] {
+        if let Some(enabled) = body.get(control) {
+            match enabled.as_bool() {
+                Some(false) => {}
+                Some(true) => return Err(GatewayError::bad(control, message)),
+                None => {
+                    return Err(GatewayError::bad(
+                        control,
+                        format!("{control} must be a boolean"),
+                    ));
+                }
+            }
+        }
+    }
+    if let Some(profile) = body.get("profile") {
+        match profile.as_bool() {
+            Some(false) => {}
+            Some(true) => {
+                return Err(GatewayError::bad(
+                    "profile",
+                    "query profiling is not currently supported; the gateway cannot report Qdrant execution as Lucene query and collector timing trees",
+                ));
+            }
+            None => {
+                return Err(GatewayError::bad("profile", "profile must be a boolean"));
+            }
+        }
+    }
+    if let Some(explain) = body.get("explain") {
+        match explain.as_bool() {
+            Some(false) => {}
+            Some(true) => {
+                return Err(GatewayError::bad(
+                    "explain",
+                    "per-hit score explanations are not currently supported; returned scores use Qdrant rather than Lucene scoring internals",
+                ));
+            }
+            None => {
+                return Err(GatewayError::bad("explain", "explain must be a boolean"));
+            }
+        }
+    }
+    let controls = [
+        (
+            "min_score",
+            "min_score changes hit membership and totals and is not currently supported",
+        ),
+        (
+            "terminate_after",
+            "terminate_after changes hit membership and early-termination metadata and is not currently supported",
+        ),
+        (
+            "timeout",
+            "per-search timeout and partial-result semantics are not currently supported",
+        ),
+        (
+            "highlight",
+            "search result highlighting is not currently supported; returned hits would omit the requested snippets",
+        ),
+    ];
+    for (control, message) in controls {
+        if body.get(control).is_some() {
+            return Err(GatewayError::bad(control, message));
+        }
+    }
+    Ok(())
+}
+
 async fn search(
     State(state): State<AppState>,
     Path(index): Path<String>,
@@ -3167,6 +3275,7 @@ async fn search_with_total_format(
 ) -> Result<Response, GatewayError> {
     let started = Instant::now();
     let planning = diagnostic_timing::span("search.plan");
+    validate_search_execution_controls(&body)?;
     if body.get("pit").is_some() {
         return Err(GatewayError::bad(
             "pit",
@@ -3197,6 +3306,15 @@ async fn search_with_total_format(
         (from + size).max(state.cfg.max_page_size).max(1)
     };
     let collapse_spec = parse_collapse_spec(body.get("collapse"), state.cfg.max_page_size)?;
+    let more_like_this_id = body
+        .get("query")
+        .and_then(|query| query.get("more_like_this"))
+        .and_then(|mlt| mlt.get("like"))
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+        .and_then(|item| item.get("_id"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
     let (index, coll, mapping, vectors) = get_index(&state, &index)?;
     let mut query = body
         .get("query")
@@ -3359,14 +3477,7 @@ async fn search_with_total_format(
         let requests = fields
             .into_iter()
             .filter_map(|(field, boost)| {
-            let vecname = if field == "_all" {
-                "text_all".into()
-            } else {
-                format!("text_{}", field.replace('.', "_"))
-            };
-            if !vectors.contains(&vecname) && vecname != "text_all" {
-                return None;
-            }
+            let vecname = search_vector_for_field(&mapping, &vectors, &field)?;
             let payload_fields = if state.cfg.document_projection && patterns.is_empty() { json!(["_es_id"]) } else { json!(["_es_id","_source"]) };
             let mut req = json!({"query":{"text":text,"model":"qdrant/bm25"},"using":vecname,"limit":candidate_limit,"with_payload":{"include":payload_fields}});
             if let Some(f) = &filter {
@@ -3546,6 +3657,12 @@ async fn search_with_total_format(
                 .iter()
                 .all(|pattern| pattern_matches(&source, pattern))
         });
+    }
+    if let Some(excluded_id) = &more_like_this_id {
+        // Elasticsearch's more_like_this query does not return the document
+        // supplied in `like`; keeping it would make a product's "similar"
+        // results include the product currently being viewed.
+        hits.retain(|hit| hit.get("_id").and_then(Value::as_str) != Some(excluded_id));
     }
     if let Some(post_filter) = body.get("post_filter") {
         hits.retain(|hit| {
@@ -4005,12 +4122,17 @@ async fn aliases(
         Remove { alias: String, index: String },
     }
 
-    let mut actions = Vec::new();
-    for action in body
+    let request_actions = body
         .get("actions")
-        .and_then(Value::as_array)
-        .ok_or_else(|| GatewayError::bad("_aliases", "actions must be an array"))?
-    {
+        .ok_or_else(|| GatewayError::IllegalArgument("No action specified".into()))?
+        .as_array()
+        .ok_or_else(|| GatewayError::bad("_aliases", "actions must be an array"))?;
+    if request_actions.is_empty() {
+        return Err(GatewayError::IllegalArgument("No action specified".into()));
+    }
+
+    let mut actions = Vec::new();
+    for action in request_actions {
         let o = action
             .as_object()
             .filter(|object| object.len() == 1)
@@ -5551,6 +5673,53 @@ mod tests {
             )
             .unwrap();
         assert_eq!(target, "products-v2");
+    }
+
+    #[tokio::test]
+    async fn empty_alias_batches_are_rejected_without_catalogue_changes() {
+        let cfg = Config::from_env();
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); \
+             CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL); \
+             INSERT INTO indices VALUES ('products', '{}', '[]'); \
+             INSERT INTO aliases VALUES ('current-products', 'products');",
+        )
+        .unwrap();
+        let state = AppState {
+            shared_catalog: None,
+            qdrant: Qdrant {
+                admin_mutation_started: None,
+                client: Client::new(),
+                base: "http://127.0.0.1:1".into(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(cfg.async_write_queue)),
+            },
+            db: Arc::new(Mutex::new(db)),
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+            cfg,
+        };
+
+        for body in [json!({}), json!({"actions":[]})] {
+            let error = aliases(State(state.clone()), Json(body)).await.unwrap_err();
+
+            assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(error.body()["error"]["type"], "illegal_argument_exception");
+            assert_eq!(error.body()["error"]["reason"], "No action specified");
+        }
+
+        let target: String = state
+            .db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT index_name FROM aliases WHERE alias='current-products'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(target, "products");
     }
 
     #[tokio::test]
@@ -7399,6 +7568,18 @@ mod tests {
         };
 
         let cases = [
+            (json!({"version":true}), "version"),
+            (json!({"version":"true"}), "version"),
+            (json!({"seq_no_primary_term":true}), "seq_no_primary_term"),
+            (json!({"seq_no_primary_term":1}), "seq_no_primary_term"),
+            (json!({"profile":true}), "profile"),
+            (json!({"profile":"true"}), "profile"),
+            (json!({"explain":true}), "explain"),
+            (json!({"explain":"true"}), "explain"),
+            (json!({"min_score":0.5}), "min_score"),
+            (json!({"terminate_after":1}), "terminate_after"),
+            (json!({"timeout":"1s"}), "timeout"),
+            (json!({"highlight":{"fields":{"title":{}}}}), "highlight"),
             (json!({"from":-1}), "from"),
             (json!({"from":"1"}), "from"),
             (json!({"size":-1}), "size"),
@@ -7433,6 +7614,35 @@ mod tests {
                 .unwrap_err();
             assert_eq!(error.body()["error"]["feature"], feature);
         }
+        assert!(validate_search_execution_controls(&json!({
+            "version": false,
+            "seq_no_primary_term": false,
+            "profile": false,
+            "explain": false
+        }))
+        .is_ok());
+        let response = msearch_with_total_format(
+            State(state.clone()),
+            Some("products".into()),
+            "{}\n{\"highlight\":{\"fields\":{\"title\":{}}}}\n{}\n{\"explain\":true}\n{}\n{\"profile\":true}\n{}\n{\"version\":true}\n{}\n{\"seq_no_primary_term\":true}\n".into(),
+            false,
+        )
+        .await
+        .unwrap();
+        let body: Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(body["responses"][0]["error"]["feature"], "highlight");
+        assert_eq!(body["responses"][1]["error"]["feature"], "explain");
+        assert_eq!(body["responses"][2]["error"]["feature"], "profile");
+        assert_eq!(body["responses"][3]["error"]["feature"], "version");
+        assert_eq!(
+            body["responses"][4]["error"]["feature"],
+            "seq_no_primary_term"
+        );
         let error = search_with_total_format(
             State(state),
             Path("products".into()),
@@ -8389,6 +8599,23 @@ mod tests {
         );
         assert_eq!(mapping["properties"]["title"]["type"], "text");
         assert_eq!(vectors, vec!["text_all", "text_body", "text_title"]);
+    }
+
+    #[test]
+    fn dynamic_mappings_fall_back_to_the_catch_all_text_vector() {
+        let vectors = vec!["text_all".to_string()];
+        assert_eq!(
+            search_vector_for_field(&json!({}), &vectors, "name"),
+            Some("text_all".into())
+        );
+        assert_eq!(
+            search_vector_for_field(
+                &json!({"properties":{"name":{"type":"text"}}}),
+                &vectors,
+                "description"
+            ),
+            None
+        );
     }
 
     #[test]

@@ -1,0 +1,83 @@
+{
+  "date": "2026-10-18",
+  "scope": "fresh ephemeral containers and local request-level checks",
+  "targets": {
+    "elasticsearch": {
+      "image": "docker.elastic.co/elasticsearch/elasticsearch:9.5.5",
+      "reported_version": "9.5.5",
+      "reported_build_hash": "48acba663b09e70b115dd879329141506c377890",
+      "reported_minimum_wire_compatibility_version": "8.19.0",
+      "reported_minimum_index_compatibility_version": "8.0.0",
+      "cluster_health": "green"
+    },
+    "qdrant": {
+      "image": "qdrant/qdrant:v1.19.2",
+      "reported_version": "1.19.2",
+      "reported_commit": "016542aa5deb6c66380bb137badf73d54f742bde",
+      "ready": true,
+      "gateway_live_smoke": "passed"
+    },
+    "valkey": {
+      "image": "valkey/valkey:9.1.2-alpine",
+      "shared_catalog_tests": {
+        "passed": 7,
+        "failed": 0
+      }
+    },
+    "haproxy": {
+      "image": "haproxy:3.4.7-alpine",
+      "reported_version": "3.4.7",
+      "reported_support_branch": "long-term supported"
+    },
+    "rust": {
+      "image": "rust:1.99.1-slim-trixie",
+      "reported_rustc": "1.99.1 (58cf8f9c3 2026-10-13)"
+    },
+    "python": {
+      "image": "python:3.15.0-slim",
+      "reported_version": "3.15.0"
+    }
+  },
+  "builds": {
+    "gateway_image": "passed from an empty build cache with rust:1.99.1-slim-trixie and debian:trixie-slim",
+    "benchmark_image": "passed with python:3.15.0-slim",
+    "compose_files_parsed": [
+      "docker-compose.yml",
+      "benchmark/docker-compose.yml",
+      "benchmark/resilience/docker-compose.yml"
+    ]
+  },
+  "rust_validation": {
+    "unit_tests": {
+      "passed": 92,
+      "failed": 0,
+      "ignored_without_external_services": 3
+    },
+    "integration_tests": {
+      "passed": 1,
+      "failed": 0
+    },
+    "format": "passed",
+    "clippy_warnings": 0,
+    "cargo_audit": "passed"
+  },
+  "security_review": {
+    "trivy": {
+      "version": "0.75.0",
+      "database_refreshed": true,
+      "policy": "HIGH and CRITICAL, ignore unfixed, exit nonzero on findings",
+      "os_detected": "Debian 13.7",
+      "findings": 0
+    },
+    "github_action_pins": {
+      "dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec": "verified GitHub commit",
+      "github/codeql-action@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee": "verified GitHub commit and v4.39.0 tag target"
+    }
+  },
+  "limitations": [
+    "No existing Elasticsearch or Qdrant data volume was opened or upgraded.",
+    "The Elasticsearch check established image startup, reported version and cluster health; it was not a gateway compatibility replay or performance benchmark.",
+    "OpenSearch was not changed or exercised, so this evidence makes no OpenSearch version or parity claim.",
+    "The benchmark image build reused valid Docker cache layers after resolving the requested base image manifest."
+  ]
+}

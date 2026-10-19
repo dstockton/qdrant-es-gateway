@@ -43,7 +43,7 @@ The root endpoint includes `X-Elastic-Product: Elasticsearch` and an 8.x-compati
 | regexp, wildcard, prefix | ⚠️ | Gateway-side Rust matching in positive must/filter clauses; scans candidate documents and is not suitable for unbounded high-cardinality pattern queries |
 | `dis_max`, `match_bool_prefix`, fuzzy-shaped queries | ⚠️ | Accepted through the lexical path; ranking and typo/prefix behavior are approximate |
 | `post_filter`, min/max/filter aggregations | ⚠️ | Supported for simple clauses over bounded retrieved candidates |
-| scripts, scroll, arbitrary aggs | ❌ | Clear structured 400 errors |
+| highlighting, score explanations, query profiling, per-hit version/sequence metadata, scripts, scroll, arbitrary aggs | ❌ | Clear structured 400 errors |
 
 See [docs/compatibility.md](docs/compatibility.md) for semantic differences and [docs/architecture.md](docs/architecture.md) for the design.
 

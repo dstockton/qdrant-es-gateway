@@ -1,0 +1,96 @@
+{
+  "fixture": "AWS Retail Demo Store search-service request bodies",
+  "documents": 1000000,
+  "workers": 32,
+  "native_opensearch": {
+    "reported_statuses": {
+      "index": 200,
+      "search": 200,
+      "similar": 200
+    },
+    "search_group_ids": [
+      "p-001-396735",
+      "p-005-396724"
+    ],
+    "search_inner_ids": [
+      "p-001-396735",
+      "p-001-396730",
+      "p-001-396740",
+      "p-001-396750",
+      "p-001-396775",
+      "p-001-396780",
+      "p-001-396795",
+      "p-001-396800",
+      "p-001-396790",
+      "p-001-396810",
+      "p-001-396815",
+      "p-001-396825",
+      "p-001-396840",
+      "p-001-396835",
+      "p-001-396845",
+      "p-005-396724",
+      "p-005-396729",
+      "p-005-396714",
+      "p-005-396774",
+      "p-005-396784",
+      "p-005-396789",
+      "p-005-396794",
+      "p-005-396804",
+      "p-005-396809",
+      "p-005-396819",
+      "p-005-396824",
+      "p-005-396814",
+      "p-005-396834",
+      "p-005-396854",
+      "p-005-396864"
+    ],
+    "search_compatible": true,
+    "similar_ids": [
+      "p-001-396735",
+      "p-001-396730",
+      "p-001-396740",
+      "p-001-396750",
+      "p-001-396775"
+    ],
+    "similar_compatible": true,
+    "first_search_ms": 764.28,
+    "similar_search_ms": 135.15,
+    "repeated_search_ms": {
+      "p50": 30.08,
+      "p95": 33.62
+    }
+  },
+  "qdrant_gateway": {
+    "reported_statuses": {
+      "index": 200,
+      "search": 200,
+      "similar": 200
+    },
+    "search_group_ids": [
+      "p-005-636714"
+    ],
+    "search_inner_ids": [
+      "p-005-636714",
+      "p-005-20304",
+      "p-005-313339",
+      "p-005-589014",
+      "p-005-105474"
+    ],
+    "search_compatible": true,
+    "similar_ids": [
+      "p-001-627525",
+      "p-001-622980",
+      "p-001-439555",
+      "p-001-268575"
+    ],
+    "similar_compatible": true,
+    "first_search_ms": 9.75,
+    "similar_search_ms": 33.04,
+    "repeated_search_ms": {
+      "p50": 1.63,
+      "p95": 2.85
+    }
+  },
+  "identical_request_shapes": true,
+  "ok": true
+}

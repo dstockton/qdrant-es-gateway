@@ -1,0 +1,77 @@
+{
+  "recorded_at": "2026-10-17T21:10:26+01:00",
+  "purpose": "Confirm that explain=true adds per-hit scoring details which the gateway must not silently omit or fabricate",
+  "environment": "Separate ephemeral single-node containers with security disabled",
+  "corpus": [
+    {
+      "_id": "1",
+      "title": "wireless headphones for travel"
+    }
+  ],
+  "request": {
+    "query": {
+      "match": {
+        "title": "headphones"
+      }
+    },
+    "explain": true
+  },
+  "targets": [
+    {
+      "engine": "Elasticsearch",
+      "version": "8.15.0",
+      "image": "docker.elastic.co/elasticsearch/elasticsearch:8.15.0",
+      "status": 200,
+      "id": "1",
+      "score": 0.2876821,
+      "hit_metadata_added": [
+        "_shard",
+        "_node",
+        "_explanation"
+      ],
+      "explanation": {
+        "value": 0.2876821,
+        "description": "weight(title:headphones in 0) [PerFieldSimilarity], result of:",
+        "first_detail_description": "score(freq=1.0), computed as boost * idf * tf from:",
+        "first_detail_components": [
+          "boost",
+          "idf",
+          "tf"
+        ]
+      }
+    },
+    {
+      "engine": "OpenSearch",
+      "version": "3.9.0",
+      "image": "opensearchproject/opensearch:3.9.0",
+      "status": 200,
+      "id": "1",
+      "score": 0.13076457,
+      "hit_metadata_added": [
+        "_shard",
+        "_node",
+        "_explanation"
+      ],
+      "explanation": {
+        "value": 0.13076457,
+        "description": "weight(title:headphones in 0) [PerFieldSimilarity], result of:",
+        "first_detail_description": "score(freq=1.0), computed as boost * idf * tf from:",
+        "first_detail_components": [
+          "idf",
+          "tf"
+        ]
+      }
+    }
+  ],
+  "reproduction": [
+    "Start each recorded image as an isolated single-node container with its security plugin disabled and a 512 MiB JVM heap.",
+    "Create explain-probe with title mapped as text.",
+    "PUT document 1 with refresh=true and the recorded source.",
+    "POST explain-probe/_search with the recorded request and inspect hits.hits[0]."
+  ],
+  "limitations": [
+    "This is request and response compatibility evidence, not a relevance or performance benchmark.",
+    "The one-document corpus verifies that the response includes a nested explanation; it does not characterize explanations for every query, mapping, shard layout, or scoring plugin.",
+    "The differing score and component tree are observations for Elasticsearch 8.15.0 and OpenSearch 3.9.0 only and should not be generalized to other versions."
+  ]
+}
