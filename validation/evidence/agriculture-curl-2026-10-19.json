@@ -1,0 +1,877 @@
+{
+  "description": "Verbatim article curl blocks, with both searches repeated after inspection as instructed",
+  "engines": {
+    "native": {
+      "ok": true,
+      "responses": [
+        {
+          "status": 200,
+          "body": {
+            "acknowledged": true,
+            "shards_acknowledged": true,
+            "index": "field_note_irrigation"
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "errors": false,
+            "took": 180308577,
+            "items": [
+              {
+                "index": {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-101",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 0,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-102",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 1,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-103",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 2,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-104",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 3,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-105",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 4,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-106",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 5,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              }
+            ]
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "took": 13,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 2,
+                "relation": "eq"
+              },
+              "max_score": 0.0,
+              "hits": [
+                {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-101",
+                  "_score": 0.0,
+                  "_source": {
+                    "plot": "North tunnel",
+                    "crop": "tomato",
+                    "state": "open",
+                    "moisture_percent": 18,
+                    "reading_age_minutes": 10
+                  }
+                },
+                {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-102",
+                  "_score": 0.0,
+                  "_source": {
+                    "plot": "East beds",
+                    "crop": "lettuce",
+                    "state": "open",
+                    "moisture_percent": 19,
+                    "reading_age_minutes": 30
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "took": 4,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 2,
+                "relation": "eq"
+              },
+              "max_score": null,
+              "hits": []
+            },
+            "aggregations": {
+              "crops": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": [
+                  {
+                    "key": "lettuce",
+                    "doc_count": 1
+                  },
+                  {
+                    "key": "tomato",
+                    "doc_count": 1
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "_index": "field_note_irrigation",
+            "_id": "plot-101",
+            "_version": 2,
+            "result": "updated",
+            "_shards": {
+              "total": 2,
+              "successful": 1,
+              "failed": 0
+            },
+            "_seq_no": 6,
+            "_primary_term": 1
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "_index": "field_note_irrigation",
+            "_id": "plot-101",
+            "_version": 2,
+            "_seq_no": 6,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "plot": "North tunnel",
+              "crop": "tomato",
+              "state": "inspected",
+              "moisture_percent": 18,
+              "reading_age_minutes": 10
+            }
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "took": 6,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 1,
+                "relation": "eq"
+              },
+              "max_score": 0.0,
+              "hits": [
+                {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-102",
+                  "_score": 0.0,
+                  "_source": {
+                    "plot": "East beds",
+                    "crop": "lettuce",
+                    "state": "open",
+                    "moisture_percent": 19,
+                    "reading_age_minutes": 30
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "took": 2,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 1,
+                "relation": "eq"
+              },
+              "max_score": null,
+              "hits": []
+            },
+            "aggregations": {
+              "crops": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": [
+                  {
+                    "key": "lettuce",
+                    "doc_count": 1
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "acknowledged": true
+          }
+        }
+      ]
+    },
+    "opensearch": {
+      "ok": true,
+      "responses": [
+        {
+          "status": 200,
+          "body": {
+            "acknowledged": true,
+            "shards_acknowledged": true,
+            "index": "field_note_irrigation"
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "took": 988,
+            "errors": false,
+            "items": [
+              {
+                "index": {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-101",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 0,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-102",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 1,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-103",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 2,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-104",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 3,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-105",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 4,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-106",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 5,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              }
+            ]
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "took": 10,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 2,
+                "relation": "eq"
+              },
+              "max_score": 0.0,
+              "hits": [
+                {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-101",
+                  "_score": 0.0,
+                  "_source": {
+                    "plot": "North tunnel",
+                    "crop": "tomato",
+                    "state": "open",
+                    "moisture_percent": 18,
+                    "reading_age_minutes": 10
+                  }
+                },
+                {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-102",
+                  "_score": 0.0,
+                  "_source": {
+                    "plot": "East beds",
+                    "crop": "lettuce",
+                    "state": "open",
+                    "moisture_percent": 19,
+                    "reading_age_minutes": 30
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "took": 3,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 2,
+                "relation": "eq"
+              },
+              "max_score": null,
+              "hits": []
+            },
+            "aggregations": {
+              "crops": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": [
+                  {
+                    "key": "lettuce",
+                    "doc_count": 1
+                  },
+                  {
+                    "key": "tomato",
+                    "doc_count": 1
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "_index": "field_note_irrigation",
+            "_id": "plot-101",
+            "_version": 2,
+            "result": "updated",
+            "_shards": {
+              "total": 2,
+              "successful": 1,
+              "failed": 0
+            },
+            "_seq_no": 6,
+            "_primary_term": 1
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "_index": "field_note_irrigation",
+            "_id": "plot-101",
+            "_version": 2,
+            "_seq_no": 6,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "plot": "North tunnel",
+              "crop": "tomato",
+              "state": "inspected",
+              "moisture_percent": 18,
+              "reading_age_minutes": 10
+            }
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "took": 2,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 1,
+                "relation": "eq"
+              },
+              "max_score": 0.0,
+              "hits": [
+                {
+                  "_index": "field_note_irrigation",
+                  "_id": "plot-102",
+                  "_score": 0.0,
+                  "_source": {
+                    "plot": "East beds",
+                    "crop": "lettuce",
+                    "state": "open",
+                    "moisture_percent": 19,
+                    "reading_age_minutes": 30
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "took": 2,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 1,
+                "relation": "eq"
+              },
+              "max_score": null,
+              "hits": []
+            },
+            "aggregations": {
+              "crops": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": [
+                  {
+                    "key": "lettuce",
+                    "doc_count": 1
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "acknowledged": true
+          }
+        }
+      ]
+    },
+    "gateway": {
+      "ok": true,
+      "responses": [
+        {
+          "status": 200,
+          "body": {
+            "acknowledged": true,
+            "index": "field_note_irrigation",
+            "shards_acknowledged": true
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "errors": false,
+            "items": [
+              {
+                "index": {
+                  "_id": "plot-101",
+                  "_index": "field_note_irrigation",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "plot-102",
+                  "_index": "field_note_irrigation",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "plot-103",
+                  "_index": "field_note_irrigation",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "plot-104",
+                  "_index": "field_note_irrigation",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "plot-105",
+                  "_index": "field_note_irrigation",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "plot-106",
+                  "_index": "field_note_irrigation",
+                  "result": "created",
+                  "status": 201
+                }
+              }
+            ],
+            "took": 0
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "_shards": {
+              "failed": 0,
+              "skipped": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "hits": {
+              "hits": [
+                {
+                  "_id": "plot-101",
+                  "_index": "field_note_irrigation",
+                  "_score": null,
+                  "_source": {
+                    "crop": "tomato",
+                    "moisture_percent": 18,
+                    "plot": "North tunnel",
+                    "reading_age_minutes": 10,
+                    "state": "open"
+                  }
+                },
+                {
+                  "_id": "plot-102",
+                  "_index": "field_note_irrigation",
+                  "_score": null,
+                  "_source": {
+                    "crop": "lettuce",
+                    "moisture_percent": 19,
+                    "plot": "East beds",
+                    "reading_age_minutes": 30,
+                    "state": "open"
+                  }
+                }
+              ],
+              "max_score": 0.0,
+              "total": {
+                "relation": "eq",
+                "value": 2
+              }
+            },
+            "timed_out": false,
+            "took": 4
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "_shards": {
+              "failed": 0,
+              "skipped": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "aggregations": {
+              "crops": {
+                "buckets": [
+                  {
+                    "doc_count": 1,
+                    "key": "lettuce"
+                  },
+                  {
+                    "doc_count": 1,
+                    "key": "tomato"
+                  }
+                ],
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0
+              }
+            },
+            "hits": {
+              "hits": [],
+              "max_score": 0.0,
+              "total": {
+                "relation": "eq",
+                "value": 2
+              }
+            },
+            "timed_out": false,
+            "took": 2
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "_id": "plot-101",
+            "_index": "field_note_irrigation",
+            "_shards": {
+              "failed": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "_version": 1,
+            "result": "updated"
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "_id": "plot-101",
+            "_index": "field_note_irrigation",
+            "_source": {
+              "crop": "tomato",
+              "moisture_percent": 18,
+              "plot": "North tunnel",
+              "reading_age_minutes": 10,
+              "state": "inspected"
+            },
+            "_version": 1,
+            "found": true
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "_shards": {
+              "failed": 0,
+              "skipped": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "hits": {
+              "hits": [
+                {
+                  "_id": "plot-102",
+                  "_index": "field_note_irrigation",
+                  "_score": null,
+                  "_source": {
+                    "crop": "lettuce",
+                    "moisture_percent": 19,
+                    "plot": "East beds",
+                    "reading_age_minutes": 30,
+                    "state": "open"
+                  }
+                }
+              ],
+              "max_score": 0.0,
+              "total": {
+                "relation": "eq",
+                "value": 1
+              }
+            },
+            "timed_out": false,
+            "took": 2
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "_shards": {
+              "failed": 0,
+              "skipped": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "aggregations": {
+              "crops": {
+                "buckets": [
+                  {
+                    "doc_count": 1,
+                    "key": "lettuce"
+                  }
+                ],
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0
+              }
+            },
+            "hits": {
+              "hits": [],
+              "max_score": 0.0,
+              "total": {
+                "relation": "eq",
+                "value": 1
+              }
+            },
+            "timed_out": false,
+            "took": 2
+          }
+        },
+        {
+          "status": 200,
+          "body": {
+            "acknowledged": true
+          }
+        }
+      ]
+    }
+  }
+}

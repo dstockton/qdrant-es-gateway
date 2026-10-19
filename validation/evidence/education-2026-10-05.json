@@ -1,0 +1,2192 @@
+{
+  "run_at": "2026-10-05T10:03:43.142884+00:00",
+  "gateway_revision": "493bc46d538994cf984c74a6307118a5c9a46854",
+  "fixture": "validation/fixtures/education.json",
+  "gateway_version": "0.2.0",
+  "qdrant_version": "1.15.5",
+  "settle_seconds_after_each_write_phase": 5,
+  "native": {
+    "calls": [
+      {
+        "name": "create",
+        "method": "PUT",
+        "path": "/field_note_courses",
+        "request": {
+          "mappings": {
+            "properties": {
+              "title": {
+                "type": "text"
+              },
+              "campus": {
+                "type": "keyword"
+              },
+              "session": {
+                "type": "keyword"
+              },
+              "level": {
+                "type": "keyword"
+              },
+              "places": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "acknowledged": true,
+            "shards_acknowledged": true,
+            "index": "field_note_courses"
+          }
+        }
+      },
+      {
+        "name": "bulk",
+        "method": "POST",
+        "path": "/field_note_courses/_bulk?refresh=wait_for",
+        "request": "{\"index\": {\"_id\": \"course-101\"}}\n{\"title\": \"Python for beginners\", \"campus\": \"York\", \"session\": \"evening\", \"level\": \"introductory\", \"places\": 1}\n{\"index\": {\"_id\": \"course-102\"}}\n{\"title\": \"Python data analysis\", \"campus\": \"York\", \"session\": \"evening\", \"level\": \"intermediate\", \"places\": 4}\n{\"index\": {\"_id\": \"course-103\"}}\n{\"title\": \"Python automation\", \"campus\": \"York\", \"session\": \"evening\", \"level\": \"intermediate\", \"places\": 0}\n{\"index\": {\"_id\": \"course-104\"}}\n{\"title\": \"Python for beginners\", \"campus\": \"York\", \"session\": \"daytime\", \"level\": \"introductory\", \"places\": 8}\n{\"index\": {\"_id\": \"course-105\"}}\n{\"title\": \"Python for beginners\", \"campus\": \"Leeds\", \"session\": \"evening\", \"level\": \"introductory\", \"places\": 6}\n{\"index\": {\"_id\": \"course-106\"}}\n{\"title\": \"Watercolour basics\", \"campus\": \"York\", \"session\": \"evening\", \"level\": \"introductory\", \"places\": 3}\n",
+        "response": {
+          "status": 200,
+          "body": {
+            "errors": false,
+            "took": 172595,
+            "items": [
+              {
+                "index": {
+                  "_index": "field_note_courses",
+                  "_id": "course-101",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 0,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_courses",
+                  "_id": "course-102",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 1,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_courses",
+                  "_id": "course-103",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 2,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_courses",
+                  "_id": "course-104",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 3,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_courses",
+                  "_id": "course-105",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 4,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_courses",
+                  "_id": "course-106",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 5,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "read course-101",
+        "method": "GET",
+        "path": "/field_note_courses/_doc/course-101",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_courses",
+            "_id": "course-101",
+            "_version": 1,
+            "_seq_no": 0,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "title": "Python for beginners",
+              "campus": "York",
+              "session": "evening",
+              "level": "introductory",
+              "places": 1
+            }
+          }
+        }
+      },
+      {
+        "name": "read course-102",
+        "method": "GET",
+        "path": "/field_note_courses/_doc/course-102",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_courses",
+            "_id": "course-102",
+            "_version": 1,
+            "_seq_no": 1,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "title": "Python data analysis",
+              "campus": "York",
+              "session": "evening",
+              "level": "intermediate",
+              "places": 4
+            }
+          }
+        }
+      },
+      {
+        "name": "read course-103",
+        "method": "GET",
+        "path": "/field_note_courses/_doc/course-103",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_courses",
+            "_id": "course-103",
+            "_version": 1,
+            "_seq_no": 2,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "title": "Python automation",
+              "campus": "York",
+              "session": "evening",
+              "level": "intermediate",
+              "places": 0
+            }
+          }
+        }
+      },
+      {
+        "name": "read course-104",
+        "method": "GET",
+        "path": "/field_note_courses/_doc/course-104",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_courses",
+            "_id": "course-104",
+            "_version": 1,
+            "_seq_no": 3,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "title": "Python for beginners",
+              "campus": "York",
+              "session": "daytime",
+              "level": "introductory",
+              "places": 8
+            }
+          }
+        }
+      },
+      {
+        "name": "read course-105",
+        "method": "GET",
+        "path": "/field_note_courses/_doc/course-105",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_courses",
+            "_id": "course-105",
+            "_version": 1,
+            "_seq_no": 4,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "title": "Python for beginners",
+              "campus": "Leeds",
+              "session": "evening",
+              "level": "introductory",
+              "places": 6
+            }
+          }
+        }
+      },
+      {
+        "name": "read course-106",
+        "method": "GET",
+        "path": "/field_note_courses/_doc/course-106",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_courses",
+            "_id": "course-106",
+            "_version": 1,
+            "_seq_no": 5,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "title": "Watercolour basics",
+              "campus": "York",
+              "session": "evening",
+              "level": "introductory",
+              "places": 3
+            }
+          }
+        }
+      },
+      {
+        "name": "available Python courses",
+        "method": "POST",
+        "path": "/field_note_courses/_search",
+        "request": {
+          "size": 10,
+          "query": {
+            "bool": {
+              "must": {
+                "match": {
+                  "title": "python"
+                }
+              },
+              "filter": [
+                {
+                  "term": {
+                    "campus": "York"
+                  }
+                },
+                {
+                  "term": {
+                    "session": "evening"
+                  }
+                },
+                {
+                  "range": {
+                    "places": {
+                      "gte": 1
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "took": 5,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 2,
+                "relation": "eq"
+              },
+              "max_score": 0.22942984,
+              "hits": [
+                {
+                  "_index": "field_note_courses",
+                  "_id": "course-101",
+                  "_score": 0.22942984,
+                  "_source": {
+                    "title": "Python for beginners",
+                    "campus": "York",
+                    "session": "evening",
+                    "level": "introductory",
+                    "places": 1
+                  }
+                },
+                {
+                  "_index": "field_note_courses",
+                  "_id": "course-102",
+                  "_score": 0.22942984,
+                  "_source": {
+                    "title": "Python data analysis",
+                    "campus": "York",
+                    "session": "evening",
+                    "level": "intermediate",
+                    "places": 4
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "name": "available levels",
+        "method": "POST",
+        "path": "/field_note_courses/_search",
+        "request": {
+          "size": 0,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "campus": "York"
+                  }
+                },
+                {
+                  "term": {
+                    "session": "evening"
+                  }
+                },
+                {
+                  "range": {
+                    "places": {
+                      "gte": 1
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "aggs": {
+            "levels": {
+              "terms": {
+                "field": "level",
+                "size": 10
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "took": 3,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 3,
+                "relation": "eq"
+              },
+              "max_score": null,
+              "hits": []
+            },
+            "aggregations": {
+              "levels": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": [
+                  {
+                    "key": "introductory",
+                    "doc_count": 2
+                  },
+                  {
+                    "key": "intermediate",
+                    "doc_count": 1
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "publish zero places",
+        "method": "POST",
+        "path": "/field_note_courses/_update/course-101?refresh=wait_for",
+        "request": {
+          "doc": {
+            "places": 0
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_courses",
+            "_id": "course-101",
+            "_version": 2,
+            "result": "updated",
+            "_shards": {
+              "total": 2,
+              "successful": 1,
+              "failed": 0
+            },
+            "_seq_no": 6,
+            "_primary_term": 1
+          }
+        }
+      },
+      {
+        "name": "read full course",
+        "method": "GET",
+        "path": "/field_note_courses/_doc/course-101",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_courses",
+            "_id": "course-101",
+            "_version": 2,
+            "_seq_no": 6,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "title": "Python for beginners",
+              "campus": "York",
+              "session": "evening",
+              "level": "introductory",
+              "places": 0
+            }
+          }
+        }
+      },
+      {
+        "name": "full course excluded",
+        "method": "POST",
+        "path": "/field_note_courses/_search",
+        "request": {
+          "size": 10,
+          "query": {
+            "bool": {
+              "must": {
+                "match": {
+                  "title": "python"
+                }
+              },
+              "filter": [
+                {
+                  "term": {
+                    "campus": "York"
+                  }
+                },
+                {
+                  "term": {
+                    "session": "evening"
+                  }
+                },
+                {
+                  "range": {
+                    "places": {
+                      "gte": 1
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "took": 7,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 1,
+                "relation": "eq"
+              },
+              "max_score": 0.19906712,
+              "hits": [
+                {
+                  "_index": "field_note_courses",
+                  "_id": "course-102",
+                  "_score": 0.19906712,
+                  "_source": {
+                    "title": "Python data analysis",
+                    "campus": "York",
+                    "session": "evening",
+                    "level": "intermediate",
+                    "places": 4
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "name": "remaining levels",
+        "method": "POST",
+        "path": "/field_note_courses/_search",
+        "request": {
+          "size": 0,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "campus": "York"
+                  }
+                },
+                {
+                  "term": {
+                    "session": "evening"
+                  }
+                },
+                {
+                  "range": {
+                    "places": {
+                      "gte": 1
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "aggs": {
+            "levels": {
+              "terms": {
+                "field": "level",
+                "size": 10
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "took": 5,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 2,
+                "relation": "eq"
+              },
+              "max_score": null,
+              "hits": []
+            },
+            "aggregations": {
+              "levels": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": [
+                  {
+                    "key": "intermediate",
+                    "doc_count": 1
+                  },
+                  {
+                    "key": "introductory",
+                    "doc_count": 1
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "cleanup",
+        "method": "DELETE",
+        "path": "/field_note_courses",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "acknowledged": true
+          }
+        }
+      }
+    ],
+    "checks": [
+      {
+        "name": "create HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "bulk HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "bulk errors",
+        "ok": true,
+        "actual": false,
+        "expected": false
+      },
+      {
+        "name": "bulk items",
+        "ok": true,
+        "actual": [
+          {
+            "_id": "course-101",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "course-102",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "course-103",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "course-104",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "course-105",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "course-106",
+            "status": 201,
+            "result": "created"
+          }
+        ],
+        "expected": [
+          {
+            "_id": "course-101",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "course-102",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "course-103",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "course-104",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "course-105",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "course-106",
+            "status": 201,
+            "result": "created"
+          }
+        ]
+      },
+      {
+        "name": "read course-101 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read course-101 ID/source",
+        "ok": true,
+        "actual": [
+          "course-101",
+          {
+            "title": "Python for beginners",
+            "campus": "York",
+            "session": "evening",
+            "level": "introductory",
+            "places": 1
+          }
+        ],
+        "expected": [
+          "course-101",
+          {
+            "title": "Python for beginners",
+            "campus": "York",
+            "session": "evening",
+            "level": "introductory",
+            "places": 1
+          }
+        ]
+      },
+      {
+        "name": "read course-102 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read course-102 ID/source",
+        "ok": true,
+        "actual": [
+          "course-102",
+          {
+            "title": "Python data analysis",
+            "campus": "York",
+            "session": "evening",
+            "level": "intermediate",
+            "places": 4
+          }
+        ],
+        "expected": [
+          "course-102",
+          {
+            "title": "Python data analysis",
+            "campus": "York",
+            "session": "evening",
+            "level": "intermediate",
+            "places": 4
+          }
+        ]
+      },
+      {
+        "name": "read course-103 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read course-103 ID/source",
+        "ok": true,
+        "actual": [
+          "course-103",
+          {
+            "title": "Python automation",
+            "campus": "York",
+            "session": "evening",
+            "level": "intermediate",
+            "places": 0
+          }
+        ],
+        "expected": [
+          "course-103",
+          {
+            "title": "Python automation",
+            "campus": "York",
+            "session": "evening",
+            "level": "intermediate",
+            "places": 0
+          }
+        ]
+      },
+      {
+        "name": "read course-104 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read course-104 ID/source",
+        "ok": true,
+        "actual": [
+          "course-104",
+          {
+            "title": "Python for beginners",
+            "campus": "York",
+            "session": "daytime",
+            "level": "introductory",
+            "places": 8
+          }
+        ],
+        "expected": [
+          "course-104",
+          {
+            "title": "Python for beginners",
+            "campus": "York",
+            "session": "daytime",
+            "level": "introductory",
+            "places": 8
+          }
+        ]
+      },
+      {
+        "name": "read course-105 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read course-105 ID/source",
+        "ok": true,
+        "actual": [
+          "course-105",
+          {
+            "title": "Python for beginners",
+            "campus": "Leeds",
+            "session": "evening",
+            "level": "introductory",
+            "places": 6
+          }
+        ],
+        "expected": [
+          "course-105",
+          {
+            "title": "Python for beginners",
+            "campus": "Leeds",
+            "session": "evening",
+            "level": "introductory",
+            "places": 6
+          }
+        ]
+      },
+      {
+        "name": "read course-106 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read course-106 ID/source",
+        "ok": true,
+        "actual": [
+          "course-106",
+          {
+            "title": "Watercolour basics",
+            "campus": "York",
+            "session": "evening",
+            "level": "introductory",
+            "places": 3
+          }
+        ],
+        "expected": [
+          "course-106",
+          {
+            "title": "Watercolour basics",
+            "campus": "York",
+            "session": "evening",
+            "level": "introductory",
+            "places": 3
+          }
+        ]
+      },
+      {
+        "name": "available Python courses HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "available Python courses IDs",
+        "ok": true,
+        "actual": [
+          "course-101",
+          "course-102"
+        ],
+        "expected": [
+          "course-101",
+          "course-102"
+        ]
+      },
+      {
+        "name": "available Python courses sources",
+        "ok": true,
+        "actual": {
+          "course-101": {
+            "title": "Python for beginners",
+            "campus": "York",
+            "session": "evening",
+            "level": "introductory",
+            "places": 1
+          },
+          "course-102": {
+            "title": "Python data analysis",
+            "campus": "York",
+            "session": "evening",
+            "level": "intermediate",
+            "places": 4
+          }
+        },
+        "expected": {
+          "course-101": {
+            "title": "Python for beginners",
+            "campus": "York",
+            "session": "evening",
+            "level": "introductory",
+            "places": 1
+          },
+          "course-102": {
+            "title": "Python data analysis",
+            "campus": "York",
+            "session": "evening",
+            "level": "intermediate",
+            "places": 4
+          }
+        }
+      },
+      {
+        "name": "available levels HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "available levels counts",
+        "ok": true,
+        "actual": {
+          "introductory": 2,
+          "intermediate": 1
+        },
+        "expected": {
+          "introductory": 2,
+          "intermediate": 1
+        }
+      },
+      {
+        "name": "available levels zero hits",
+        "ok": true,
+        "actual": [],
+        "expected": []
+      },
+      {
+        "name": "publish zero places HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "publish zero places ID/result",
+        "ok": true,
+        "actual": [
+          "course-101",
+          "updated"
+        ],
+        "expected": [
+          "course-101",
+          "updated"
+        ]
+      },
+      {
+        "name": "read full course HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "full course preserves details",
+        "ok": true,
+        "actual": [
+          "course-101",
+          {
+            "title": "Python for beginners",
+            "campus": "York",
+            "session": "evening",
+            "level": "introductory",
+            "places": 0
+          }
+        ],
+        "expected": [
+          "course-101",
+          {
+            "title": "Python for beginners",
+            "campus": "York",
+            "session": "evening",
+            "level": "introductory",
+            "places": 0
+          }
+        ]
+      },
+      {
+        "name": "full course excluded HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "full course excluded IDs",
+        "ok": true,
+        "actual": [
+          "course-102"
+        ],
+        "expected": [
+          "course-102"
+        ]
+      },
+      {
+        "name": "full course excluded sources",
+        "ok": true,
+        "actual": {
+          "course-102": {
+            "title": "Python data analysis",
+            "campus": "York",
+            "session": "evening",
+            "level": "intermediate",
+            "places": 4
+          }
+        },
+        "expected": {
+          "course-102": {
+            "title": "Python data analysis",
+            "campus": "York",
+            "session": "evening",
+            "level": "intermediate",
+            "places": 4
+          }
+        }
+      },
+      {
+        "name": "remaining levels HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "remaining levels counts",
+        "ok": true,
+        "actual": {
+          "intermediate": 1,
+          "introductory": 1
+        },
+        "expected": {
+          "intermediate": 1,
+          "introductory": 1
+        }
+      },
+      {
+        "name": "remaining levels zero hits",
+        "ok": true,
+        "actual": [],
+        "expected": []
+      },
+      {
+        "name": "cleanup HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      }
+    ],
+    "reported_version": "8.15.0"
+  },
+  "gateway": {
+    "calls": [
+      {
+        "name": "create",
+        "method": "PUT",
+        "path": "/field_note_courses",
+        "request": {
+          "mappings": {
+            "properties": {
+              "title": {
+                "type": "text"
+              },
+              "campus": {
+                "type": "keyword"
+              },
+              "session": {
+                "type": "keyword"
+              },
+              "level": {
+                "type": "keyword"
+              },
+              "places": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "acknowledged": true,
+            "index": "field_note_courses",
+            "shards_acknowledged": true
+          }
+        }
+      },
+      {
+        "name": "bulk",
+        "method": "POST",
+        "path": "/field_note_courses/_bulk?refresh=wait_for",
+        "request": "{\"index\": {\"_id\": \"course-101\"}}\n{\"title\": \"Python for beginners\", \"campus\": \"York\", \"session\": \"evening\", \"level\": \"introductory\", \"places\": 1}\n{\"index\": {\"_id\": \"course-102\"}}\n{\"title\": \"Python data analysis\", \"campus\": \"York\", \"session\": \"evening\", \"level\": \"intermediate\", \"places\": 4}\n{\"index\": {\"_id\": \"course-103\"}}\n{\"title\": \"Python automation\", \"campus\": \"York\", \"session\": \"evening\", \"level\": \"intermediate\", \"places\": 0}\n{\"index\": {\"_id\": \"course-104\"}}\n{\"title\": \"Python for beginners\", \"campus\": \"York\", \"session\": \"daytime\", \"level\": \"introductory\", \"places\": 8}\n{\"index\": {\"_id\": \"course-105\"}}\n{\"title\": \"Python for beginners\", \"campus\": \"Leeds\", \"session\": \"evening\", \"level\": \"introductory\", \"places\": 6}\n{\"index\": {\"_id\": \"course-106\"}}\n{\"title\": \"Watercolour basics\", \"campus\": \"York\", \"session\": \"evening\", \"level\": \"introductory\", \"places\": 3}\n",
+        "response": {
+          "status": 200,
+          "body": {
+            "errors": false,
+            "items": [
+              {
+                "index": {
+                  "_id": "course-101",
+                  "_index": "field_note_courses",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "course-102",
+                  "_index": "field_note_courses",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "course-103",
+                  "_index": "field_note_courses",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "course-104",
+                  "_index": "field_note_courses",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "course-105",
+                  "_index": "field_note_courses",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "course-106",
+                  "_index": "field_note_courses",
+                  "result": "created",
+                  "status": 201
+                }
+              }
+            ],
+            "took": 0
+          }
+        }
+      },
+      {
+        "name": "read course-101",
+        "method": "GET",
+        "path": "/field_note_courses/_doc/course-101",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "course-101",
+            "_index": "field_note_courses",
+            "_source": {
+              "campus": "York",
+              "level": "introductory",
+              "places": 1,
+              "session": "evening",
+              "title": "Python for beginners"
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "read course-102",
+        "method": "GET",
+        "path": "/field_note_courses/_doc/course-102",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "course-102",
+            "_index": "field_note_courses",
+            "_source": {
+              "campus": "York",
+              "level": "intermediate",
+              "places": 4,
+              "session": "evening",
+              "title": "Python data analysis"
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "read course-103",
+        "method": "GET",
+        "path": "/field_note_courses/_doc/course-103",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "course-103",
+            "_index": "field_note_courses",
+            "_source": {
+              "campus": "York",
+              "level": "intermediate",
+              "places": 0,
+              "session": "evening",
+              "title": "Python automation"
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "read course-104",
+        "method": "GET",
+        "path": "/field_note_courses/_doc/course-104",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "course-104",
+            "_index": "field_note_courses",
+            "_source": {
+              "campus": "York",
+              "level": "introductory",
+              "places": 8,
+              "session": "daytime",
+              "title": "Python for beginners"
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "read course-105",
+        "method": "GET",
+        "path": "/field_note_courses/_doc/course-105",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "course-105",
+            "_index": "field_note_courses",
+            "_source": {
+              "campus": "Leeds",
+              "level": "introductory",
+              "places": 6,
+              "session": "evening",
+              "title": "Python for beginners"
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "read course-106",
+        "method": "GET",
+        "path": "/field_note_courses/_doc/course-106",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "course-106",
+            "_index": "field_note_courses",
+            "_source": {
+              "campus": "York",
+              "level": "introductory",
+              "places": 3,
+              "session": "evening",
+              "title": "Watercolour basics"
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "available Python courses",
+        "method": "POST",
+        "path": "/field_note_courses/_search",
+        "request": {
+          "size": 10,
+          "query": {
+            "bool": {
+              "must": {
+                "match": {
+                  "title": "python"
+                }
+              },
+              "filter": [
+                {
+                  "term": {
+                    "campus": "York"
+                  }
+                },
+                {
+                  "term": {
+                    "session": "evening"
+                  }
+                },
+                {
+                  "range": {
+                    "places": {
+                      "gte": 1
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "_shards": {
+              "failed": 0,
+              "skipped": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "hits": {
+              "hits": [
+                {
+                  "_id": "course-101",
+                  "_index": "field_note_courses",
+                  "_score": 1.6832038,
+                  "_source": {
+                    "campus": "York",
+                    "level": "introductory",
+                    "places": 1,
+                    "session": "evening",
+                    "title": "Python for beginners"
+                  }
+                },
+                {
+                  "_id": "course-102",
+                  "_index": "field_note_courses",
+                  "_score": 1.6786885,
+                  "_source": {
+                    "campus": "York",
+                    "level": "intermediate",
+                    "places": 4,
+                    "session": "evening",
+                    "title": "Python data analysis"
+                  }
+                }
+              ],
+              "max_score": 1.6832038,
+              "total": {
+                "relation": "eq",
+                "value": 2
+              }
+            },
+            "timed_out": false,
+            "took": 1
+          }
+        }
+      },
+      {
+        "name": "available levels",
+        "method": "POST",
+        "path": "/field_note_courses/_search",
+        "request": {
+          "size": 0,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "campus": "York"
+                  }
+                },
+                {
+                  "term": {
+                    "session": "evening"
+                  }
+                },
+                {
+                  "range": {
+                    "places": {
+                      "gte": 1
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "aggs": {
+            "levels": {
+              "terms": {
+                "field": "level",
+                "size": 10
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "_shards": {
+              "failed": 0,
+              "skipped": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "aggregations": {
+              "levels": {
+                "buckets": [
+                  {
+                    "doc_count": 2,
+                    "key": "introductory"
+                  },
+                  {
+                    "doc_count": 1,
+                    "key": "intermediate"
+                  }
+                ],
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0
+              }
+            },
+            "hits": {
+              "hits": [],
+              "max_score": 0.0,
+              "total": {
+                "relation": "eq",
+                "value": 1
+              }
+            },
+            "timed_out": false,
+            "took": 0
+          }
+        }
+      },
+      {
+        "name": "publish zero places",
+        "method": "POST",
+        "path": "/field_note_courses/_update/course-101?refresh=wait_for",
+        "request": {
+          "doc": {
+            "places": 0
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "course-101",
+            "_index": "field_note_courses",
+            "_shards": {
+              "failed": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "_version": 1,
+            "result": "updated"
+          }
+        }
+      },
+      {
+        "name": "read full course",
+        "method": "GET",
+        "path": "/field_note_courses/_doc/course-101",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "course-101",
+            "_index": "field_note_courses",
+            "_source": {
+              "campus": "York",
+              "level": "introductory",
+              "places": 0,
+              "session": "evening",
+              "title": "Python for beginners"
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "full course excluded",
+        "method": "POST",
+        "path": "/field_note_courses/_search",
+        "request": {
+          "size": 10,
+          "query": {
+            "bool": {
+              "must": {
+                "match": {
+                  "title": "python"
+                }
+              },
+              "filter": [
+                {
+                  "term": {
+                    "campus": "York"
+                  }
+                },
+                {
+                  "term": {
+                    "session": "evening"
+                  }
+                },
+                {
+                  "range": {
+                    "places": {
+                      "gte": 1
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "_shards": {
+              "failed": 0,
+              "skipped": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "hits": {
+              "hits": [
+                {
+                  "_id": "course-102",
+                  "_index": "field_note_courses",
+                  "_score": 1.6786885,
+                  "_source": {
+                    "campus": "York",
+                    "level": "intermediate",
+                    "places": 4,
+                    "session": "evening",
+                    "title": "Python data analysis"
+                  }
+                }
+              ],
+              "max_score": 1.6786885,
+              "total": {
+                "relation": "eq",
+                "value": 1
+              }
+            },
+            "timed_out": false,
+            "took": 1
+          }
+        }
+      },
+      {
+        "name": "remaining levels",
+        "method": "POST",
+        "path": "/field_note_courses/_search",
+        "request": {
+          "size": 0,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "campus": "York"
+                  }
+                },
+                {
+                  "term": {
+                    "session": "evening"
+                  }
+                },
+                {
+                  "range": {
+                    "places": {
+                      "gte": 1
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "aggs": {
+            "levels": {
+              "terms": {
+                "field": "level",
+                "size": 10
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "_shards": {
+              "failed": 0,
+              "skipped": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "aggregations": {
+              "levels": {
+                "buckets": [
+                  {
+                    "doc_count": 1,
+                    "key": "intermediate"
+                  },
+                  {
+                    "doc_count": 1,
+                    "key": "introductory"
+                  }
+                ],
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0
+              }
+            },
+            "hits": {
+              "hits": [],
+              "max_score": 0.0,
+              "total": {
+                "relation": "eq",
+                "value": 1
+              }
+            },
+            "timed_out": false,
+            "took": 0
+          }
+        }
+      },
+      {
+        "name": "cleanup",
+        "method": "DELETE",
+        "path": "/field_note_courses",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "acknowledged": true
+          }
+        }
+      }
+    ],
+    "checks": [
+      {
+        "name": "create HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "bulk HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "bulk errors",
+        "ok": true,
+        "actual": false,
+        "expected": false
+      },
+      {
+        "name": "bulk items",
+        "ok": true,
+        "actual": [
+          {
+            "_id": "course-101",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "course-102",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "course-103",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "course-104",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "course-105",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "course-106",
+            "status": 201,
+            "result": "created"
+          }
+        ],
+        "expected": [
+          {
+            "_id": "course-101",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "course-102",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "course-103",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "course-104",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "course-105",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "course-106",
+            "status": 201,
+            "result": "created"
+          }
+        ]
+      },
+      {
+        "name": "read course-101 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read course-101 ID/source",
+        "ok": true,
+        "actual": [
+          "course-101",
+          {
+            "campus": "York",
+            "level": "introductory",
+            "places": 1,
+            "session": "evening",
+            "title": "Python for beginners"
+          }
+        ],
+        "expected": [
+          "course-101",
+          {
+            "title": "Python for beginners",
+            "campus": "York",
+            "session": "evening",
+            "level": "introductory",
+            "places": 1
+          }
+        ]
+      },
+      {
+        "name": "read course-102 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read course-102 ID/source",
+        "ok": true,
+        "actual": [
+          "course-102",
+          {
+            "campus": "York",
+            "level": "intermediate",
+            "places": 4,
+            "session": "evening",
+            "title": "Python data analysis"
+          }
+        ],
+        "expected": [
+          "course-102",
+          {
+            "title": "Python data analysis",
+            "campus": "York",
+            "session": "evening",
+            "level": "intermediate",
+            "places": 4
+          }
+        ]
+      },
+      {
+        "name": "read course-103 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read course-103 ID/source",
+        "ok": true,
+        "actual": [
+          "course-103",
+          {
+            "campus": "York",
+            "level": "intermediate",
+            "places": 0,
+            "session": "evening",
+            "title": "Python automation"
+          }
+        ],
+        "expected": [
+          "course-103",
+          {
+            "title": "Python automation",
+            "campus": "York",
+            "session": "evening",
+            "level": "intermediate",
+            "places": 0
+          }
+        ]
+      },
+      {
+        "name": "read course-104 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read course-104 ID/source",
+        "ok": true,
+        "actual": [
+          "course-104",
+          {
+            "campus": "York",
+            "level": "introductory",
+            "places": 8,
+            "session": "daytime",
+            "title": "Python for beginners"
+          }
+        ],
+        "expected": [
+          "course-104",
+          {
+            "title": "Python for beginners",
+            "campus": "York",
+            "session": "daytime",
+            "level": "introductory",
+            "places": 8
+          }
+        ]
+      },
+      {
+        "name": "read course-105 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read course-105 ID/source",
+        "ok": true,
+        "actual": [
+          "course-105",
+          {
+            "campus": "Leeds",
+            "level": "introductory",
+            "places": 6,
+            "session": "evening",
+            "title": "Python for beginners"
+          }
+        ],
+        "expected": [
+          "course-105",
+          {
+            "title": "Python for beginners",
+            "campus": "Leeds",
+            "session": "evening",
+            "level": "introductory",
+            "places": 6
+          }
+        ]
+      },
+      {
+        "name": "read course-106 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read course-106 ID/source",
+        "ok": true,
+        "actual": [
+          "course-106",
+          {
+            "campus": "York",
+            "level": "introductory",
+            "places": 3,
+            "session": "evening",
+            "title": "Watercolour basics"
+          }
+        ],
+        "expected": [
+          "course-106",
+          {
+            "title": "Watercolour basics",
+            "campus": "York",
+            "session": "evening",
+            "level": "introductory",
+            "places": 3
+          }
+        ]
+      },
+      {
+        "name": "available Python courses HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "available Python courses IDs",
+        "ok": true,
+        "actual": [
+          "course-101",
+          "course-102"
+        ],
+        "expected": [
+          "course-101",
+          "course-102"
+        ]
+      },
+      {
+        "name": "available Python courses sources",
+        "ok": true,
+        "actual": {
+          "course-101": {
+            "campus": "York",
+            "level": "introductory",
+            "places": 1,
+            "session": "evening",
+            "title": "Python for beginners"
+          },
+          "course-102": {
+            "campus": "York",
+            "level": "intermediate",
+            "places": 4,
+            "session": "evening",
+            "title": "Python data analysis"
+          }
+        },
+        "expected": {
+          "course-101": {
+            "title": "Python for beginners",
+            "campus": "York",
+            "session": "evening",
+            "level": "introductory",
+            "places": 1
+          },
+          "course-102": {
+            "title": "Python data analysis",
+            "campus": "York",
+            "session": "evening",
+            "level": "intermediate",
+            "places": 4
+          }
+        }
+      },
+      {
+        "name": "available levels HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "available levels counts",
+        "ok": true,
+        "actual": {
+          "introductory": 2,
+          "intermediate": 1
+        },
+        "expected": {
+          "introductory": 2,
+          "intermediate": 1
+        }
+      },
+      {
+        "name": "available levels zero hits",
+        "ok": true,
+        "actual": [],
+        "expected": []
+      },
+      {
+        "name": "publish zero places HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "publish zero places ID/result",
+        "ok": true,
+        "actual": [
+          "course-101",
+          "updated"
+        ],
+        "expected": [
+          "course-101",
+          "updated"
+        ]
+      },
+      {
+        "name": "read full course HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "full course preserves details",
+        "ok": true,
+        "actual": [
+          "course-101",
+          {
+            "campus": "York",
+            "level": "introductory",
+            "places": 0,
+            "session": "evening",
+            "title": "Python for beginners"
+          }
+        ],
+        "expected": [
+          "course-101",
+          {
+            "title": "Python for beginners",
+            "campus": "York",
+            "session": "evening",
+            "level": "introductory",
+            "places": 0
+          }
+        ]
+      },
+      {
+        "name": "full course excluded HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "full course excluded IDs",
+        "ok": true,
+        "actual": [
+          "course-102"
+        ],
+        "expected": [
+          "course-102"
+        ]
+      },
+      {
+        "name": "full course excluded sources",
+        "ok": true,
+        "actual": {
+          "course-102": {
+            "campus": "York",
+            "level": "intermediate",
+            "places": 4,
+            "session": "evening",
+            "title": "Python data analysis"
+          }
+        },
+        "expected": {
+          "course-102": {
+            "title": "Python data analysis",
+            "campus": "York",
+            "session": "evening",
+            "level": "intermediate",
+            "places": 4
+          }
+        }
+      },
+      {
+        "name": "remaining levels HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "remaining levels counts",
+        "ok": true,
+        "actual": {
+          "intermediate": 1,
+          "introductory": 1
+        },
+        "expected": {
+          "intermediate": 1,
+          "introductory": 1
+        }
+      },
+      {
+        "name": "remaining levels zero hits",
+        "ok": true,
+        "actual": [],
+        "expected": []
+      },
+      {
+        "name": "cleanup HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      }
+    ],
+    "reported_version": "8.15.0"
+  },
+  "identical_requests": true,
+  "passed": 66,
+  "total": 66,
+  "ok": true
+}
