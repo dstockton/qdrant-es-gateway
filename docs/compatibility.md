@@ -57,3 +57,34 @@ verifies full-width token IDs; it does not reproduce SEISMIC approximation bugs.
 ## Shared metadata and consistency
 
 SQLite remains the default single-replica catalog. The optional [Redis/Valkey catalog](shared-catalog.md) shares mappings and single-index aliases across replicas, with explicit recovery after uncertain administrative writes. It does not supply atomic document updates or snapshot pagination. Unsupported `pit` search bodies and URL parameters `if_seq_no`, `if_primary_term`, `version`, `version_type`, `retry_on_conflict`, `op_type`, `routing`, and `scroll` return a structured 400 rather than being ignored.
+
+### Ordered numeric searches
+
+Single-field numeric sorts can use Qdrant's ordered scroll when every matching
+point carries a gateway-generated scalar-type marker. This avoids downloading
+all matching documents to return one page. Multiple sort fields, missing or
+array values, integers outside the exact floating-point comparison range,
+separate document projections, and ties crossing the requested page boundary
+retain the complete scan. The `search_after` predicate excludes the cursor value;
+exact totals still describe all query matches before pagination.
+
+New writes carry versioned eligibility metadata in the reserved
+`_qeg_fast_fields` payload field. New collections and mapping updates index that
+field; old points without markers safely use the existing scan. Application
+mappings cannot define this reserved field. No reindex is required for correctness.
+Neither ordered scroll nor the fallback is a point-in-time snapshot during
+concurrent writes. Qdrant's [ordered-scroll API](https://qdrant.tech/documentation/concepts/points/#order-points-by-payload-key)
+provides the backend ordering; the gateway checks compatibility before using it.
+
+Exact keyword `terms` and simple keyword `term` / numeric `range` filter
+aggregations can also use Qdrant facet/count indexes after checking the matching
+payloads' eligibility markers. Facets request exact counts and up to 10,001
+values, preserving the existing 10,000-bucket error and `sum_other_doc_count`.
+Other reducers and unsafe or legacy values retain streaming evaluation.
+The [facet API](https://qdrant.tech/documentation/concepts/payload/#facet-counts)
+counts each distinct value once per document, including multivalued keywords.
+
+An older mapping that already owns `_qeg_fast_fields` is treated as user data:
+its values and index type are preserved, and fast paths are disabled for that
+index. New mappings cannot introduce that name. These optimizations add no
+cursor sessions, result cache, or Redis/Valkey dependency.

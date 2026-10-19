@@ -1,0 +1,38 @@
+{
+  "base_revision": "28a7de40fda93fdfc6dfcb4e314c3603890ec297",
+  "decision": "Both transport prototypes rejected; production read transport remains REST.",
+  "profiles": {
+    "full": {
+      "rounds_in_execution_order": [
+        "full-rest-1.json",
+        "full-grpc-1.json",
+        "full-grpc-2.json",
+        "full-rest-2.json"
+      ],
+      "summary": "full-summary.json",
+      "responses": 72000,
+      "tracked_patch": "full-tracked.patch",
+      "module": "full-reads.rs"
+    },
+    "hybrid": {
+      "rounds_in_execution_order": [
+        "hybrid-rest-1.json",
+        "hybrid-hybrid-1.json",
+        "hybrid-hybrid-2.json",
+        "hybrid-rest-2.json"
+      ],
+      "summary": "hybrid-summary.json",
+      "responses": 72000,
+      "tracked_patch": "hybrid-tracked.patch",
+      "module": "hybrid-reads.rs"
+    }
+  },
+  "reproduction": "Apply the selected tracked patch to the base revision, then copy its corresponding reads.rs file to src/grpc_reads.rs. Build before timing. For each prototype use the same image for REST and opt-in runs; unset QDRANT_GRPC_URL for REST, or set it to the Qdrant gRPC service on port 6334. Preserve corpus and caps. Run REST,opt-in,opt-in,REST with TRACK_TOTAL_HITS=true REQUESTS=200 TRIALS=3 WARMUP=40 using compare_reads.py.",
+  "measurement_notes": [
+    "All eight paired rounds use exact totals and strict response checks, including sources, sort values and buckets. Each prototype contributes 72000 measured responses.",
+    "Transport provenance grpc_opt_in identifies all-read gRPC in the full prototype and get/scroll/facet gRPC with REST counts in the hybrid prototype. Writes remain REST.",
+    "Each round records image IDs and resource limits. No builds, tests or ingestion ran during timing.",
+    "A separately retained disabled-total REST-only diagnostic is not a paired comparison and is excluded from summaries and the 144000-response paired count."
+  ],
+  "unpaired_diagnostic": "disabled-rest-diagnostic.json"
+}

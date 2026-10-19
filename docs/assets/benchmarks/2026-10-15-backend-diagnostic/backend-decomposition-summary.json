@@ -1,0 +1,193 @@
+{
+  "diagnostic": "backend-three-rpc-decomposition-not-native-equivalent",
+  "measured_rpcs": 4800,
+  "measured_groups": 3200,
+  "groups": "median of four trial quantiles",
+  "rpc_quantiles": "pooled400samples per configuration; do not subtract/sum independent or parallel quantiles",
+  "comparisons": [
+    {
+      "concurrency": 1,
+      "kind": "count",
+      "group_p50_ms": 0.8576974996685749,
+      "group_p95_ms": 0.9546255023451522,
+      "rpc": {
+        "count": {
+          "wall_ms": {
+            "pooled_p50": 0.8428539986198302,
+            "pooled_p95": 0.9504170011496171
+          },
+          "qdrant_response_time_ms": {
+            "pooled_p50": 0.6979580000000001,
+            "pooled_p95": 0.7879160000000001
+          }
+        }
+      }
+    },
+    {
+      "concurrency": 1,
+      "kind": "coverage",
+      "group_p50_ms": 0.3227185006835498,
+      "group_p95_ms": 0.36318750062491745,
+      "rpc": {
+        "coverage": {
+          "wall_ms": {
+            "pooled_p50": 0.3098754968959838,
+            "pooled_p95": 0.3904170007444918
+          },
+          "qdrant_response_time_ms": {
+            "pooled_p50": 0.163458,
+            "pooled_p95": 0.20350000000000001
+          }
+        }
+      }
+    },
+    {
+      "concurrency": 1,
+      "kind": "ordered",
+      "group_p50_ms": 0.3430107499298174,
+      "group_p95_ms": 0.3894789988407865,
+      "rpc": {
+        "ordered": {
+          "wall_ms": {
+            "pooled_p50": 0.28695799483102746,
+            "pooled_p95": 0.3330839972477406
+          },
+          "qdrant_response_time_ms": {
+            "pooled_p50": 0.13604149999999998,
+            "pooled_p95": 0.167875
+          }
+        }
+      }
+    },
+    {
+      "concurrency": 1,
+      "kind": "parallel",
+      "group_p50_ms": 1.0229687504761387,
+      "group_p95_ms": 1.1606044972722884,
+      "rpc": {
+        "count": {
+          "wall_ms": {
+            "pooled_p50": 0.961687503149733,
+            "pooled_p95": 1.0778750001918525
+          },
+          "qdrant_response_time_ms": {
+            "pooled_p50": 0.733958,
+            "pooled_p95": 0.823334
+          }
+        },
+        "coverage": {
+          "wall_ms": {
+            "pooled_p50": 0.3498330006550532,
+            "pooled_p95": 0.4901249994873069
+          },
+          "qdrant_response_time_ms": {
+            "pooled_p50": 0.17964599999999997,
+            "pooled_p95": 0.217375
+          }
+        },
+        "ordered": {
+          "wall_ms": {
+            "pooled_p50": 0.3509164998831693,
+            "pooled_p95": 0.41704099567141384
+          },
+          "qdrant_response_time_ms": {
+            "pooled_p50": 0.1699795,
+            "pooled_p95": 0.214
+          }
+        }
+      }
+    },
+    {
+      "concurrency": 8,
+      "kind": "count",
+      "group_p50_ms": 1.3992187505209586,
+      "group_p95_ms": 12.389228999381885,
+      "rpc": {
+        "count": {
+          "wall_ms": {
+            "pooled_p50": 1.4183125022100285,
+            "pooled_p95": 14.99350000085542
+          },
+          "qdrant_response_time_ms": {
+            "pooled_p50": 0.8922079999999999,
+            "pooled_p95": 9.345292
+          }
+        }
+      }
+    },
+    {
+      "concurrency": 8,
+      "kind": "coverage",
+      "group_p50_ms": 0.8749999979045242,
+      "group_p95_ms": 1.6945214993029367,
+      "rpc": {
+        "coverage": {
+          "wall_ms": {
+            "pooled_p50": 0.9125620017584879,
+            "pooled_p95": 2.6932079999824055
+          },
+          "qdrant_response_time_ms": {
+            "pooled_p50": 0.2977915,
+            "pooled_p95": 0.747583
+          }
+        }
+      }
+    },
+    {
+      "concurrency": 8,
+      "kind": "ordered",
+      "group_p50_ms": 0.9663642504165182,
+      "group_p95_ms": 2.251229001558386,
+      "rpc": {
+        "ordered": {
+          "wall_ms": {
+            "pooled_p50": 0.9736039974086452,
+            "pooled_p95": 2.4079159993561916
+          },
+          "qdrant_response_time_ms": {
+            "pooled_p50": 0.189667,
+            "pooled_p95": 0.332292
+          }
+        }
+      }
+    },
+    {
+      "concurrency": 8,
+      "kind": "parallel",
+      "group_p50_ms": 4.425739753060043,
+      "group_p95_ms": 41.77970900127548,
+      "rpc": {
+        "count": {
+          "wall_ms": {
+            "pooled_p50": 2.463437500409782,
+            "pooled_p95": 20.6676250018063
+          },
+          "qdrant_response_time_ms": {
+            "pooled_p50": 0.872771,
+            "pooled_p95": 1.703
+          }
+        },
+        "coverage": {
+          "wall_ms": {
+            "pooled_p50": 1.9395835042814724,
+            "pooled_p95": 19.845958006044384
+          },
+          "qdrant_response_time_ms": {
+            "pooled_p50": 0.3203545,
+            "pooled_p95": 1.037208
+          }
+        },
+        "ordered": {
+          "wall_ms": {
+            "pooled_p50": 1.6608544974587858,
+            "pooled_p95": 20.04424999904586
+          },
+          "qdrant_response_time_ms": {
+            "pooled_p50": 0.26297950000000003,
+            "pooled_p95": 1.078958
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,410 @@
+{
+  "profile": "probe",
+  "validation_profile": "precomputed-filter-count-v2",
+  "measured_responses": 36000,
+  "all_correct": true,
+  "measurements": [
+    {
+      "concurrency": 1,
+      "workload": "point_read",
+      "rounds": [
+        {
+          "elasticsearch": {
+            "p50_ms": 0.28891698457300663,
+            "p95_ms": 0.3204168751835823,
+            "throughput_rps": 3334.968396022585
+          },
+          "opensearch": {
+            "p50_ms": 0.2907705493271351,
+            "p95_ms": 0.3470000810921192,
+            "throughput_rps": 3175.58611507245
+          },
+          "cache_probe": {
+            "p50_ms": 0.2820210065692663,
+            "p95_ms": 0.31687505543231964,
+            "throughput_rps": 3472.5261751435396
+          }
+        },
+        {
+          "elasticsearch": {
+            "p50_ms": 0.278666615486145,
+            "p95_ms": 0.3104172646999359,
+            "throughput_rps": 3389.291952817414
+          },
+          "opensearch": {
+            "p50_ms": 0.2842922694981098,
+            "p95_ms": 0.3153746947646141,
+            "throughput_rps": 3395.059754415712
+          },
+          "cache_probe": {
+            "p50_ms": 0.27620838955044746,
+            "p95_ms": 0.3237077035009861,
+            "throughput_rps": 3386.8622478983293
+          }
+        }
+      ]
+    },
+    {
+      "concurrency": 1,
+      "workload": "filtered_search",
+      "rounds": [
+        {
+          "elasticsearch": {
+            "p50_ms": 0.4813754931092262,
+            "p95_ms": 0.5686250515282154,
+            "throughput_rps": 1592.903614140754
+          },
+          "opensearch": {
+            "p50_ms": 0.4678959958255291,
+            "p95_ms": 0.5635842680931091,
+            "throughput_rps": 1606.7198285861173
+          },
+          "cache_probe": {
+            "p50_ms": 0.35718735307455063,
+            "p95_ms": 0.46291667968034744,
+            "throughput_rps": 1982.505223364056
+          }
+        },
+        {
+          "elasticsearch": {
+            "p50_ms": 0.46968692913651466,
+            "p95_ms": 0.5792919546365738,
+            "throughput_rps": 1573.6714286803015
+          },
+          "opensearch": {
+            "p50_ms": 0.47200010158121586,
+            "p95_ms": 0.5564582534134388,
+            "throughput_rps": 1618.8837506873806
+          },
+          "cache_probe": {
+            "p50_ms": 0.35941717214882374,
+            "p95_ms": 0.4776250571012497,
+            "throughput_rps": 1940.294710196821
+          }
+        }
+      ]
+    },
+    {
+      "concurrency": 1,
+      "workload": "sorted_pagination",
+      "rounds": [
+        {
+          "elasticsearch": {
+            "p50_ms": 0.5544791929423809,
+            "p95_ms": 0.6528329104185104,
+            "throughput_rps": 1459.6915301992817
+          },
+          "opensearch": {
+            "p50_ms": 0.46943756751716137,
+            "p95_ms": 0.5628331564366817,
+            "throughput_rps": 1683.6339502608407
+          },
+          "cache_probe": {
+            "p50_ms": 0.35331258550286293,
+            "p95_ms": 0.4755421541631222,
+            "throughput_rps": 2077.248550896508
+          }
+        },
+        {
+          "elasticsearch": {
+            "p50_ms": 0.5194374825805426,
+            "p95_ms": 0.6241658702492714,
+            "throughput_rps": 1601.1731219344222
+          },
+          "opensearch": {
+            "p50_ms": 0.4197296220809221,
+            "p95_ms": 0.504625029861927,
+            "throughput_rps": 2038.5732105888694
+          },
+          "cache_probe": {
+            "p50_ms": 0.3610420972108841,
+            "p95_ms": 0.47729117795825005,
+            "throughput_rps": 2077.224268662407
+          }
+        }
+      ]
+    },
+    {
+      "concurrency": 1,
+      "workload": "terms_aggregation",
+      "rounds": [
+        {
+          "elasticsearch": {
+            "p50_ms": 0.3599999472498894,
+            "p95_ms": 0.44966721907258034,
+            "throughput_rps": 2305.615039385358
+          },
+          "opensearch": {
+            "p50_ms": 0.34656189382076263,
+            "p95_ms": 0.4220828413963318,
+            "throughput_rps": 2430.955813088152
+          },
+          "cache_probe": {
+            "p50_ms": 0.30739582143723965,
+            "p95_ms": 0.36674970760941505,
+            "throughput_rps": 2698.9460576238735
+          }
+        },
+        {
+          "elasticsearch": {
+            "p50_ms": 0.3617086913436651,
+            "p95_ms": 0.4582498222589493,
+            "throughput_rps": 2284.5154406920224
+          },
+          "opensearch": {
+            "p50_ms": 0.35356241278350353,
+            "p95_ms": 0.4352498799562454,
+            "throughput_rps": 2332.972556885474
+          },
+          "cache_probe": {
+            "p50_ms": 0.31489552929997444,
+            "p95_ms": 0.39966730400919914,
+            "throughput_rps": 2542.39576127604
+          }
+        }
+      ]
+    },
+    {
+      "concurrency": 1,
+      "workload": "filter_aggregation",
+      "rounds": [
+        {
+          "elasticsearch": {
+            "p50_ms": 0.34702103585004807,
+            "p95_ms": 0.42454199865460396,
+            "throughput_rps": 2597.120119552366
+          },
+          "opensearch": {
+            "p50_ms": 0.33568753860890865,
+            "p95_ms": 0.4188329912722111,
+            "throughput_rps": 2614.145586059475
+          },
+          "cache_probe": {
+            "p50_ms": 0.29950053431093693,
+            "p95_ms": 0.36079203709959984,
+            "throughput_rps": 3024.039236232696
+          }
+        },
+        {
+          "elasticsearch": {
+            "p50_ms": 0.3468331415206194,
+            "p95_ms": 0.42291730642318726,
+            "throughput_rps": 2608.915438381039
+          },
+          "opensearch": {
+            "p50_ms": 0.33991714008152485,
+            "p95_ms": 0.42345887050032616,
+            "throughput_rps": 2644.730073498994
+          },
+          "cache_probe": {
+            "p50_ms": 0.2978960983455181,
+            "p95_ms": 0.33512478694319725,
+            "throughput_rps": 3060.3052352445334
+          }
+        }
+      ]
+    },
+    {
+      "concurrency": 8,
+      "workload": "point_read",
+      "rounds": [
+        {
+          "elasticsearch": {
+            "p50_ms": 0.5811045411974192,
+            "p95_ms": 0.8753747679293156,
+            "throughput_rps": 12613.12412753666
+          },
+          "opensearch": {
+            "p50_ms": 0.5843960680067539,
+            "p95_ms": 0.8711251430213451,
+            "throughput_rps": 12485.725744512489
+          },
+          "cache_probe": {
+            "p50_ms": 0.550250057131052,
+            "p95_ms": 0.7915408350527287,
+            "throughput_rps": 13387.403987114081
+          }
+        },
+        {
+          "elasticsearch": {
+            "p50_ms": 0.6010206416249275,
+            "p95_ms": 1.0157916694879532,
+            "throughput_rps": 11732.92943702408
+          },
+          "opensearch": {
+            "p50_ms": 0.6020211149007082,
+            "p95_ms": 0.9127091616392136,
+            "throughput_rps": 11991.276805977514
+          },
+          "cache_probe": {
+            "p50_ms": 0.5493117496371269,
+            "p95_ms": 0.7997923530638218,
+            "throughput_rps": 13432.134852530298
+          }
+        }
+      ]
+    },
+    {
+      "concurrency": 8,
+      "workload": "filtered_search",
+      "rounds": [
+        {
+          "elasticsearch": {
+            "p50_ms": 1.1159584391862154,
+            "p95_ms": 2.053665928542614,
+            "throughput_rps": 5961.310972079727
+          },
+          "opensearch": {
+            "p50_ms": 1.0753953829407692,
+            "p95_ms": 1.6450411640107632,
+            "throughput_rps": 6721.936002424986
+          },
+          "cache_probe": {
+            "p50_ms": 0.9262498933821917,
+            "p95_ms": 1.5413332730531693,
+            "throughput_rps": 7734.911586676026
+          }
+        },
+        {
+          "elasticsearch": {
+            "p50_ms": 1.074979081749916,
+            "p95_ms": 1.6076667234301567,
+            "throughput_rps": 6631.8128089490965
+          },
+          "opensearch": {
+            "p50_ms": 0.9686038829386234,
+            "p95_ms": 1.5105418860912323,
+            "throughput_rps": 7116.340099557942
+          },
+          "cache_probe": {
+            "p50_ms": 0.9052085224539042,
+            "p95_ms": 1.5034577809274197,
+            "throughput_rps": 7707.326962014164
+          }
+        }
+      ]
+    },
+    {
+      "concurrency": 8,
+      "workload": "sorted_pagination",
+      "rounds": [
+        {
+          "elasticsearch": {
+            "p50_ms": 1.1424585245549679,
+            "p95_ms": 1.8385411240160465,
+            "throughput_rps": 6115.420979388354
+          },
+          "opensearch": {
+            "p50_ms": 1.0307710617780685,
+            "p95_ms": 1.617832574993372,
+            "throughput_rps": 7007.544900757562
+          },
+          "cache_probe": {
+            "p50_ms": 0.9007086046040058,
+            "p95_ms": 1.462540589272976,
+            "throughput_rps": 7742.809869249897
+          }
+        },
+        {
+          "elasticsearch": {
+            "p50_ms": 1.1725204531103373,
+            "p95_ms": 1.8264995887875557,
+            "throughput_rps": 6029.302487215009
+          },
+          "opensearch": {
+            "p50_ms": 1.0477704927325249,
+            "p95_ms": 1.5733749605715275,
+            "throughput_rps": 6968.094896343486
+          },
+          "cache_probe": {
+            "p50_ms": 0.8642920292913914,
+            "p95_ms": 1.3930839486420155,
+            "throughput_rps": 8185.148079603849
+          }
+        }
+      ]
+    },
+    {
+      "concurrency": 8,
+      "workload": "terms_aggregation",
+      "rounds": [
+        {
+          "elasticsearch": {
+            "p50_ms": 0.8878959342837334,
+            "p95_ms": 1.4112908393144608,
+            "throughput_rps": 8114.728925180005
+          },
+          "opensearch": {
+            "p50_ms": 0.8397500496357679,
+            "p95_ms": 1.3386248610913754,
+            "throughput_rps": 8555.555120415225
+          },
+          "cache_probe": {
+            "p50_ms": 0.7826248183846474,
+            "p95_ms": 1.1990000493824482,
+            "throughput_rps": 9485.641105794326
+          }
+        },
+        {
+          "elasticsearch": {
+            "p50_ms": 0.8151666261255741,
+            "p95_ms": 1.2862500734627247,
+            "throughput_rps": 8690.047941710558
+          },
+          "opensearch": {
+            "p50_ms": 0.8220626041293144,
+            "p95_ms": 1.2867501936852932,
+            "throughput_rps": 8838.68870232677
+          },
+          "cache_probe": {
+            "p50_ms": 0.738437520340085,
+            "p95_ms": 1.1421246454119682,
+            "throughput_rps": 9712.155953583366
+          }
+        }
+      ]
+    },
+    {
+      "concurrency": 8,
+      "workload": "filter_aggregation",
+      "rounds": [
+        {
+          "elasticsearch": {
+            "p50_ms": 0.79512526281178,
+            "p95_ms": 1.133000012487173,
+            "throughput_rps": 9298.216971594218
+          },
+          "opensearch": {
+            "p50_ms": 0.810875091701746,
+            "p95_ms": 1.3366248458623886,
+            "throughput_rps": 8907.941881614313
+          },
+          "cache_probe": {
+            "p50_ms": 0.6732498295605183,
+            "p95_ms": 1.0389997623860836,
+            "throughput_rps": 10853.442078491174
+          }
+        },
+        {
+          "elasticsearch": {
+            "p50_ms": 0.7804790511727333,
+            "p95_ms": 1.2540831230580807,
+            "throughput_rps": 9255.099719448748
+          },
+          "opensearch": {
+            "p50_ms": 0.785792013630271,
+            "p95_ms": 1.216541975736618,
+            "throughput_rps": 9384.6412130389
+          },
+          "cache_probe": {
+            "p50_ms": 0.6995419971644878,
+            "p95_ms": 1.1482504196465015,
+            "throughput_rps": 10003.793075915648
+          }
+        }
+      ]
+    }
+  ],
+  "diagnostic": "synthetic-100-percent-hit-upper-bound",
+  "not_gateway_performance": true
+}

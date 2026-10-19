@@ -1,0 +1,232 @@
+{
+  "captured_at": "2026-10-15T12:10:14.262420+00:00",
+  "old_source_commit": "187944e4cc274a0ae61a6c79de885179319e9d4a",
+  "new_code_commit": "49da1cb22279d22761e18cb38480c36d0bea943b",
+  "new_validated_source_commit": "c4208725b240289a3c0890e576904b80bdf7a0e7",
+  "old_image_id": "sha256:68784402708c0e61b027834ddc17734cec38ce87f825bb763261910aa74c49d4",
+  "new_image_id": "sha256:220649fc71be02210342fef90f9b8d2426cfb8013ee8285ce44cc8c41aa61fc4",
+  "order": {
+    "off_mixed": [
+      "old1",
+      "new1",
+      "new2",
+      "old2"
+    ],
+    "on_mixed": [
+      "old1",
+      "new1",
+      "new2",
+      "old2"
+    ],
+    "on_warm": [
+      "old1",
+      "new1",
+      "new2",
+      "old2"
+    ]
+  },
+  "cumulative_container_lifetime_cpu_counters_not_per_round": {
+    "elasticsearch": {
+      "usage_usec": "102676192",
+      "user_usec": "90641428",
+      "system_usec": "12034763",
+      "nice_usec": "0",
+      "nr_periods": "7169",
+      "nr_throttled": "79",
+      "throttled_usec": "2413121",
+      "nr_bursts": "0",
+      "burst_usec": "0"
+    },
+    "opensearch": {
+      "usage_usec": "110252585",
+      "user_usec": "99405805",
+      "system_usec": "10846780",
+      "nice_usec": "0",
+      "nr_periods": "7861",
+      "nr_throttled": "71",
+      "throttled_usec": "3005898",
+      "nr_bursts": "0",
+      "burst_usec": "0"
+    },
+    "gateway": {
+      "usage_usec": "889120",
+      "user_usec": "584079",
+      "system_usec": "305041",
+      "nice_usec": "0",
+      "nr_periods": "97",
+      "nr_throttled": "0",
+      "throttled_usec": "0",
+      "nr_bursts": "0",
+      "burst_usec": "0"
+    },
+    "qdrant": {
+      "usage_usec": "58577059",
+      "user_usec": "52560592",
+      "system_usec": "6016466",
+      "nice_usec": "0",
+      "nr_periods": "1965",
+      "nr_throttled": "180",
+      "throttled_usec": "37360932",
+      "nr_bursts": "0",
+      "burst_usec": "0"
+    },
+    "cache-valkey": {
+      "usage_usec": "27183006",
+      "user_usec": "14417862",
+      "system_usec": "12765144",
+      "nice_usec": "0",
+      "nr_periods": "6096",
+      "nr_throttled": "94",
+      "throttled_usec": "4972113",
+      "nr_bursts": "0",
+      "burst_usec": "0"
+    }
+  },
+  "valkey_post_run": {
+    "used_memory": "25964000",
+    "used_memory_peak": "26039040",
+    "used_memory_rss": "42463232",
+    "maxmemory": "67108864",
+    "evicted_keys": "0",
+    "expired_keys": "1722",
+    "aof_current_size": "56707089",
+    "aof_base_size": "0",
+    "aof_rewrites": "0",
+    "aof_last_rewrite_time_sec": "-1",
+    "aof_rewrite_in_progress": "0",
+    "aof_rewrite_scheduled": "0",
+    "aof_delayed_fsync": "0",
+    "aof_last_write_status": "ok",
+    "aof_last_bgrewrite_status": "ok",
+    "total_error_replies": "10"
+  },
+  "limitations": [
+    "Native and old-gateway absolute latency drifted versus prior experiment; compare only within this paired experiment.",
+    "No simultaneous profiler sampling; cumulative throttling counters cannot attribute drift to individual rounds.",
+    "Warm regression remains unresolved: gateway eight-client point-read p50 and p95 increased. Native controls also drifted; no causal attribution is established.",
+    "Eight-client cold p95 worsened in both cache-serving modes despite improved medians.",
+    "This is a separate experiment from the earlier shared-cache baseline; neither raw trials nor medians are pooled across experiments."
+  ],
+  "post_run_snapshot_not_peak": [
+    {
+      "service": "elasticsearch",
+      "CPUPerc": "0.67%",
+      "MemUsage": "1.006GiB / 4GiB",
+      "MemPerc": "25.16%",
+      "PIDs": "105"
+    },
+    {
+      "service": "opensearch",
+      "CPUPerc": "1.65%",
+      "MemUsage": "952.8MiB / 4GiB",
+      "MemPerc": "23.26%",
+      "PIDs": "60"
+    },
+    {
+      "service": "gateway",
+      "CPUPerc": "0.00%",
+      "MemUsage": "5.191MiB / 512MiB",
+      "MemPerc": "1.01%",
+      "PIDs": "2"
+    },
+    {
+      "service": "qdrant",
+      "CPUPerc": "0.02%",
+      "MemUsage": "265MiB / 3.25GiB",
+      "MemPerc": "7.96%",
+      "PIDs": "17"
+    },
+    {
+      "service": "cache-valkey",
+      "CPUPerc": "1.64%",
+      "MemUsage": "46.57MiB / 256MiB",
+      "MemPerc": "18.19%",
+      "PIDs": "6"
+    }
+  ],
+  "measured_responses": {
+    "warm_reads": 72000,
+    "cold_reads": 28800,
+    "write_read_cycles": 14400,
+    "write_read_http_responses": 28800,
+    "total_http_responses": 129600
+  },
+  "raw_files": [
+    "transport-off-new-1-cold.json",
+    "transport-off-new-1-invalidation.json",
+    "transport-off-new-2-cold.json",
+    "transport-off-new-2-invalidation.json",
+    "transport-off-old-1-cold.json",
+    "transport-off-old-1-invalidation.json",
+    "transport-off-old-2-cold.json",
+    "transport-off-old-2-invalidation.json",
+    "transport-on-new-1-cold.json",
+    "transport-on-new-1-invalidation.json",
+    "transport-on-new-1-warm.json",
+    "transport-on-new-2-cold.json",
+    "transport-on-new-2-invalidation.json",
+    "transport-on-new-2-warm.json",
+    "transport-on-old-1-cold.json",
+    "transport-on-old-1-invalidation.json",
+    "transport-on-old-1-warm.json",
+    "transport-on-old-2-cold.json",
+    "transport-on-old-2-invalidation.json",
+    "transport-on-old-2-warm.json"
+  ],
+  "summary": "summary.json",
+  "reproduction": {
+    "driver": "transport_round.py",
+    "compose_override": "transport-image.yml",
+    "placement": "Place both in benchmark/shared-cache alongside the existing harness. Build the two pinned revisions before timing; run mixed off and on plus warm on in old1,new1,new2,old2 order. Reuse the prepared corpus and deployment identity."
+  },
+  "architecture": "linux/arm64",
+  "validation_profile": "precomputed-filter-count-range-v3",
+  "sha256": {
+    "transport-on-old-2-invalidation.json": "6332b50ab89e89141d4d8a8d9f0b7102752d3c943d0e598be852931a2bdd27ca",
+    "transport-on-new-1-invalidation.json": "e744cd2c120a4a649225b9f6daedcbe9dd1408822d3c5c8cb530f2d6cddeb7c5",
+    "summary.json": "78a9c3e61c9d913aa7bd5ae62346e4258969f8c1c6a7219ea558d80e8103cf6c",
+    "transport_round.py": "54280af9a6949e4cbaf07d3aedeba2480ffac692b311e9f55c50e84e09d1f02b",
+    "transport-off-old-1-invalidation.json": "ffacfd3bab19fb8f811ba53b121ba8e07f210f4341c495f4ca8e33db98d8a86a",
+    "transport-off-new-2-invalidation.json": "d3bfab9d1643be17ac5c4cc5aed7421103520042c35062199ef510a2721bfe8c",
+    "transport-on-new-1-cold.json": "d4017bca07b31420fbe6803538a006f0f118af7d79b4b6422866b0826d0e3b90",
+    "transport-off-new-2-cold.json": "3a29f40ce04ce4b173e1bc4c9df12fed5ce2c3ea4622c08e45ee1ae9ffd7db6a",
+    "transport-on-new-2-warm.json": "e49dae32b0b5f3a5c449de01aa309528a67323eafc28ca2d68f2aa3a81eedd74",
+    "transport-on-old-2-warm.json": "1853679ad5419722d6bf24a8530f4c0b705642586aee33ad2225516fbf3ac662",
+    "transport-off-old-2-cold.json": "4014a6028db88e7ae6a2ad3bf163d4e320848e3361ede5e9c042e0eb89bb8642",
+    "transport-on-old-1-cold.json": "64c3c758f6df0c181ef256a2dca9e36ce66f4297c99f11c4ac016f80fcc1496c",
+    "transport-on-new-2-invalidation.json": "b6ecfc94338475d6763bc19188e1c17de9f2c27c44b440020281bff5a55a305e",
+    "transport-on-old-1-invalidation.json": "c117d6ab100e83bab9ee20693f659a6b1032f1ca5cc2834d866168be15682a03",
+    "transport-off-new-1-invalidation.json": "7ee8617cbd0c4f0944d521e1f1eee64e97911c7e39a7d6a8b67631e816a20c77",
+    "transport-off-old-2-invalidation.json": "f066647da14ce32b3e2a010a02f189abd4f0c809cac182b83fdfa10865052bb1",
+    "transport-on-old-1-warm.json": "f521ca709559ce389804cf6d3baf4d3c9d47e174ea173712b22bbe6f4c7d9926",
+    "transport-on-old-2-cold.json": "5a2d43e039b65964d4d2c8155fb6af34aa898b28c7486c8add31a49ab5d38374",
+    "transport-off-old-1-cold.json": "4d4f3869db2d6425d98a0387392f8613e6760c8b6340e27f1b3a827a3436bea4",
+    "transport-image.yml": "5c78939462be56a716a33444f77230f49d7bdd63238849df10159d62f45f44a5",
+    "transport-off-new-1-cold.json": "565d4a25d9ebc61035d3befb5540ddebd905702583ec0417ab050ce008b49d05",
+    "transport-on-new-2-cold.json": "6950828fc61acf50fb6c626ee537ae8cfbd5fe11eaa1a87d8297ec513a848a10",
+    "transport-on-new-1-warm.json": "ac17c7e50d5e1a58047471ff9d6884c4d6c0ff7861e220022f898de31f953a2b"
+  },
+  "original_raw_sha256": {
+    "transport-off-new-1-cold.json": "20251d0a258b4f7bfbc1c824f68d2743627946618fe7a97b658670838b221c02",
+    "transport-off-new-1-invalidation.json": "6a789363f34cf5c3eb0d182e0cc56f470c4da9a774ae6961b180b85ef7d35a13",
+    "transport-off-new-2-cold.json": "b4b20773a0d7fc1052fbee626a7f6c33ecd063f06de0bdba3bf03b55baed0a14",
+    "transport-off-new-2-invalidation.json": "9ce31530bc5642e5815ed8028b4aca36fc0d1baca31da938fa23cae2bbedaedf",
+    "transport-off-old-1-cold.json": "202da4a3439de492dcc88a2f091aa8a40b3c9fd86f215caadf7620787a5774f0",
+    "transport-off-old-1-invalidation.json": "01357350ffa20f9b0a3cbd26523820e42b257d41427a84ac33c9251b068aa6c1",
+    "transport-off-old-2-cold.json": "594810f6cda04fe978cfff3b8b6c8e80468a3eaf2ad573ed819c256fdebe54c9",
+    "transport-off-old-2-invalidation.json": "ae929920981b7d25b67784ae02d31a3c7c5c150afbe00fb08b55588d963c7cf8",
+    "transport-on-new-1-cold.json": "39b2720876b17f284a79458694c9478084dda2a19bd769dcad6ddf1be66a065a",
+    "transport-on-new-1-invalidation.json": "5b5d7900f18fb984fbf585f0911585b66a4165c84c4868ed840fd4b33d22f38c",
+    "transport-on-new-1-warm.json": "f07deeb8078410fe09da43a8a64aaaee3210638aac79640bf4e1c1509b1810cf",
+    "transport-on-new-2-cold.json": "8f46c488d923029efcff12d0ccf109cdbc2448993c8034f3f0b1a96f6c3ada6b",
+    "transport-on-new-2-invalidation.json": "52462bf274f932eb8d69ee55767c85020930c9911ad5c0176b4801e70f3875b5",
+    "transport-on-new-2-warm.json": "0cafeb2d3da6bbde4793a70bdfe35ba34c6a137a6d5a557b7599bc492393f6ee",
+    "transport-on-old-1-cold.json": "27251ae6a3d750097817c3aff7064d9dc9cb0f9c48383701b58b0288c6db2494",
+    "transport-on-old-1-invalidation.json": "e5ca3d303531fa87ee01295187e2ceba219414a9582720ed507480d7c9368f57",
+    "transport-on-old-1-warm.json": "84ff3ba3e3996a058935b3479b1a32d8539229c030bbf6587ae6ac565d37ee0e",
+    "transport-on-old-2-cold.json": "27a9d5618c2e929e3a5316e0a36a68f331f047ad880df1a3cc75453205799cdd",
+    "transport-on-old-2-invalidation.json": "37a2f6ed8a751a7e17985562b26186e6252e911541451662884b64cc06b2af13",
+    "transport-on-old-2-warm.json": "1fb774f34e62e27a682cfd3f5a764dfc464edb215cfdced89ae7a8a2667ed421"
+  },
+  "metadata_annotation": "Published raw files add only config.transport_experiment=catalog-transport-paired-v1 and config.gateway_version=old/new, inferred from recorded round identity and checked image IDs, to prevent pooling different builds. Timing samples and results are unchanged. original_raw_sha256 preserves hashes of original captured files."
+}

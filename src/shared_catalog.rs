@@ -2,7 +2,7 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 
-const MAX_BYTES: usize = 8 * 1024 * 1024;
+pub(crate) const MAX_BYTES: usize = 8 * 1024 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(5);
 const SCHEMA: &str = "CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT NOT NULL, vectors TEXT NOT NULL); CREATE TABLE aliases(alias TEXT PRIMARY KEY, index_name TEXT NOT NULL);";
 
@@ -10,6 +10,8 @@ const SCHEMA: &str = "CREATE TABLE indices(name TEXT PRIMARY KEY, mapping TEXT N
 pub(crate) struct SharedCatalog {
     client: redis::Client,
     key: String,
+    connection: Arc<Mutex<Option<Arc<redis::aio::MultiplexedConnection>>>>,
+    connect_gate: Arc<AsyncMutex<()>>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -19,12 +21,67 @@ struct Snapshot {
     aliases: Vec<(String, String)>,
 }
 
+/// Immutable metadata for one request, rebuilt from its authoritative snapshot.
+/// This is never retained across requests or used by metadata mutation handlers.
+pub(crate) struct ReadView {
+    indices: HashMap<String, IndexMetadata>,
+    aliases: HashMap<String, String>,
+}
+
+struct IndexMetadata {
+    mapping: Value,
+    vectors: Vec<String>,
+}
+
+impl ReadView {
+    fn resolve(&self, name: &str) -> Result<(&str, &IndexMetadata), GatewayError> {
+        // Match SQLite COALESCE exactly: concrete indices take precedence, and
+        // an alias resolves only one hop to an existing concrete index.
+        self.indices
+            .get_key_value(name)
+            .or_else(|| {
+                self.aliases
+                    .get(name)
+                    .and_then(|target| self.indices.get_key_value(target))
+            })
+            .map(|(index, metadata)| (index.as_str(), metadata))
+            .ok_or_else(|| GatewayError::NotFound(format!("no such index [{name}]")))
+    }
+
+    pub(crate) fn resolve_index(&self, name: &str) -> Result<(String, String), GatewayError> {
+        let (index, _) = self.resolve(name)?;
+        Ok((index.to_owned(), collection(index)))
+    }
+
+    pub(crate) fn get_index(
+        &self,
+        name: &str,
+    ) -> Result<(String, String, Value, Vec<String>), GatewayError> {
+        let (index, metadata) = self.resolve(name)?;
+        Ok((
+            index.to_owned(),
+            collection(index),
+            metadata.mapping.clone(),
+            metadata.vectors.clone(),
+        ))
+    }
+}
+
 fn unavailable() -> GatewayError {
     // Never put connection URLs or Redis authentication errors in client responses.
     GatewayError::upstream("shared catalog unavailable or administrative claim requires recovery")
 }
 
 impl SharedCatalog {
+    #[cfg(test)]
+    pub(crate) fn test_handle(client: redis::Client, key: String) -> Self {
+        Self {
+            client,
+            key,
+            connection: Default::default(),
+            connect_gate: Default::default(),
+        }
+    }
     pub(crate) async fn from_env() -> anyhow::Result<Option<Self>> {
         let Ok(url) = env::var("CATALOG_REDIS_URL") else {
             return Ok(None);
@@ -34,21 +91,19 @@ impl SharedCatalog {
         let catalog = Self {
             client,
             key: env::var("CATALOG_REDIS_KEY").unwrap_or_else(|_| "qeg:{catalog}:v1".into()),
+            connection: Default::default(),
+            connect_gate: Default::default(),
         };
         if env::var("CATALOG_INITIALIZE").as_deref() == Ok("true") {
             let empty = serde_json::to_string(&Snapshot::default())?;
-            tokio::time::timeout(TIMEOUT, async {
-                let mut connection = catalog.client.get_multiplexed_async_connection().await?;
-                redis::cmd("SET")
-                    .arg(&catalog.key)
-                    .arg(empty)
-                    .arg("NX")
-                    .query_async::<Option<String>>(&mut connection)
-                    .await
-            })
-            .await
-            .map_err(|_| anyhow::anyhow!("shared catalog initialization timed out"))?
-            .map_err(|_| anyhow::anyhow!("shared catalog initialization failed"))?;
+            catalog
+                .run::<Option<String>>(
+                    redis::Script::new("return redis.call('SET', KEYS[1], ARGV[1], 'NX')")
+                        .key(&catalog.key)
+                        .arg(empty),
+                )
+                .await
+                .map_err(|_| anyhow::anyhow!("shared catalog initialization failed"))?;
         }
         catalog.begin(false).await.map_err(|_| {
             anyhow::anyhow!("shared catalog missing, unavailable, or awaiting recovery")
@@ -56,27 +111,109 @@ impl SharedCatalog {
         Ok(Some(catalog))
     }
 
+    // Share transport only: every operation still reads the authoritative catalog.
+    // Never retry a failed command: an administrative claim may already exist.
+    async fn run<T: redis::FromRedisValue>(
+        &self,
+        invocation: &redis::ScriptInvocation<'_>,
+    ) -> Result<T, GatewayError> {
+        let deadline = tokio::time::Instant::now() + TIMEOUT;
+        let shared = tokio::time::timeout_at(deadline, async {
+            if let Some(connection) = self.connection.lock().map_err(|_| unavailable())?.as_ref() {
+                return Ok(connection.clone());
+            }
+            let _gate = self.connect_gate.lock().await;
+            // Another caller may have established transport while we waited.
+            if let Some(connection) = self.connection.lock().map_err(|_| unavailable())?.as_ref() {
+                return Ok(connection.clone());
+            }
+            let connection = Arc::new(
+                self.client
+                    .get_multiplexed_async_connection()
+                    .await
+                    .map_err(|_| unavailable())?,
+            );
+            *self.connection.lock().map_err(|_| unavailable())? = Some(connection.clone());
+            Ok::<_, GatewayError>(connection)
+        })
+        .await
+        .map_err(|_| unavailable())??;
+        let mut connection = (*shared).clone();
+        match tokio::time::timeout_at(deadline, invocation.invoke_async(&mut connection)).await {
+            Ok(Ok(value)) => Ok(value),
+            _ => {
+                // A delayed failure from an old connection must not discard a
+                // replacement established by another request.
+                let mut slot = self.connection.lock().map_err(|_| unavailable())?;
+                if slot
+                    .as_ref()
+                    .is_some_and(|current| Arc::ptr_eq(current, &shared))
+                {
+                    *slot = None;
+                }
+                Err(unavailable())
+            }
+        }
+    }
+
     pub(crate) async fn begin(
         &self,
         admin: bool,
     ) -> Result<(Connection, Option<String>), GatewayError> {
+        self.begin_tracked(admin).await.map_err(|(error, _)| error)
+    }
+
+    // Error boolean proves this call did not acquire a claim. Transport failure
+    // after an administrative SET is ambiguous and must retain the writer fence.
+    pub(crate) async fn begin_tracked(
+        &self,
+        admin: bool,
+    ) -> Result<(Connection, Option<String>), (GatewayError, bool)> {
+        let (snapshot, claim) = self.begin_snapshot(admin).await?;
+        let db = snapshot.into_db().map_err(|error| (error, !admin))?;
+        Ok((db, claim))
+    }
+
+    pub(crate) async fn read_view(&self) -> Result<ReadView, GatewayError> {
+        let (snapshot, _) = self
+            .begin_snapshot(false)
+            .await
+            .map_err(|(error, _)| error)?;
+        snapshot.into_read_view()
+    }
+
+    async fn begin_snapshot(
+        &self,
+        admin: bool,
+    ) -> Result<(Snapshot, Option<String>), (GatewayError, bool)> {
         let claim = admin.then(|| uuid::Uuid::new_v4().to_string());
-        let payload: String = tokio::time::timeout(TIMEOUT, async {
-            let mut connection = self.client.get_multiplexed_async_connection().await?;
-            redis::Script::new(r#"
-                if redis.call('EXISTS', KEYS[2]) == 1 then return redis.error_reply('catalog busy') end
-                if redis.call('EXISTS', KEYS[1]) == 0 then return redis.error_reply('catalog missing') end
-                if redis.call('STRLEN', KEYS[1]) > tonumber(ARGV[2]) then return redis.error_reply('catalog too large') end
+        let result: Vec<String> = self
+            .run(
+                redis::Script::new(
+                    r#"
+                if redis.call('EXISTS', KEYS[2]) == 1 then return {'rejected',''} end
+                if redis.call('EXISTS', KEYS[1]) == 0 then return {'rejected',''} end
+                if redis.call('STRLEN', KEYS[1]) > tonumber(ARGV[2]) then return {'rejected',''} end
                 local snapshot = redis.call('GET', KEYS[1])
                 if ARGV[1] ~= '' then redis.call('SET', KEYS[2], ARGV[1]) end
-                return snapshot
-            "#).key(&self.key).key(format!("{}:admin", self.key))
-                .arg(claim.as_deref().unwrap_or("")).arg(MAX_BYTES)
-                .invoke_async(&mut connection).await
-        }).await.map_err(|_| unavailable())?.map_err(|_| unavailable())?;
-        let snapshot: Snapshot = serde_json::from_str(&payload).map_err(|_| unavailable())?;
-        let db = snapshot.into_db()?;
-        Ok((db, claim))
+                return {'ok',snapshot}
+            "#,
+                )
+                .key(&self.key)
+                .key(format!("{}:admin", self.key))
+                .arg(claim.as_deref().unwrap_or(""))
+                .arg(MAX_BYTES),
+            )
+            .await
+            .map_err(|error| (error, !admin))?;
+        if result.first().map(String::as_str) == Some("rejected") {
+            return Err((unavailable(), true));
+        }
+        if result.len() != 2 || result[0] != "ok" {
+            return Err((unavailable(), !admin));
+        }
+        let snapshot = parse_snapshot(result[1].as_bytes()).map_err(|error| (error, !admin))?;
+        Ok((snapshot, claim))
     }
 
     pub(crate) async fn commit(&self, state: &AppState, claim: &str) -> Result<(), GatewayError> {
@@ -89,12 +226,10 @@ impl SharedCatalog {
     }
 
     pub(crate) async fn release(&self, claim: &str) -> Result<(), GatewayError> {
-        let result: i32 = tokio::time::timeout(TIMEOUT, async {
-            let mut connection = self.client.get_multiplexed_async_connection().await?;
+        let result: i32 = self.run(
             redis::Script::new("if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end; return redis.call('DEL', KEYS[1])")
                 .key(format!("{}:admin", self.key)).arg(claim)
-                .invoke_async(&mut connection).await
-        }).await.map_err(|_| unavailable())?.map_err(|_| unavailable())?;
+        ).await?;
         if result == 1 {
             Ok(())
         } else {
@@ -106,26 +241,22 @@ impl SharedCatalog {
         if payload.len() > MAX_BYTES {
             return Err(unavailable());
         }
-        let result: i32 = tokio::time::timeout(TIMEOUT, async {
-            let mut connection = self.client.get_multiplexed_async_connection().await?;
-            redis::Script::new(
-                r#"
+        let result: i32 = self
+            .run(
+                redis::Script::new(
+                    r#"
                 if redis.call('GET', KEYS[2]) ~= ARGV[1] then return 0 end
                 redis.call('SET', KEYS[1], ARGV[2])
                 redis.call('DEL', KEYS[2])
                 return 1
             "#,
+                )
+                .key(&self.key)
+                .key(format!("{}:admin", self.key))
+                .arg(claim)
+                .arg(payload),
             )
-            .key(&self.key)
-            .key(format!("{}:admin", self.key))
-            .arg(claim)
-            .arg(payload)
-            .invoke_async(&mut connection)
-            .await
-        })
-        .await
-        .map_err(|_| unavailable())?
-        .map_err(|_| unavailable())?;
+            .await?;
         if result == 1 {
             Ok(())
         } else {
@@ -134,7 +265,45 @@ impl SharedCatalog {
     }
 }
 
+/// Materialize the same validated request-local catalog for either transport path.
+pub(crate) fn snapshot_db(bytes: &[u8]) -> Result<Connection, GatewayError> {
+    parse_snapshot(bytes)?.into_db()
+}
+
+pub(crate) fn snapshot_read_view(bytes: &[u8]) -> Result<ReadView, GatewayError> {
+    parse_snapshot(bytes)?.into_read_view()
+}
+
+fn parse_snapshot(bytes: &[u8]) -> Result<Snapshot, GatewayError> {
+    if bytes.len() > MAX_BYTES {
+        return Err(unavailable());
+    }
+    serde_json::from_slice(bytes).map_err(|_| unavailable())
+}
+
 impl Snapshot {
+    fn into_read_view(self) -> Result<ReadView, GatewayError> {
+        let mut indices = HashMap::new();
+        for (name, mapping, vectors) in self.indices {
+            // Validate all rows, including metadata unrelated to this request.
+            // Keep the existing permissive JSON shape and vector ordering.
+            let metadata = IndexMetadata {
+                mapping: serde_json::from_str(&mapping).map_err(|_| unavailable())?,
+                vectors: serde_json::from_str(&vectors).map_err(|_| unavailable())?,
+            };
+            if indices.insert(name, metadata).is_some() {
+                return Err(unavailable());
+            }
+        }
+        let mut aliases = HashMap::new();
+        for (alias, index) in self.aliases {
+            if aliases.insert(alias, index).is_some() {
+                return Err(unavailable());
+            }
+        }
+        Ok(ReadView { indices, aliases })
+    }
+
     fn into_db(self) -> Result<Connection, GatewayError> {
         let mut db = Connection::open_in_memory().map_err(|_| unavailable())?;
         db.execute_batch(SCHEMA).map_err(|_| unavailable())?;
@@ -231,9 +400,243 @@ pub(crate) fn is_admin(method: &Method, path: &str) -> Result<bool, GatewayError
     )
 }
 
+/// Only handlers whose metadata access goes through get_index/resolve_index.
+/// Body validity and response-cache eligibility do not change this routing.
+pub(crate) fn uses_read_view(method: &Method, path: &str) -> bool {
+    let Ok(parts) = decode_path_segments(path) else {
+        return false;
+    };
+    match parts.as_slice() {
+        [_, endpoint, _] => *method == Method::GET && endpoint == "_doc",
+        [index, endpoint] => {
+            endpoint == "_search"
+                && matches!(*method, Method::GET | Method::POST)
+                // dispatch_inner gives GET /_alias/<name> precedence over search.
+                && !(*method == Method::GET && index == "_alias")
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn metadata_state(db: Connection) -> AppState {
+        AppState {
+            cfg: Config::from_env(),
+            qdrant: Qdrant {
+                client: Client::new(),
+                base: "http://127.0.0.1:1".into(),
+                key: None,
+                async_write_queue: Arc::new(Semaphore::new(1)),
+                admin_mutation_started: None,
+                mutation_completion: None,
+            },
+            db: Arc::new(Mutex::new(db)),
+            shared_catalog: None,
+            read_catalog: None,
+            cache_runtime: None,
+            analytics: Arc::new(Mutex::new(Analytics::default())),
+            index_admin: Arc::new(AsyncMutex::new(())),
+        }
+    }
+
+    #[test]
+    fn read_view_preserves_sqlite_resolution_and_metadata_contracts() {
+        let bytes = serde_json::to_vec(&json!({
+            "indices": [
+                ["books", "{\"large\":18446744073709551615,\"small\":-9223372036854775808}", "[\"z\",\"a\",\"z\"]"],
+                ["collision", "7", "[]"],
+                ["null", "null", "[]"],
+                ["array", "[true,1]", "[]"],
+                ["boolean", "false", "[]"],
+                ["string", "\"value\"", "[]"],
+                ["", "{}", "[]"],
+                ["é", "{}", "[]"]
+            ],
+            "aliases": [
+                ["current", "books"], ["collision", "books"],
+                ["dangling", "missing"], ["chain", "current"],
+                ["cycle-a", "cycle-b"], ["cycle-b", "cycle-a"], ["self", "self"]
+            ]
+        })).unwrap();
+        let sqlite = metadata_state(snapshot_db(&bytes).unwrap());
+        // No SQLite tables exist in this state: metadata must come entirely
+        // from the supplied view, including not-found decisions.
+        let mut typed = metadata_state(Connection::open_in_memory().unwrap());
+        typed.read_catalog = Some(Arc::new(snapshot_read_view(&bytes).unwrap()));
+        for name in [
+            "books",
+            "current",
+            "collision",
+            "null",
+            "array",
+            "boolean",
+            "string",
+            "",
+            "é",
+            "É",
+            "BOOKS",
+            "missing",
+            "dangling",
+            "chain",
+            "cycle-a",
+            "self",
+        ] {
+            assert_eq!(
+                get_index(&typed, name).map_err(|error| error.to_string()),
+                get_index(&sqlite, name).map_err(|error| error.to_string()),
+                "get_index({name})"
+            );
+            assert_eq!(
+                resolve_index(&typed, name).map_err(|error| error.to_string()),
+                resolve_index(&sqlite, name).map_err(|error| error.to_string()),
+                "resolve_index({name})"
+            );
+        }
+        typed.db = Arc::new(Mutex::new(
+            snapshot_db(br#"{"indices":[["stale-local","{}","[]"]],"aliases":[]}"#).unwrap(),
+        ));
+        assert!(matches!(
+            get_index(&typed, "stale-local"),
+            Err(GatewayError::NotFound(_))
+        ));
+        assert!(matches!(
+            resolve_index(&typed, "stale-local"),
+            Err(GatewayError::NotFound(_))
+        ));
+    }
+
+    #[test]
+    fn read_view_validates_the_complete_snapshot_like_sqlite() {
+        let invalid = [
+            "invalid json".to_owned(),
+            r#"{"indices":[],"aliases":[],"unknown":true}"#.into(),
+            r#"{"indices":[],"indices":[],"aliases":[]}"#.into(),
+            r#"{"indices":[]}"#.into(),
+            json!({"indices":[["wanted","{}","[]"],["unrelated","invalid","[]"]],"aliases":[]})
+                .to_string(),
+            json!({"indices":[["wanted","{}","[]"],["unrelated","{}","[1]"]],"aliases":[]})
+                .to_string(),
+            json!({"indices":[["wanted","{}","[]"],["unrelated","{}","{}"]],"aliases":[]})
+                .to_string(),
+            json!({"indices":[["wanted","{}","[]"],["wanted","{}","[]"]],"aliases":[]}).to_string(),
+            json!({"indices":[],"aliases":[["same","x"],["same","x"]]}).to_string(),
+            json!({"indices":[],"aliases":[["same","x"],["same","y"]]}).to_string(),
+            " ".repeat(MAX_BYTES + 1),
+        ];
+        for bytes in invalid {
+            assert!(snapshot_db(bytes.as_bytes()).is_err());
+            assert!(snapshot_read_view(bytes.as_bytes()).is_err());
+        }
+    }
+
+    #[test]
+    fn read_view_allowlist_matches_dispatch_precedence() {
+        for (method, path) in [
+            (Method::GET, "/books/_doc/a"),
+            (Method::GET, "/books/%5Fdoc/a%2Fb"),
+            (Method::GET, "/books/_search"),
+            (Method::POST, "/books/%5Fsearch"),
+            (Method::POST, "/_alias/_search"),
+        ] {
+            assert!(uses_read_view(&method, path), "{method} {path}");
+        }
+        for (method, path) in [
+            (Method::GET, "/_alias/_search"),
+            (Method::GET, "/%5Falias/%5Fsearch"),
+            (Method::GET, "/books/_mapping"),
+            (Method::GET, "/books"),
+            (Method::HEAD, "/books/_doc/a"),
+            (Method::PUT, "/books/_doc/a"),
+            (Method::POST, "/books/_update/a"),
+            (Method::POST, "/books/_bulk"),
+            (Method::POST, "/books/_count"),
+            (Method::POST, "/books/_msearch"),
+            (Method::POST, "/_aliases"),
+            (Method::GET, "/%FF/_search"),
+        ] {
+            assert!(!uses_read_view(&method, path), "{method} {path}");
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires CATALOG_TEST_REDIS_URL"]
+    async fn transport_reuse_keeps_fresh_snapshots_and_never_replays_failed_admin() {
+        let client = redis::Client::open(env::var("CATALOG_TEST_REDIS_URL").unwrap()).unwrap();
+        let key = format!("qeg:{{transport-{}}}:v1", uuid::Uuid::new_v4());
+        let catalog = SharedCatalog::test_handle(client.clone(), key.clone());
+        let mut observer = client.get_multiplexed_async_connection().await.unwrap();
+        redis::cmd("SET")
+            .arg(&key)
+            .arg(r#"{"indices":[],"aliases":[]}"#)
+            .query_async::<()>(&mut observer)
+            .await
+            .unwrap();
+        catalog.begin(false).await.unwrap();
+        let original = catalog.connection.lock().unwrap().as_ref().unwrap().clone();
+        let mut transport = (*original).clone();
+        let id: i64 = redis::cmd("CLIENT")
+            .arg("ID")
+            .query_async(&mut transport)
+            .await
+            .unwrap();
+        redis::cmd("SET")
+            .arg(&key)
+            .arg(r#"{"indices":[],"aliases":[["fresh","target"]]}"#)
+            .query_async::<()>(&mut observer)
+            .await
+            .unwrap();
+        let replica = catalog.clone();
+        let (db, _) = replica.begin(false).await.unwrap();
+        assert_eq!(
+            Snapshot::read(&db).unwrap().aliases,
+            vec![("fresh".into(), "target".into())]
+        );
+        assert!(Arc::ptr_eq(
+            catalog.connection.lock().unwrap().as_ref().unwrap(),
+            &original
+        ));
+        let killed: i64 = redis::cmd("CLIENT")
+            .arg("KILL")
+            .arg("ID")
+            .arg(id)
+            .query_async(&mut observer)
+            .await
+            .unwrap();
+        assert_eq!(killed, 1);
+        let failure = catalog.begin_tracked(true).await;
+        assert!(
+            matches!(failure, Err((_, false))),
+            "failed admin operation must remain ambiguous"
+        );
+        let claim: Option<String> = redis::cmd("GET")
+            .arg(format!("{key}:admin"))
+            .query_async(&mut observer)
+            .await
+            .unwrap();
+        assert!(
+            claim.is_none(),
+            "failed call must not reconnect and replay its claim"
+        );
+        assert!(catalog.connection.lock().unwrap().is_none());
+        let (db, _) = replica.begin(false).await.unwrap();
+        assert_eq!(
+            Snapshot::read(&db).unwrap().aliases,
+            vec![("fresh".into(), "target".into())]
+        );
+        assert!(!Arc::ptr_eq(
+            catalog.connection.lock().unwrap().as_ref().unwrap(),
+            &original
+        ));
+        redis::cmd("DEL")
+            .arg(&key)
+            .query_async::<()>(&mut observer)
+            .await
+            .unwrap();
+    }
+
     /// Run against an isolated local Redis/Valkey instance, never a production catalog.
     #[tokio::test]
     #[ignore = "requires CATALOG_TEST_REDIS_URL"]
@@ -244,10 +647,14 @@ mod tests {
         let first = SharedCatalog {
             client: client.clone(),
             key: key.clone(),
+            connection: Default::default(),
+            connect_gate: Default::default(),
         };
         let second = SharedCatalog {
             client,
             key: key.clone(),
+            connection: Default::default(),
+            connect_gate: Default::default(),
         };
         let mut connection = first
             .client
@@ -324,6 +731,8 @@ mod tests {
         let catalog = SharedCatalog {
             client,
             key: key.clone(),
+            connection: Default::default(),
+            connect_gate: Default::default(),
         };
         let mut connection = catalog
             .client
@@ -354,9 +763,12 @@ mod tests {
                 key: None,
                 async_write_queue: Arc::new(Semaphore::new(1)),
                 admin_mutation_started: None,
+                mutation_completion: None,
             },
             db: Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
             shared_catalog: Some(catalog.clone()),
+            read_catalog: None,
+            cache_runtime: None,
             analytics: Arc::new(Mutex::new(Analytics::default())),
             index_admin: Arc::new(AsyncMutex::new(())),
         };
@@ -399,6 +811,8 @@ mod tests {
         let catalog = SharedCatalog {
             client,
             key: key.clone(),
+            connection: Default::default(),
+            connect_gate: Default::default(),
         };
         let mut connection = catalog
             .client
@@ -437,9 +851,12 @@ mod tests {
                 key: None,
                 async_write_queue: Arc::new(Semaphore::new(1)),
                 admin_mutation_started: None,
+                mutation_completion: None,
             },
             db: Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
             shared_catalog: Some(catalog.clone()),
+            read_catalog: None,
+            cache_runtime: None,
             analytics: Arc::new(Mutex::new(Analytics::default())),
             index_admin: Arc::new(AsyncMutex::new(())),
         };

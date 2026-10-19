@@ -1,0 +1,344 @@
+{
+  "diagnostic": "actual-gateway-phase-timeline-not-performance-comparison",
+  "measured_responses": 600,
+  "limitations": [
+    "Diagnostic instrumentation and headers add overhead; not a production latency benchmark.",
+    "total_us is dispatch scope: excludes HTTP body ingress, final diagnostic-header serialization and network delivery.",
+    "search.backend_join includes local response handling as well as overlapping backend RPCs.",
+    "Per-profile resource snapshots include untimed worker connection primers.",
+    "Count selectivity follows recorded start range; compare it explicitly before interpreting other experiments.",
+    "qdrant.send_headers includes pool/socket wait, backend execution and scheduling; receive_body is remaining response delivery.",
+    "response.json_encode covers es_ok serialization only; response Value construction is inside search.after_join.",
+    "Phase durations are wall intervals, not CPU cost; preserve per-request relationships instead of summing categories.",
+    "Intervals overlap; do not sum backend durations or subtract independently measured percentiles.",
+    "search.after_join includes fallback work on other request shapes; here the ordered fast path is required."
+  ],
+  "profiles": [
+    {
+      "profile": "cold",
+      "concurrency": 1,
+      "requests": 100,
+      "dispatch_p50_ms": 1.162,
+      "client_p50_ms": 1.4997716061770916,
+      "phases": {
+        "cache.lookup": {
+          "p50_ms": 0.059,
+          "p95_ms": 0.078
+        },
+        "cache.miss": {
+          "p50_ms": 0.0,
+          "p95_ms": 0.0
+        },
+        "catalog.parse_read_view": {
+          "p50_ms": 0.002,
+          "p95_ms": 0.003
+        },
+        "search.plan": {
+          "p50_ms": 0.003,
+          "p95_ms": 0.004
+        },
+        "search.backend_join": {
+          "p50_ms": 0.916,
+          "p95_ms": 1.011
+        },
+        "qdrant.count": {
+          "p50_ms": 0.915,
+          "p95_ms": 1.01
+        },
+        "qdrant.request_encode": {
+          "p50_ms": 0.001,
+          "p95_ms": 0.001
+        },
+        "qdrant.send_headers": {
+          "p50_ms": 0.409,
+          "p95_ms": 0.954
+        },
+        "qdrant.scroll": {
+          "p50_ms": 0.399,
+          "p95_ms": 0.483
+        },
+        "qdrant.ordered": {
+          "p50_ms": 0.396,
+          "p95_ms": 0.476
+        },
+        "qdrant.receive_body": {
+          "p50_ms": 0.0,
+          "p95_ms": 0.001
+        },
+        "qdrant.response_parse": {
+          "p50_ms": 0.0,
+          "p95_ms": 0.016
+        },
+        "search.after_join": {
+          "p50_ms": 0.044,
+          "p95_ms": 0.05
+        },
+        "response.json_encode": {
+          "p50_ms": 0.013,
+          "p95_ms": 0.014
+        },
+        "cache.collect_body": {
+          "p50_ms": 0.0,
+          "p95_ms": 0.0
+        },
+        "cache.envelope_parse": {
+          "p50_ms": 0.017,
+          "p95_ms": 0.021
+        },
+        "cache.envelope_encode": {
+          "p50_ms": 0.006,
+          "p95_ms": 0.008
+        },
+        "cache.publish": {
+          "p50_ms": 0.088,
+          "p95_ms": 0.135
+        }
+      }
+    },
+    {
+      "profile": "warm",
+      "concurrency": 1,
+      "requests": 100,
+      "dispatch_p50_ms": 0.0915,
+      "client_p50_ms": 0.3597503527998924,
+      "phases": {
+        "cache.lookup": {
+          "p50_ms": 0.063,
+          "p95_ms": 0.09
+        },
+        "cache.hit_decode": {
+          "p50_ms": 0.022,
+          "p95_ms": 0.031
+        },
+        "cache.hit": {
+          "p50_ms": 0.0,
+          "p95_ms": 0.0
+        }
+      }
+    },
+    {
+      "profile": "bypass",
+      "concurrency": 1,
+      "requests": 100,
+      "dispatch_p50_ms": 1.018,
+      "client_p50_ms": 1.335708424448967,
+      "phases": {
+        "cache.bypass": {
+          "p50_ms": 1.015,
+          "p95_ms": 1.101
+        },
+        "catalog.read_view": {
+          "p50_ms": 0.057,
+          "p95_ms": 0.073
+        },
+        "search.plan": {
+          "p50_ms": 0.003,
+          "p95_ms": 0.004
+        },
+        "search.backend_join": {
+          "p50_ms": 0.905,
+          "p95_ms": 0.985
+        },
+        "qdrant.count": {
+          "p50_ms": 0.904,
+          "p95_ms": 0.984
+        },
+        "qdrant.request_encode": {
+          "p50_ms": 0.001,
+          "p95_ms": 0.001
+        },
+        "qdrant.send_headers": {
+          "p50_ms": 0.4155,
+          "p95_ms": 0.948
+        },
+        "qdrant.scroll": {
+          "p50_ms": 0.3985,
+          "p95_ms": 0.466
+        },
+        "qdrant.ordered": {
+          "p50_ms": 0.3955,
+          "p95_ms": 0.477
+        },
+        "qdrant.receive_body": {
+          "p50_ms": 0.0,
+          "p95_ms": 0.001
+        },
+        "qdrant.response_parse": {
+          "p50_ms": 0.0,
+          "p95_ms": 0.017
+        },
+        "search.after_join": {
+          "p50_ms": 0.044,
+          "p95_ms": 0.049
+        },
+        "response.json_encode": {
+          "p50_ms": 0.013,
+          "p95_ms": 0.014
+        }
+      }
+    },
+    {
+      "profile": "cold",
+      "concurrency": 8,
+      "requests": 100,
+      "dispatch_p50_ms": 2.5125,
+      "client_p50_ms": 3.4420210868120193,
+      "phases": {
+        "cache.lookup": {
+          "p50_ms": 0.2225,
+          "p95_ms": 0.718
+        },
+        "cache.miss": {
+          "p50_ms": 0.0,
+          "p95_ms": 0.0
+        },
+        "catalog.parse_read_view": {
+          "p50_ms": 0.001,
+          "p95_ms": 0.009
+        },
+        "search.plan": {
+          "p50_ms": 0.002,
+          "p95_ms": 0.012
+        },
+        "search.backend_join": {
+          "p50_ms": 1.7075,
+          "p95_ms": 2.705
+        },
+        "qdrant.count": {
+          "p50_ms": 1.694,
+          "p95_ms": 2.579
+        },
+        "qdrant.request_encode": {
+          "p50_ms": 0.001,
+          "p95_ms": 0.003
+        },
+        "qdrant.send_headers": {
+          "p50_ms": 1.4125,
+          "p95_ms": 2.452
+        },
+        "qdrant.scroll": {
+          "p50_ms": 1.3130000000000002,
+          "p95_ms": 2.118
+        },
+        "qdrant.ordered": {
+          "p50_ms": 1.327,
+          "p95_ms": 2.461
+        },
+        "qdrant.receive_body": {
+          "p50_ms": 0.0,
+          "p95_ms": 0.002
+        },
+        "qdrant.response_parse": {
+          "p50_ms": 0.0,
+          "p95_ms": 0.029
+        },
+        "search.after_join": {
+          "p50_ms": 0.0395,
+          "p95_ms": 0.116
+        },
+        "response.json_encode": {
+          "p50_ms": 0.011,
+          "p95_ms": 0.025
+        },
+        "cache.collect_body": {
+          "p50_ms": 0.0,
+          "p95_ms": 0.0
+        },
+        "cache.envelope_parse": {
+          "p50_ms": 0.015,
+          "p95_ms": 0.032
+        },
+        "cache.envelope_encode": {
+          "p50_ms": 0.005,
+          "p95_ms": 0.011
+        },
+        "cache.publish": {
+          "p50_ms": 0.277,
+          "p95_ms": 0.682
+        }
+      }
+    },
+    {
+      "profile": "warm",
+      "concurrency": 8,
+      "requests": 100,
+      "dispatch_p50_ms": 0.2275,
+      "client_p50_ms": 1.000312389805913,
+      "phases": {
+        "cache.lookup": {
+          "p50_ms": 0.1965,
+          "p95_ms": 0.533
+        },
+        "cache.hit_decode": {
+          "p50_ms": 0.025,
+          "p95_ms": 0.068
+        },
+        "cache.hit": {
+          "p50_ms": 0.0,
+          "p95_ms": 0.0
+        }
+      }
+    },
+    {
+      "profile": "bypass",
+      "concurrency": 8,
+      "requests": 100,
+      "dispatch_p50_ms": 2.08,
+      "client_p50_ms": 3.1435415148735046,
+      "phases": {
+        "cache.bypass": {
+          "p50_ms": 2.0775,
+          "p95_ms": 6.937
+        },
+        "catalog.read_view": {
+          "p50_ms": 0.17,
+          "p95_ms": 0.463
+        },
+        "search.plan": {
+          "p50_ms": 0.003,
+          "p95_ms": 0.011
+        },
+        "search.backend_join": {
+          "p50_ms": 1.8,
+          "p95_ms": 6.857
+        },
+        "qdrant.count": {
+          "p50_ms": 1.7675,
+          "p95_ms": 6.714
+        },
+        "qdrant.request_encode": {
+          "p50_ms": 0.001,
+          "p95_ms": 0.003
+        },
+        "qdrant.send_headers": {
+          "p50_ms": 1.5354999999999999,
+          "p95_ms": 6.185
+        },
+        "qdrant.scroll": {
+          "p50_ms": 1.4220000000000002,
+          "p95_ms": 2.306
+        },
+        "qdrant.ordered": {
+          "p50_ms": 1.367,
+          "p95_ms": 2.367
+        },
+        "qdrant.receive_body": {
+          "p50_ms": 0.0,
+          "p95_ms": 0.002
+        },
+        "qdrant.response_parse": {
+          "p50_ms": 0.0,
+          "p95_ms": 0.019
+        },
+        "search.after_join": {
+          "p50_ms": 0.039,
+          "p95_ms": 0.102
+        },
+        "response.json_encode": {
+          "p50_ms": 0.011,
+          "p95_ms": 0.024
+        }
+      }
+    }
+  ]
+}

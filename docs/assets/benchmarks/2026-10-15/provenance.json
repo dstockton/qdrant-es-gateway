@@ -1,0 +1,199 @@
+{
+  "baseline": {
+    "gateway_revision": "b85da9437d184dfafabdc44876fc077548fb178c",
+    "gateway_image": "sha256:c69eb18b2cd726425a59cf3ead4782d7f5f113bb17975ce4ddecde3e30313c72",
+    "harness_revision": "4f9a82c",
+    "jvm_heap": "512MiB",
+    "cpu_limit_per_engine": 2,
+    "memory_limit_per_engine_gib": 4,
+    "gateway_cpu_split": 0.5,
+    "qdrant_cpu_split": 1.5,
+    "trials": 3,
+    "requests_per_trial": 40,
+    "note": "Pre-optimization exploratory baseline; retained for before/after comparison. Services shared one Docker VM and each engine received load separately."
+  },
+  "optimized": {
+    "gateway_revision": "fe45f98162e0a557076964a8d60657a1c33ce5a2",
+    "services": {
+      "elasticsearch": {
+        "image_id": "sha256:84a73ced8390c059e7bc2858595c68dc36e6f8bdb98895dcab0074eda35ac96e",
+        "architecture": "arm64",
+        "os": "linux",
+        "cpu_limit": 2.0,
+        "memory_limit_bytes": 4294967296
+      },
+      "opensearch": {
+        "image_id": "sha256:adfa61f85025d06b4aeb562e7e74fde7e31c437039c93c3862c17e9acebd6c7c",
+        "architecture": "arm64",
+        "os": "linux",
+        "cpu_limit": 2.0,
+        "memory_limit_bytes": 4294967296
+      },
+      "qdrant": {
+        "image_id": "sha256:b7b0444c4c351c970b98e90a6f89c2ee4287c65b44e52b4cb503fa5b2aa927ad",
+        "architecture": "arm64",
+        "os": "linux",
+        "cpu_limit": 1.5,
+        "memory_limit_bytes": 3758096384
+      },
+      "gateway": {
+        "image_id": "sha256:186ee06d8f51ed37f6e393dc941cacddedc97221d0c3df052774c6a4a08bd30a",
+        "architecture": "arm64",
+        "os": "linux",
+        "cpu_limit": 0.5,
+        "memory_limit_bytes": 536870912
+      }
+    },
+    "docker_vm": {
+      "cpu_count": 10,
+      "memory_bytes": 8319504384
+    },
+    "jvm_heap_bytes_each": 536870912,
+    "trials": 3,
+    "requests_per_trial": 40,
+    "documents": 10000,
+    "concurrency": [
+      1,
+      8
+    ],
+    "harness": "root final stricter correctness assertions; same workload request bodies as baseline",
+    "note": "All four images arm64 Linux; no mixed-architecture emulation. Each native engine cap2CPU4GiB, gateway+Qdrant aggregate same caps. Actual host shared, one engine receives load at a time."
+  },
+  "controlled_resource_observations": {
+    "note": "Single Docker stats snapshots during separate5second correctness-checked read probes; not peaks or perrequestCPU",
+    "observations": [
+      {
+        "loaded_engine": "elasticsearch",
+        "workload": "filter_aggregation",
+        "client_concurrency": 8,
+        "probe_seconds": 5,
+        "stats": [
+          {
+            "service": "gateway",
+            "CPUPerc": "0.00%",
+            "MemUsage": "11.13MiB / 512MiB",
+            "MemPerc": "2.17%",
+            "NetIO": "16.4MB / 41MB",
+            "BlockIO": "0B / 123kB",
+            "PIDs": "2"
+          },
+          {
+            "service": "qdrant",
+            "CPUPerc": "0.01%",
+            "MemUsage": "291.6MiB / 3.5GiB",
+            "MemPerc": "8.14%",
+            "NetIO": "66.4MB / 153MB",
+            "BlockIO": "475kB / 71.8MB",
+            "PIDs": "17"
+          },
+          {
+            "service": "elasticsearch",
+            "CPUPerc": "170.44%",
+            "MemUsage": "973.2MiB / 4GiB",
+            "MemPerc": "23.76%",
+            "NetIO": "20.3MB / 24.1MB",
+            "BlockIO": "102kB / 24.9MB",
+            "PIDs": "89"
+          },
+          {
+            "service": "opensearch",
+            "CPUPerc": "0.32%",
+            "MemUsage": "907.1MiB / 4GiB",
+            "MemPerc": "22.15%",
+            "NetIO": "19.1MB / 22.8MB",
+            "BlockIO": "57.3kB / 33MB",
+            "PIDs": "62"
+          }
+        ]
+      },
+      {
+        "loaded_engine": "opensearch",
+        "workload": "filter_aggregation",
+        "client_concurrency": 8,
+        "probe_seconds": 5,
+        "stats": [
+          {
+            "service": "gateway",
+            "CPUPerc": "0.00%",
+            "MemUsage": "11.13MiB / 512MiB",
+            "MemPerc": "2.17%",
+            "NetIO": "16.4MB / 41MB",
+            "BlockIO": "0B / 123kB",
+            "PIDs": "2"
+          },
+          {
+            "service": "qdrant",
+            "CPUPerc": "0.07%",
+            "MemUsage": "291.3MiB / 3.5GiB",
+            "MemPerc": "8.13%",
+            "NetIO": "66.4MB / 153MB",
+            "BlockIO": "475kB / 71.8MB",
+            "PIDs": "17"
+          },
+          {
+            "service": "elasticsearch",
+            "CPUPerc": "0.29%",
+            "MemUsage": "969.2MiB / 4GiB",
+            "MemPerc": "23.66%",
+            "NetIO": "23.3MB / 27.9MB",
+            "BlockIO": "492kB / 24.9MB",
+            "PIDs": "89"
+          },
+          {
+            "service": "opensearch",
+            "CPUPerc": "169.16%",
+            "MemUsage": "911.5MiB / 4GiB",
+            "MemPerc": "22.25%",
+            "NetIO": "20.7MB / 24.9MB",
+            "BlockIO": "57.3kB / 33MB",
+            "PIDs": "62"
+          }
+        ]
+      },
+      {
+        "loaded_engine": "gateway",
+        "workload": "filter_aggregation",
+        "client_concurrency": 8,
+        "probe_seconds": 5,
+        "stats": [
+          {
+            "service": "gateway",
+            "CPUPerc": "20.33%",
+            "MemUsage": "12.49MiB / 512MiB",
+            "MemPerc": "2.44%",
+            "NetIO": "20MB / 44.6MB",
+            "BlockIO": "0B / 123kB",
+            "PIDs": "14"
+          },
+          {
+            "service": "qdrant",
+            "CPUPerc": "156.12%",
+            "MemUsage": "314.1MiB / 3.5GiB",
+            "MemPerc": "8.76%",
+            "NetIO": "69.1MB / 156MB",
+            "BlockIO": "475kB / 71.8MB",
+            "PIDs": "25"
+          },
+          {
+            "service": "elasticsearch",
+            "CPUPerc": "0.45%",
+            "MemUsage": "968.7MiB / 4GiB",
+            "MemPerc": "23.65%",
+            "NetIO": "23.3MB / 27.9MB",
+            "BlockIO": "492kB / 25MB",
+            "PIDs": "89"
+          },
+          {
+            "service": "opensearch",
+            "CPUPerc": "0.46%",
+            "MemUsage": "912.6MiB / 4GiB",
+            "MemPerc": "22.28%",
+            "NetIO": "23.2MB / 28.4MB",
+            "BlockIO": "57.3kB / 33.1MB",
+            "PIDs": "62"
+          }
+        ]
+      }
+    ]
+  }
+}

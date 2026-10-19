@@ -1,0 +1,36 @@
+# Layer over ../three-engine/compose.yml with a separate qeg-shared-cache project.
+services:
+  elasticsearch:
+    ports: !override ['127.0.0.1:19300:9200']
+  opensearch:
+    ports: !override ['127.0.0.1:19301:9200']
+  qdrant:
+    cpus: 1.25
+    mem_limit: 3328m
+  gateway:
+    image: qdrant-es-gateway:cache-runtime
+    ports: !override ['127.0.0.1:19302:9200']
+    environment:
+      CATALOG_REDIS_URL: redis://cache-valkey:6379
+      CATALOG_REDIS_KEY: 'qeg:{shared-cache-benchmark}:v1'
+      CATALOG_INITIALIZE: 'false'
+      READ_CACHE_DEPLOYMENT: '${CACHE_BENCH_DEPLOYMENT:?Run prepare.py first and load its deployment identity}'
+      READ_CACHE_SERVE: '${CACHE_BENCH_SERVE:-true}'
+      READ_CACHE_TTL_SECONDS: '300'
+      READ_CACHE_MAX_BYTES: '1048576'
+    depends_on:
+      cache-valkey:
+        condition: service_healthy
+  cache-valkey:
+    image: valkey/valkey:8-alpine
+    cpus: 0.25
+    mem_limit: 256m
+    command: [valkey-server, --save, '', --appendonly, 'yes', --appendfsync, always, --no-appendfsync-on-rewrite, 'no', --maxmemory, 64mb, --maxmemory-policy, noeviction]
+    volumes: [cache_valkey_data:/data]
+    healthcheck:
+      test: [CMD, valkey-cli, ping]
+      interval: 1s
+      timeout: 1s
+      retries: 30
+volumes:
+  cache_valkey_data:

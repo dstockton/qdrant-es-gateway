@@ -1,0 +1,38 @@
+{
+  "purpose": "Paired retained-corpus read comparison of indexed sorting with disabled hit totals and unchanged exact-total regression profile",
+  "baseline_revision": "cb19da5",
+  "candidate_revision": "b537bf9",
+  "baseline_image": "qdrant-es-gateway:read-path-only",
+  "candidate_image": "qdrant-es-gateway:disabled-total-sort",
+  "profiles": {
+    "disabled": {
+      "track_total_hits": false,
+      "rounds_in_execution_order": [
+        "disabled-old-1.json",
+        "disabled-new-1.json",
+        "disabled-new-2.json",
+        "disabled-old-2.json"
+      ],
+      "summary": "disabled-summary.json",
+      "measured_responses": 72000
+    },
+    "exact": {
+      "track_total_hits": true,
+      "rounds_in_execution_order": [
+        "exact-old-1.json",
+        "exact-new-1.json",
+        "exact-new-2.json",
+        "exact-old-2.json"
+      ],
+      "summary": "exact-summary.json",
+      "measured_responses": 72000
+    }
+  },
+  "method": "Each profile independently uses old,new,new,old order; all three engines interleaved in each round. 10000 retained documents, 200 requests, 3 trials, 40 warmups, concurrency 1 and 8. No builds or ingestion during timing. Every response strictly checked. All trials retained.",
+  "notes": [
+    "Each round records exact image IDs and resource caps. Candidate image was built from the production source subsequently committed as b537bf9.",
+    "Profiles change track_total_hits identically for every engine; comparisons across profiles are not endpoint-only comparisons.",
+    "Native engines remain faster in all ten candidate workload/concurrency cells. No memory or ingestion claim is made from these read-only rounds.",
+    "Benchmark corpus was populated before the wait-query-parameter correction. These timings occur after all documents are visible and do not measure write acknowledgment."
+  ]
+}

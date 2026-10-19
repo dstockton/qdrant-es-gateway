@@ -1,0 +1,4 @@
+# Change only the gateway image; retain aggregate resource caps and all data.
+services:
+  gateway:
+    image: '${SNAPSHOT_IMAGE:?Select the verified prebuilt image}'

@@ -1,0 +1,4 @@
+# Diagnostic deployment/restore only. All caps and backend data remain unchanged.
+services:
+  gateway:
+    image: '${PHASE_GATEWAY_IMAGE:?Select diagnostic image or the retained production image}'

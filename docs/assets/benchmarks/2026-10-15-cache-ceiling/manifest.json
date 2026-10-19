@@ -1,0 +1,66 @@
+{
+  "purpose": "Synthetic warm-cache diagnostic and corrected benchmark validation; not a production gateway cache or performance claim.",
+  "profiles": {
+    "legacy_probe_v1": {
+      "rounds": [
+        "probe-exact-1.json",
+        "probe-exact-2.json"
+      ],
+      "summary": "summary-exact.json",
+      "measured_responses": 36000,
+      "note": "Historical filter-count validation computed a full expected count per response, causing Python GIL interference. Do not combine with v2."
+    },
+    "production_v2": {
+      "rounds": [
+        "production-v2-1.json",
+        "production-v2-2.json"
+      ],
+      "summary": "summary-production-v2.json",
+      "measured_responses": 36000
+    },
+    "probe_v2": {
+      "rounds": [
+        "probe-v2-1.json",
+        "probe-v2-2.json"
+      ],
+      "summary": "summary-probe-v2.json",
+      "measured_responses": 36000
+    }
+  },
+  "fixture": {
+    "sha256": "96a185672cdf9021b4e5dbd3933010e663eacb2d7587f49e0f448e7c482fe443",
+    "bytes": 3277896,
+    "unique_entries": 644,
+    "source_image_id": "sha256:bed69ce269442635fd2d9c76465fbf4e4afd8395b9ee52bebdae352c62b7091a",
+    "documents": 10000,
+    "all_capture_responses_correct": true,
+    "regenerate": "Run benchmark/cache-upper-bound/capture.py against retained production gateway and synthetic corpus, REQUESTS=200. Captured took fields may vary, so regenerated fixture hashes need not match."
+  },
+  "caps": {
+    "native_each": {
+      "cpu": 2,
+      "memory_mib": 4096
+    },
+    "production": {
+      "gateway_cpu": 0.5,
+      "gateway_memory_mib": 512,
+      "qdrant_cpu": 1.5,
+      "qdrant_memory_mib": 3584
+    },
+    "synthetic": {
+      "probe_cpu": 0.5,
+      "probe_memory_mib": 512,
+      "valkey_cpu": 0.25,
+      "valkey_memory_mib": 256,
+      "qdrant_cpu": 1.25,
+      "qdrant_memory_mib": 3328
+    }
+  },
+  "limitations": [
+    "Synthetic probe assumes 100 percent preloaded immutable hits. No cold misses, mutation, invalidation, fencing, recovery or realistic hit-rate costs.",
+    "Qdrant remains provisioned within the aggregate cap but performs no reads on probe hits.",
+    "Production and probe are separately measured profiles with their own native controls; they are not an ABBA production-cache implementation comparison.",
+    "The legacy probe read_transport rest label is inherited metadata, not a claim that the probe reads Qdrant; v2 labels its synthetic Valkey Lua path explicitly."
+  ],
+  "reproduction": "Follow benchmark/cache-upper-bound/README.md; preserve all raw rounds and separate validation profiles. No build during timing."
+}

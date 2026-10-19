@@ -1,0 +1,95 @@
+{
+  "captured_at": "2026-10-15T11:55:27.266539+00:00",
+  "completed_at": "2026-10-15T11:57:45.923851+00:00",
+  "source_commit": "187944e4cc274a0ae61a6c79de885179319e9d4a",
+  "image_id": "sha256:68784402708c0e61b027834ddc17734cec38ce87f825bb763261910aa74c49d4",
+  "resource_snapshot_label": "Idle post-ABBA container memory snapshot, not peak or process RSS",
+  "warm_round_order": [
+    "off-1",
+    "on-1",
+    "on-2",
+    "off-2"
+  ],
+  "separate_profile_order": [
+    "cold-off",
+    "writes-off",
+    "cold-on",
+    "writes-on"
+  ],
+  "correct_measured_responses": {
+    "warm": 72000,
+    "cold": 7200,
+    "invalidation_http_responses": 7200,
+    "invalidation_cycles": 3600
+  },
+  "resources": [
+    {
+      "service": "elasticsearch",
+      "CPUPerc": "0.56%",
+      "MemUsage": "983.7MiB / 4GiB",
+      "MemPerc": "24.02%",
+      "PIDs": "104"
+    },
+    {
+      "service": "opensearch",
+      "CPUPerc": "0.84%",
+      "MemUsage": "922.8MiB / 4GiB",
+      "MemPerc": "22.53%",
+      "PIDs": "57"
+    },
+    {
+      "service": "gateway",
+      "CPUPerc": "0.00%",
+      "MemUsage": "9.914MiB / 512MiB",
+      "MemPerc": "1.94%",
+      "PIDs": "2"
+    },
+    {
+      "service": "qdrant",
+      "CPUPerc": "0.03%",
+      "MemUsage": "239.8MiB / 3.25GiB",
+      "MemPerc": "7.21%",
+      "PIDs": "17"
+    },
+    {
+      "service": "cache-valkey",
+      "CPUPerc": "1.80%",
+      "MemUsage": "14.83MiB / 256MiB",
+      "MemPerc": "5.79%",
+      "PIDs": "6"
+    }
+  ],
+  "files": [
+    "cold-off.json",
+    "cold-on.json",
+    "off-1.json",
+    "off-2.json",
+    "on-1.json",
+    "on-2.json",
+    "summary-mixed.json",
+    "summary-off.json",
+    "summary-on.json",
+    "writes-off.json",
+    "writes-on.json"
+  ],
+  "validation_profile": "precomputed-filter-count-range-v3",
+  "scope": "Actual gateway, shared catalog and persistent cache coordination. Serving-off/on use same image and aggregate limits; native defaults retained. These data are not the synthetic probe.",
+  "warm_method": "Serving off,on,on,off; 3 trials of 200 measured requests, 40 warmups and full request priming; concurrency 1 and 8; every trial retained.",
+  "cold_method": "Previously unused response-cache keys on loaded data; 3 trials of 200 requests at concurrency 1 and 8. Setup invalidation outside read timer. Separate off/on runs, not ABBA.",
+  "write_method": "3 trials of 100 write/read cycles per workload, concurrency1. No refresh parameter for realtime point GET cycles; refresh=true for immediate search visibility cycles, identical per engine. 3600 cycles produce7200 measured HTTP responses. Separate off/on runs, not ABBA.",
+  "limits": "Native each2CPU4GiB; gateway0.5CPU512MiB +Qdrant1.25CPU3328MiB +Valkey0.25CPU256MiB. ValkeyAOFalways,no-appendfsync-on-rewrite=no,noeviction,maxmemory64MiB,durable namedvolume.",
+  "preparation_note": "Initial ingest populated the disposable corpus before cache activation; its one-off preparation timings are not a coordinated-cache ingest benchmark and are not used for performance claims.",
+  "raw_sha256": {
+    "on-1.json": "6721ce264eb3c4e7b4d08e6bd5d2d58094a168adafa09d126308376dc51ccf1e",
+    "cold-off.json": "694e53ce1a5325d1473bd5b875c0f1847059bc2b86c6c0feb6b9a1588ac00b07",
+    "summary-off.json": "b8a56af2594fe7ddebea3581ecf0bcd4bbaaeb315359feb16c6380faebcbfb29",
+    "off-1.json": "f4c6a75ee9d2bf5e75c161744a89b6e603b7c1738557f0d85d7a985c2d5158ad",
+    "summary-on.json": "6f12276a166a2a2283d3e5ae2710f9b055d917de160f6d15449833b457727386",
+    "writes-off.json": "7b929d3b1a849e7492ce055a6dd879395153e6065cf2cb5a3fc597324c3f6e19",
+    "writes-on.json": "de5ac84c7349053fcc354a017e09e352f75fe09ab74df81a5c3ad0c616155225",
+    "off-2.json": "3ba289b9a02dfdc3dcc29d87c31e0a94bdabe390b745063778c8029e5370791b",
+    "cold-on.json": "b022a3afa0c03ac30a393cd8dc46b5fe69e32dce2bc7a85aa08175bde1a70600",
+    "summary-mixed.json": "555fd1528d16c3aa94337ed306e37dcbb2fa581c40696001e1047e4b383dd54e",
+    "on-2.json": "9e93994d46589fb3871833c4ecd97695905a47e1c1cff59ee6e648c6a97aca35"
+  }
+}

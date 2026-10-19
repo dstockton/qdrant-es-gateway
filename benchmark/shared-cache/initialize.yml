@@ -1,0 +1,6 @@
+# Used only before bootstrap, on the fresh disposable project. Never reuse after activation.
+services:
+  gateway:
+    environment:
+      READ_CACHE_DEPLOYMENT: null
+      CATALOG_INITIALIZE: 'true'

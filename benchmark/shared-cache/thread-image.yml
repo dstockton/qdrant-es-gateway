@@ -1,0 +1,7 @@
+# Same gateway image and quotas; only Qdrant search-thread configuration varies.
+services:
+  gateway:
+    image: '${THREAD_GATEWAY_IMAGE:?Select the verified atomic snapshot image}'
+  qdrant:
+    environment:
+      QDRANT__STORAGE__PERFORMANCE__MAX_SEARCH_THREADS: '${QDRANT_BENCH_SEARCH_THREADS:?Select 0 or 1}'

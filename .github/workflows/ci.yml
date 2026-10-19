@@ -50,11 +50,13 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo fmt --all -- --check
       - run: cargo test --all-targets --all-features
-      - name: Verify shared catalog ownership and publication
+      - name: Verify catalog ownership and cache coordination
         env:
           CATALOG_TEST_REDIS_URL: redis://127.0.0.1:6379
-        run: cargo test --bin qdrant-es-gateway shared_catalog -- --include-ignored
+        run: cargo test --bin qdrant-es-gateway -- --include-ignored
       - run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Verify disposable cache publication across crashes and AOF rewrites
+        run: python3 tests/cache_ephemeral_aof.py --image valkey/valkey:9.1.2-alpine --expected-version 9.1.2 --output "$RUNNER_TEMP/cache-ephemeral-aof.json"
 
   helm:
     runs-on: ubuntu-24.04
@@ -63,6 +65,13 @@ jobs:
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
       - run: helm lint deploy/helm/qdrant-es-gateway
       - run: helm template smoke deploy/helm/qdrant-es-gateway >/dev/null
+      - name: Verify coordinated cache configuration
+        run: |
+          helm template smoke deploy/helm/qdrant-es-gateway --set readCache.deployment=ci --set catalog.existingSecret=valkey --set qdrant.replicationFactor=1 --set gateway.asyncPayloadWrites=false --set gateway.asyncSearchProjection=false >/dev/null
+          if helm template smoke deploy/helm/qdrant-es-gateway --set readCache.deployment=ci >/dev/null 2>&1; then
+            echo "Unsafe cache configuration unexpectedly rendered"
+            exit 1
+          fi
       - name: Keep the SQLite-backed default single-replica
         run: |
           helm template smoke deploy/helm/qdrant-es-gateway --show-only templates/deployment.yaml | grep -q '^  replicas: 1$'

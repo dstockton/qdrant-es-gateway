@@ -1,0 +1,7 @@
+{
+  "status": "passed",
+  "restored_image_id": "sha256:1a7bed91a88b1d255ba8522f7d204feea90596183048c4fc27790c750af23b39",
+  "cache_serving": true,
+  "runner_source": "536d3a3",
+  "diagnostic_source": "68add4dc8aecd8b01ad501ee30ab4d94518f03b6"
+}

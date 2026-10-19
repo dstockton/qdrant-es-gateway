@@ -1,0 +1,4 @@
+# Only the gateway build changes; preserve backend state and all resource caps.
+services:
+  gateway:
+    image: '${EPHEMERAL_IMAGE:?Select the verified prebuilt image}'

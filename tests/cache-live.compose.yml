@@ -1,0 +1,32 @@
+name: qeg-cache-live-test
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.19.2
+    volumes: [qdrant-data:/qdrant/storage]
+  valkey:
+    image: valkey/valkey:9.1.2-alpine
+    command: [valkey-server, --appendonly, 'yes', --appendfsync, always, --maxmemory, '67108864', --maxmemory-policy, noeviction]
+    ports: ['127.0.0.1:16380:6379']
+    volumes: [valkey-data:/data]
+  gateway-a: &gateway
+    build: {context: ..}
+    environment: &settings
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_REPLICATION_FACTOR: '1'
+      QDRANT_REQUEST_TIMEOUT_MS: '5000'
+      CATALOG_REDIS_URL: redis://valkey:6379
+      CATALOG_REDIS_KEY: 'qeg:{cache-live}:v1'
+      READ_CACHE_DEPLOYMENT: cache-live-v1
+      READ_CACHE_SERVE: 'true'
+      READ_CACHE_TTL_SECONDS: '300'
+      DOCUMENT_PROJECTION: 'true'
+    ports: ['127.0.0.1:19203:9200']
+  gateway-b:
+    <<: *gateway
+    environment:
+      <<: *settings
+      READ_CACHE_SERVE: '${CACHE_TEST_SERVE_B:-true}'
+    ports: ['127.0.0.1:19204:9200']
+volumes:
+  qdrant-data:
+  valkey-data:
