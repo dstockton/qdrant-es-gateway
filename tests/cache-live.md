@@ -78,7 +78,8 @@ Compose services above. Run it against the candidate source containing response-
 propagation suppression:
 
 ```sh
-python3 tests/cache_ephemeral_aof.py --output /tmp/cache-ephemeral-aof-proof.json
+python3 tests/cache_ephemeral_aof.py --image valkey/valkey:9.1.2-alpine \
+  --expected-version 9.1.2 --output /tmp/cache-ephemeral-aof-proof.json
 ```
 
 Choose a fresh output filename; the test refuses to overwrite evidence. It checks

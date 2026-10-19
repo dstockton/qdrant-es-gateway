@@ -4,7 +4,7 @@ services:
     image: qdrant/qdrant:v1.19.2
     volumes: [qdrant-data:/qdrant/storage]
   valkey:
-    image: valkey/valkey:8-alpine
+    image: valkey/valkey:9.1.2-alpine
     command: [valkey-server, --appendonly, 'yes', --appendfsync, always, --maxmemory, '67108864', --maxmemory-policy, noeviction]
     ports: ['127.0.0.1:16380:6379']
     volumes: [valkey-data:/data]

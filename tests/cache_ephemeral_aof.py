@@ -24,6 +24,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--image', default='valkey/valkey@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507')
     parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument('--expected-version', default='8.1.10',
+                        help='Require the isolated server to report this exact version')
     args = parser.parse_args()
     if args.output.exists():
         raise SystemExit('Refusing to overwrite evidence')
@@ -116,7 +118,7 @@ def main():
         ready()
         observed = info()
         version = observed.get('valkey_version', observed.get('redis_version'))
-        assert version == '8.1.10', f'Expected Valkey8.1.10, got {version}'
+        assert version == args.expected_version, f'Expected Valkey {args.expected_version}, got {version}'
         result['version'] = version
         result['image_id'] = json.loads(command('docker', 'inspect', name))[0]['Image']
         result['durability'] = cli('CONFIG', 'GET', 'appendonly', 'appendfsync', 'maxmemory-policy', 'save')

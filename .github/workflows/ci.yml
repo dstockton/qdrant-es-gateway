@@ -56,7 +56,7 @@ jobs:
         run: cargo test --bin qdrant-es-gateway -- --include-ignored
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Verify disposable cache publication across crashes and AOF rewrites
-        run: python3 tests/cache_ephemeral_aof.py --output "$RUNNER_TEMP/cache-ephemeral-aof.json"
+        run: python3 tests/cache_ephemeral_aof.py --image valkey/valkey:9.1.2-alpine --expected-version 9.1.2 --output "$RUNNER_TEMP/cache-ephemeral-aof.json"
 
   helm:
     runs-on: ubuntu-24.04
