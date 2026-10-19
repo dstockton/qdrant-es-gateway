@@ -1,0 +1,173 @@
+{
+  "index": "field_note_travel",
+  "mapping": {
+    "mappings": {
+      "properties": {
+        "title": {
+          "type": "text"
+        },
+        "origin": {
+          "type": "keyword"
+        },
+        "destination": {
+          "type": "keyword"
+        },
+        "operator": {
+          "type": "keyword"
+        },
+        "seats_available": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "keyword"
+        }
+      }
+    }
+  },
+  "documents": {
+    "service-101": {
+      "title": "York to London morning",
+      "origin": "York",
+      "destination": "London",
+      "operator": "North Rail",
+      "seats_available": 4,
+      "status": "scheduled"
+    },
+    "service-102": {
+      "title": "York to Peterborough connector",
+      "origin": "York",
+      "destination": "Peterborough",
+      "operator": "East Rail",
+      "seats_available": 2,
+      "status": "scheduled"
+    },
+    "service-103": {
+      "title": "York to London last seat",
+      "origin": "York",
+      "destination": "London",
+      "operator": "North Rail",
+      "seats_available": 1,
+      "status": "scheduled"
+    },
+    "service-104": {
+      "title": "Leeds to London morning",
+      "origin": "Leeds",
+      "destination": "London",
+      "operator": "East Rail",
+      "seats_available": 8,
+      "status": "scheduled"
+    },
+    "service-105": {
+      "title": "York to Edinburgh morning",
+      "origin": "York",
+      "destination": "Edinburgh",
+      "operator": "North Rail",
+      "seats_available": 6,
+      "status": "scheduled"
+    },
+    "service-106": {
+      "title": "York to London cancelled",
+      "origin": "York",
+      "destination": "London",
+      "operator": "East Rail",
+      "seats_available": 9,
+      "status": "cancelled"
+    }
+  },
+  "search": {
+    "size": 10,
+    "query": {
+      "bool": {
+        "filter": [
+          {
+            "term": {
+              "origin": "York"
+            }
+          },
+          {
+            "terms": {
+              "destination": [
+                "London",
+                "Peterborough"
+              ]
+            }
+          },
+          {
+            "term": {
+              "status": "scheduled"
+            }
+          },
+          {
+            "range": {
+              "seats_available": {
+                "gte": 2
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "facet": {
+    "size": 0,
+    "query": {
+      "bool": {
+        "filter": [
+          {
+            "term": {
+              "origin": "York"
+            }
+          },
+          {
+            "terms": {
+              "destination": [
+                "London",
+                "Peterborough"
+              ]
+            }
+          },
+          {
+            "term": {
+              "status": "scheduled"
+            }
+          },
+          {
+            "range": {
+              "seats_available": {
+                "gte": 2
+              }
+            }
+          }
+        ]
+      }
+    },
+    "aggs": {
+      "operators": {
+        "terms": {
+          "field": "operator",
+          "size": 10
+        }
+      }
+    }
+  },
+  "update_id": "service-101",
+  "update": {
+    "doc": {
+      "status": "cancelled"
+    }
+  },
+  "expected_search_ids": [
+    "service-101",
+    "service-102"
+  ],
+  "expected_search_ids_after": [
+    "service-102"
+  ],
+  "expected_facets_before": {
+    "North Rail": 1,
+    "East Rail": 1
+  },
+  "expected_facets_after": {
+    "East Rail": 1
+  }
+}

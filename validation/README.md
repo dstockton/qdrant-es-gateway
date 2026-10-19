@@ -213,3 +213,14 @@ No OpenSearch-specific assertion difference was observed. The
 [article curl evidence](evidence/agriculture-curl-2026-10-19.json) separately
 records all nine article responses per engine, including the repeated searches.
 No gateway implementation change or performance claim was needed.
+
+## Additional verified field notes
+
+- `education.py`: deterministic education workflow; fixture in `fixtures/education.json` and dated full responses in `evidence/`. Run `python3 validation/education.py --help` for endpoint and output options.
+- `logistics.py`: deterministic logistics workflow; fixture in `fixtures/logistics.json` and dated full responses in `evidence/`. Run `python3 validation/logistics.py --help` for endpoint and output options.
+- `travel.py`: deterministic travel workflow; fixture in `fixtures/travel.json` and dated full responses in `evidence/`. Run `python3 validation/travel.py --help` for endpoint and output options.
+- `support.py`: deterministic support workflow; fixture in `fixtures/support.json` and dated full responses in `evidence/`. Run `python3 validation/support.py --help` for endpoint and output options.
+- `library.py`: deterministic library workflow; fixture in `fixtures/library.json` and dated full responses in `evidence/`. Run `python3 validation/library.py --help` for endpoint and output options.
+- `energy.py`: deterministic energy workflow; fixture in `fixtures/energy.json` and dated full responses in `evidence/`. Run `python3 validation/energy.py --help` for endpoint and output options.
+
+All seven field notes were replayed during the October 19 PR review against main runtime `85b0e22` and Qdrant 1.19.2: 556/556 checks passed. The dated `*-review-2026-10-19.json` files retain the requests and results; the original evidence remains historical. Energy and agriculture include native OpenSearch 3.9.0 alongside Elasticsearch 8.15.0.

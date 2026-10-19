@@ -1,0 +1,2441 @@
+{
+  "run_at": "2026-10-13T10:03:53.541246+00:00",
+  "gateway_revision": "509e0f44cc5221540bcef67b2dfb82cf5c913762",
+  "fixture": "validation/fixtures/support.json",
+  "gateway_binary_version": "0.2.0",
+  "qdrant_version": "1.15.5",
+  "gateway_mode": "embedded-source, synchronous writes",
+  "settle_seconds_after_each_write_phase": 5,
+  "native": {
+    "calls": [
+      {
+        "name": "create",
+        "method": "PUT",
+        "path": "/field_note_support",
+        "request": {
+          "mappings": {
+            "properties": {
+              "subject": {
+                "type": "text"
+              },
+              "team": {
+                "type": "keyword"
+              },
+              "status": {
+                "type": "keyword"
+              },
+              "channel": {
+                "type": "keyword"
+              },
+              "reply_count": {
+                "type": "integer"
+              },
+              "assignee": {
+                "type": "keyword"
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "acknowledged": true,
+            "shards_acknowledged": true,
+            "index": "field_note_support"
+          }
+        }
+      },
+      {
+        "name": "bulk",
+        "method": "POST",
+        "path": "/field_note_support/_bulk?refresh=wait_for",
+        "request": "{\"index\": {\"_id\": \"ticket-101\"}}\n{\"subject\": \"Duplicate subscription charge\", \"team\": \"billing\", \"status\": \"open\", \"channel\": \"email\", \"reply_count\": 0}\n{\"index\": {\"_id\": \"ticket-102\"}}\n{\"subject\": \"Invoice address correction\", \"team\": \"billing\", \"status\": \"open\", \"channel\": \"chat\", \"reply_count\": 0, \"assignee\": null}\n{\"index\": {\"_id\": \"ticket-103\"}}\n{\"subject\": \"Refund progress\", \"team\": \"billing\", \"status\": \"open\", \"channel\": \"email\", \"reply_count\": 0, \"assignee\": \"agent-7\"}\n{\"index\": {\"_id\": \"ticket-104\"}}\n{\"subject\": \"Receipt request\", \"team\": \"billing\", \"status\": \"open\", \"channel\": \"chat\", \"reply_count\": 1}\n{\"index\": {\"_id\": \"ticket-105\"}}\n{\"subject\": \"Cannot sign in\", \"team\": \"technical\", \"status\": \"open\", \"channel\": \"email\", \"reply_count\": 0}\n{\"index\": {\"_id\": \"ticket-106\"}}\n{\"subject\": \"Payment confirmation\", \"team\": \"billing\", \"status\": \"closed\", \"channel\": \"email\", \"reply_count\": 0}\n{\"index\": {\"_id\": \"ticket-107\"}}\n{\"subject\": \"Missing invoice number\", \"team\": \"billing\", \"status\": \"open\", \"channel\": \"email\", \"reply_count\": 0, \"assignee\": \"\"}\n",
+        "response": {
+          "status": 200,
+          "body": {
+            "errors": false,
+            "took": 29360,
+            "items": [
+              {
+                "index": {
+                  "_index": "field_note_support",
+                  "_id": "ticket-101",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 0,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_support",
+                  "_id": "ticket-102",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 1,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_support",
+                  "_id": "ticket-103",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 2,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_support",
+                  "_id": "ticket-104",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 3,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_support",
+                  "_id": "ticket-105",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 4,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_support",
+                  "_id": "ticket-106",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 5,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_index": "field_note_support",
+                  "_id": "ticket-107",
+                  "_version": 1,
+                  "result": "created",
+                  "_shards": {
+                    "total": 2,
+                    "successful": 1,
+                    "failed": 0
+                  },
+                  "_seq_no": 6,
+                  "_primary_term": 1,
+                  "status": 201
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "name": "read ticket-101",
+        "method": "GET",
+        "path": "/field_note_support/_doc/ticket-101",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_support",
+            "_id": "ticket-101",
+            "_version": 1,
+            "_seq_no": 0,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "subject": "Duplicate subscription charge",
+              "team": "billing",
+              "status": "open",
+              "channel": "email",
+              "reply_count": 0
+            }
+          }
+        }
+      },
+      {
+        "name": "read ticket-102",
+        "method": "GET",
+        "path": "/field_note_support/_doc/ticket-102",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_support",
+            "_id": "ticket-102",
+            "_version": 1,
+            "_seq_no": 1,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "subject": "Invoice address correction",
+              "team": "billing",
+              "status": "open",
+              "channel": "chat",
+              "reply_count": 0,
+              "assignee": null
+            }
+          }
+        }
+      },
+      {
+        "name": "read ticket-103",
+        "method": "GET",
+        "path": "/field_note_support/_doc/ticket-103",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_support",
+            "_id": "ticket-103",
+            "_version": 1,
+            "_seq_no": 2,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "subject": "Refund progress",
+              "team": "billing",
+              "status": "open",
+              "channel": "email",
+              "reply_count": 0,
+              "assignee": "agent-7"
+            }
+          }
+        }
+      },
+      {
+        "name": "read ticket-104",
+        "method": "GET",
+        "path": "/field_note_support/_doc/ticket-104",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_support",
+            "_id": "ticket-104",
+            "_version": 1,
+            "_seq_no": 3,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "subject": "Receipt request",
+              "team": "billing",
+              "status": "open",
+              "channel": "chat",
+              "reply_count": 1
+            }
+          }
+        }
+      },
+      {
+        "name": "read ticket-105",
+        "method": "GET",
+        "path": "/field_note_support/_doc/ticket-105",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_support",
+            "_id": "ticket-105",
+            "_version": 1,
+            "_seq_no": 4,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "subject": "Cannot sign in",
+              "team": "technical",
+              "status": "open",
+              "channel": "email",
+              "reply_count": 0
+            }
+          }
+        }
+      },
+      {
+        "name": "read ticket-106",
+        "method": "GET",
+        "path": "/field_note_support/_doc/ticket-106",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_support",
+            "_id": "ticket-106",
+            "_version": 1,
+            "_seq_no": 5,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "subject": "Payment confirmation",
+              "team": "billing",
+              "status": "closed",
+              "channel": "email",
+              "reply_count": 0
+            }
+          }
+        }
+      },
+      {
+        "name": "read ticket-107",
+        "method": "GET",
+        "path": "/field_note_support/_doc/ticket-107",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_support",
+            "_id": "ticket-107",
+            "_version": 1,
+            "_seq_no": 6,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "subject": "Missing invoice number",
+              "team": "billing",
+              "status": "open",
+              "channel": "email",
+              "reply_count": 0,
+              "assignee": ""
+            }
+          }
+        }
+      },
+      {
+        "name": "unassigned first replies",
+        "method": "POST",
+        "path": "/field_note_support/_search",
+        "request": {
+          "size": 10,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "team": "billing"
+                  }
+                },
+                {
+                  "term": {
+                    "status": "open"
+                  }
+                },
+                {
+                  "term": {
+                    "reply_count": 0
+                  }
+                }
+              ],
+              "must_not": [
+                {
+                  "exists": {
+                    "field": "assignee"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "took": 34,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 2,
+                "relation": "eq"
+              },
+              "max_score": 0.0,
+              "hits": [
+                {
+                  "_index": "field_note_support",
+                  "_id": "ticket-101",
+                  "_score": 0.0,
+                  "_source": {
+                    "subject": "Duplicate subscription charge",
+                    "team": "billing",
+                    "status": "open",
+                    "channel": "email",
+                    "reply_count": 0
+                  }
+                },
+                {
+                  "_index": "field_note_support",
+                  "_id": "ticket-102",
+                  "_score": 0.0,
+                  "_source": {
+                    "subject": "Invoice address correction",
+                    "team": "billing",
+                    "status": "open",
+                    "channel": "chat",
+                    "reply_count": 0,
+                    "assignee": null
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "name": "queue channels",
+        "method": "POST",
+        "path": "/field_note_support/_search",
+        "request": {
+          "size": 0,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "team": "billing"
+                  }
+                },
+                {
+                  "term": {
+                    "status": "open"
+                  }
+                },
+                {
+                  "term": {
+                    "reply_count": 0
+                  }
+                }
+              ],
+              "must_not": [
+                {
+                  "exists": {
+                    "field": "assignee"
+                  }
+                }
+              ]
+            }
+          },
+          "aggs": {
+            "channels": {
+              "terms": {
+                "field": "channel",
+                "size": 10
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "took": 15,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 2,
+                "relation": "eq"
+              },
+              "max_score": null,
+              "hits": []
+            },
+            "aggregations": {
+              "channels": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": [
+                  {
+                    "key": "chat",
+                    "doc_count": 1
+                  },
+                  {
+                    "key": "email",
+                    "doc_count": 1
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "assign ticket",
+        "method": "POST",
+        "path": "/field_note_support/_update/ticket-101?refresh=wait_for",
+        "request": {
+          "doc": {
+            "assignee": "agent-12"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_support",
+            "_id": "ticket-101",
+            "_version": 2,
+            "result": "updated",
+            "_shards": {
+              "total": 2,
+              "successful": 1,
+              "failed": 0
+            },
+            "_seq_no": 7,
+            "_primary_term": 1
+          }
+        }
+      },
+      {
+        "name": "read assigned ticket",
+        "method": "GET",
+        "path": "/field_note_support/_doc/ticket-101",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_index": "field_note_support",
+            "_id": "ticket-101",
+            "_version": 2,
+            "_seq_no": 7,
+            "_primary_term": 1,
+            "found": true,
+            "_source": {
+              "subject": "Duplicate subscription charge",
+              "team": "billing",
+              "status": "open",
+              "channel": "email",
+              "reply_count": 0,
+              "assignee": "agent-12"
+            }
+          }
+        }
+      },
+      {
+        "name": "assigned ticket excluded",
+        "method": "POST",
+        "path": "/field_note_support/_search",
+        "request": {
+          "size": 10,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "team": "billing"
+                  }
+                },
+                {
+                  "term": {
+                    "status": "open"
+                  }
+                },
+                {
+                  "term": {
+                    "reply_count": 0
+                  }
+                }
+              ],
+              "must_not": [
+                {
+                  "exists": {
+                    "field": "assignee"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "took": 7,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 1,
+                "relation": "eq"
+              },
+              "max_score": 0.0,
+              "hits": [
+                {
+                  "_index": "field_note_support",
+                  "_id": "ticket-102",
+                  "_score": 0.0,
+                  "_source": {
+                    "subject": "Invoice address correction",
+                    "team": "billing",
+                    "status": "open",
+                    "channel": "chat",
+                    "reply_count": 0,
+                    "assignee": null
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "name": "remaining channels",
+        "method": "POST",
+        "path": "/field_note_support/_search",
+        "request": {
+          "size": 0,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "team": "billing"
+                  }
+                },
+                {
+                  "term": {
+                    "status": "open"
+                  }
+                },
+                {
+                  "term": {
+                    "reply_count": 0
+                  }
+                }
+              ],
+              "must_not": [
+                {
+                  "exists": {
+                    "field": "assignee"
+                  }
+                }
+              ]
+            }
+          },
+          "aggs": {
+            "channels": {
+              "terms": {
+                "field": "channel",
+                "size": 10
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "took": 11,
+            "timed_out": false,
+            "_shards": {
+              "total": 1,
+              "successful": 1,
+              "skipped": 0,
+              "failed": 0
+            },
+            "hits": {
+              "total": {
+                "value": 1,
+                "relation": "eq"
+              },
+              "max_score": null,
+              "hits": []
+            },
+            "aggregations": {
+              "channels": {
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0,
+                "buckets": [
+                  {
+                    "key": "chat",
+                    "doc_count": 1
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "cleanup",
+        "method": "DELETE",
+        "path": "/field_note_support",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "acknowledged": true
+          }
+        }
+      }
+    ],
+    "checks": [
+      {
+        "name": "create HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "bulk HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "bulk errors",
+        "ok": true,
+        "actual": false,
+        "expected": false
+      },
+      {
+        "name": "bulk items",
+        "ok": true,
+        "actual": [
+          {
+            "_id": "ticket-101",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "ticket-102",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "ticket-103",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "ticket-104",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "ticket-105",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "ticket-106",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "ticket-107",
+            "status": 201,
+            "result": "created"
+          }
+        ],
+        "expected": [
+          {
+            "_id": "ticket-101",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "ticket-102",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "ticket-103",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "ticket-104",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "ticket-105",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "ticket-106",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "ticket-107",
+            "status": 201,
+            "result": "created"
+          }
+        ]
+      },
+      {
+        "name": "read ticket-101 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read ticket-101 ID/source",
+        "ok": true,
+        "actual": [
+          "ticket-101",
+          {
+            "subject": "Duplicate subscription charge",
+            "team": "billing",
+            "status": "open",
+            "channel": "email",
+            "reply_count": 0
+          }
+        ],
+        "expected": [
+          "ticket-101",
+          {
+            "subject": "Duplicate subscription charge",
+            "team": "billing",
+            "status": "open",
+            "channel": "email",
+            "reply_count": 0
+          }
+        ]
+      },
+      {
+        "name": "read ticket-102 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read ticket-102 ID/source",
+        "ok": true,
+        "actual": [
+          "ticket-102",
+          {
+            "subject": "Invoice address correction",
+            "team": "billing",
+            "status": "open",
+            "channel": "chat",
+            "reply_count": 0,
+            "assignee": null
+          }
+        ],
+        "expected": [
+          "ticket-102",
+          {
+            "subject": "Invoice address correction",
+            "team": "billing",
+            "status": "open",
+            "channel": "chat",
+            "reply_count": 0,
+            "assignee": null
+          }
+        ]
+      },
+      {
+        "name": "read ticket-103 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read ticket-103 ID/source",
+        "ok": true,
+        "actual": [
+          "ticket-103",
+          {
+            "subject": "Refund progress",
+            "team": "billing",
+            "status": "open",
+            "channel": "email",
+            "reply_count": 0,
+            "assignee": "agent-7"
+          }
+        ],
+        "expected": [
+          "ticket-103",
+          {
+            "subject": "Refund progress",
+            "team": "billing",
+            "status": "open",
+            "channel": "email",
+            "reply_count": 0,
+            "assignee": "agent-7"
+          }
+        ]
+      },
+      {
+        "name": "read ticket-104 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read ticket-104 ID/source",
+        "ok": true,
+        "actual": [
+          "ticket-104",
+          {
+            "subject": "Receipt request",
+            "team": "billing",
+            "status": "open",
+            "channel": "chat",
+            "reply_count": 1
+          }
+        ],
+        "expected": [
+          "ticket-104",
+          {
+            "subject": "Receipt request",
+            "team": "billing",
+            "status": "open",
+            "channel": "chat",
+            "reply_count": 1
+          }
+        ]
+      },
+      {
+        "name": "read ticket-105 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read ticket-105 ID/source",
+        "ok": true,
+        "actual": [
+          "ticket-105",
+          {
+            "subject": "Cannot sign in",
+            "team": "technical",
+            "status": "open",
+            "channel": "email",
+            "reply_count": 0
+          }
+        ],
+        "expected": [
+          "ticket-105",
+          {
+            "subject": "Cannot sign in",
+            "team": "technical",
+            "status": "open",
+            "channel": "email",
+            "reply_count": 0
+          }
+        ]
+      },
+      {
+        "name": "read ticket-106 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read ticket-106 ID/source",
+        "ok": true,
+        "actual": [
+          "ticket-106",
+          {
+            "subject": "Payment confirmation",
+            "team": "billing",
+            "status": "closed",
+            "channel": "email",
+            "reply_count": 0
+          }
+        ],
+        "expected": [
+          "ticket-106",
+          {
+            "subject": "Payment confirmation",
+            "team": "billing",
+            "status": "closed",
+            "channel": "email",
+            "reply_count": 0
+          }
+        ]
+      },
+      {
+        "name": "read ticket-107 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read ticket-107 ID/source",
+        "ok": true,
+        "actual": [
+          "ticket-107",
+          {
+            "subject": "Missing invoice number",
+            "team": "billing",
+            "status": "open",
+            "channel": "email",
+            "reply_count": 0,
+            "assignee": ""
+          }
+        ],
+        "expected": [
+          "ticket-107",
+          {
+            "subject": "Missing invoice number",
+            "team": "billing",
+            "status": "open",
+            "channel": "email",
+            "reply_count": 0,
+            "assignee": ""
+          }
+        ]
+      },
+      {
+        "name": "unassigned first replies HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "unassigned first replies exact total",
+        "ok": true,
+        "actual": {
+          "value": 2,
+          "relation": "eq"
+        },
+        "expected": {
+          "value": 2,
+          "relation": "eq"
+        }
+      },
+      {
+        "name": "unassigned first replies IDs",
+        "ok": true,
+        "actual": [
+          "ticket-101",
+          "ticket-102"
+        ],
+        "expected": [
+          "ticket-101",
+          "ticket-102"
+        ]
+      },
+      {
+        "name": "unassigned first replies sources",
+        "ok": true,
+        "actual": {
+          "ticket-101": {
+            "subject": "Duplicate subscription charge",
+            "team": "billing",
+            "status": "open",
+            "channel": "email",
+            "reply_count": 0
+          },
+          "ticket-102": {
+            "subject": "Invoice address correction",
+            "team": "billing",
+            "status": "open",
+            "channel": "chat",
+            "reply_count": 0,
+            "assignee": null
+          }
+        },
+        "expected": {
+          "ticket-101": {
+            "subject": "Duplicate subscription charge",
+            "team": "billing",
+            "status": "open",
+            "channel": "email",
+            "reply_count": 0
+          },
+          "ticket-102": {
+            "subject": "Invoice address correction",
+            "team": "billing",
+            "status": "open",
+            "channel": "chat",
+            "reply_count": 0,
+            "assignee": null
+          }
+        }
+      },
+      {
+        "name": "queue channels HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "queue channels counts",
+        "ok": true,
+        "actual": {
+          "chat": 1,
+          "email": 1
+        },
+        "expected": {
+          "email": 1,
+          "chat": 1
+        }
+      },
+      {
+        "name": "queue channels zero hits",
+        "ok": true,
+        "actual": [],
+        "expected": []
+      },
+      {
+        "name": "assign ticket HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "assignment update ID/result",
+        "ok": true,
+        "actual": [
+          "ticket-101",
+          "updated"
+        ],
+        "expected": [
+          "ticket-101",
+          "updated"
+        ]
+      },
+      {
+        "name": "read assigned ticket HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "assignment preserves ticket source",
+        "ok": true,
+        "actual": [
+          "ticket-101",
+          {
+            "subject": "Duplicate subscription charge",
+            "team": "billing",
+            "status": "open",
+            "channel": "email",
+            "reply_count": 0,
+            "assignee": "agent-12"
+          }
+        ],
+        "expected": [
+          "ticket-101",
+          {
+            "subject": "Duplicate subscription charge",
+            "team": "billing",
+            "status": "open",
+            "channel": "email",
+            "reply_count": 0,
+            "assignee": "agent-12"
+          }
+        ]
+      },
+      {
+        "name": "assigned ticket excluded HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "assigned ticket excluded exact total",
+        "ok": true,
+        "actual": {
+          "value": 1,
+          "relation": "eq"
+        },
+        "expected": {
+          "value": 1,
+          "relation": "eq"
+        }
+      },
+      {
+        "name": "assigned ticket excluded IDs",
+        "ok": true,
+        "actual": [
+          "ticket-102"
+        ],
+        "expected": [
+          "ticket-102"
+        ]
+      },
+      {
+        "name": "assigned ticket excluded sources",
+        "ok": true,
+        "actual": {
+          "ticket-102": {
+            "subject": "Invoice address correction",
+            "team": "billing",
+            "status": "open",
+            "channel": "chat",
+            "reply_count": 0,
+            "assignee": null
+          }
+        },
+        "expected": {
+          "ticket-102": {
+            "subject": "Invoice address correction",
+            "team": "billing",
+            "status": "open",
+            "channel": "chat",
+            "reply_count": 0,
+            "assignee": null
+          }
+        }
+      },
+      {
+        "name": "remaining channels HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "remaining channels counts",
+        "ok": true,
+        "actual": {
+          "chat": 1
+        },
+        "expected": {
+          "chat": 1
+        }
+      },
+      {
+        "name": "remaining channels zero hits",
+        "ok": true,
+        "actual": [],
+        "expected": []
+      },
+      {
+        "name": "cleanup HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      }
+    ],
+    "reported_version": "8.15.0"
+  },
+  "gateway": {
+    "calls": [
+      {
+        "name": "create",
+        "method": "PUT",
+        "path": "/field_note_support",
+        "request": {
+          "mappings": {
+            "properties": {
+              "subject": {
+                "type": "text"
+              },
+              "team": {
+                "type": "keyword"
+              },
+              "status": {
+                "type": "keyword"
+              },
+              "channel": {
+                "type": "keyword"
+              },
+              "reply_count": {
+                "type": "integer"
+              },
+              "assignee": {
+                "type": "keyword"
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "acknowledged": true,
+            "index": "field_note_support",
+            "shards_acknowledged": true
+          }
+        }
+      },
+      {
+        "name": "bulk",
+        "method": "POST",
+        "path": "/field_note_support/_bulk?refresh=wait_for",
+        "request": "{\"index\": {\"_id\": \"ticket-101\"}}\n{\"subject\": \"Duplicate subscription charge\", \"team\": \"billing\", \"status\": \"open\", \"channel\": \"email\", \"reply_count\": 0}\n{\"index\": {\"_id\": \"ticket-102\"}}\n{\"subject\": \"Invoice address correction\", \"team\": \"billing\", \"status\": \"open\", \"channel\": \"chat\", \"reply_count\": 0, \"assignee\": null}\n{\"index\": {\"_id\": \"ticket-103\"}}\n{\"subject\": \"Refund progress\", \"team\": \"billing\", \"status\": \"open\", \"channel\": \"email\", \"reply_count\": 0, \"assignee\": \"agent-7\"}\n{\"index\": {\"_id\": \"ticket-104\"}}\n{\"subject\": \"Receipt request\", \"team\": \"billing\", \"status\": \"open\", \"channel\": \"chat\", \"reply_count\": 1}\n{\"index\": {\"_id\": \"ticket-105\"}}\n{\"subject\": \"Cannot sign in\", \"team\": \"technical\", \"status\": \"open\", \"channel\": \"email\", \"reply_count\": 0}\n{\"index\": {\"_id\": \"ticket-106\"}}\n{\"subject\": \"Payment confirmation\", \"team\": \"billing\", \"status\": \"closed\", \"channel\": \"email\", \"reply_count\": 0}\n{\"index\": {\"_id\": \"ticket-107\"}}\n{\"subject\": \"Missing invoice number\", \"team\": \"billing\", \"status\": \"open\", \"channel\": \"email\", \"reply_count\": 0, \"assignee\": \"\"}\n",
+        "response": {
+          "status": 200,
+          "body": {
+            "errors": false,
+            "items": [
+              {
+                "index": {
+                  "_id": "ticket-101",
+                  "_index": "field_note_support",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "ticket-102",
+                  "_index": "field_note_support",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "ticket-103",
+                  "_index": "field_note_support",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "ticket-104",
+                  "_index": "field_note_support",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "ticket-105",
+                  "_index": "field_note_support",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "ticket-106",
+                  "_index": "field_note_support",
+                  "result": "created",
+                  "status": 201
+                }
+              },
+              {
+                "index": {
+                  "_id": "ticket-107",
+                  "_index": "field_note_support",
+                  "result": "created",
+                  "status": 201
+                }
+              }
+            ],
+            "took": 0
+          }
+        }
+      },
+      {
+        "name": "read ticket-101",
+        "method": "GET",
+        "path": "/field_note_support/_doc/ticket-101",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "ticket-101",
+            "_index": "field_note_support",
+            "_source": {
+              "channel": "email",
+              "reply_count": 0,
+              "status": "open",
+              "subject": "Duplicate subscription charge",
+              "team": "billing"
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "read ticket-102",
+        "method": "GET",
+        "path": "/field_note_support/_doc/ticket-102",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "ticket-102",
+            "_index": "field_note_support",
+            "_source": {
+              "assignee": null,
+              "channel": "chat",
+              "reply_count": 0,
+              "status": "open",
+              "subject": "Invoice address correction",
+              "team": "billing"
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "read ticket-103",
+        "method": "GET",
+        "path": "/field_note_support/_doc/ticket-103",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "ticket-103",
+            "_index": "field_note_support",
+            "_source": {
+              "assignee": "agent-7",
+              "channel": "email",
+              "reply_count": 0,
+              "status": "open",
+              "subject": "Refund progress",
+              "team": "billing"
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "read ticket-104",
+        "method": "GET",
+        "path": "/field_note_support/_doc/ticket-104",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "ticket-104",
+            "_index": "field_note_support",
+            "_source": {
+              "channel": "chat",
+              "reply_count": 1,
+              "status": "open",
+              "subject": "Receipt request",
+              "team": "billing"
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "read ticket-105",
+        "method": "GET",
+        "path": "/field_note_support/_doc/ticket-105",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "ticket-105",
+            "_index": "field_note_support",
+            "_source": {
+              "channel": "email",
+              "reply_count": 0,
+              "status": "open",
+              "subject": "Cannot sign in",
+              "team": "technical"
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "read ticket-106",
+        "method": "GET",
+        "path": "/field_note_support/_doc/ticket-106",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "ticket-106",
+            "_index": "field_note_support",
+            "_source": {
+              "channel": "email",
+              "reply_count": 0,
+              "status": "closed",
+              "subject": "Payment confirmation",
+              "team": "billing"
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "read ticket-107",
+        "method": "GET",
+        "path": "/field_note_support/_doc/ticket-107",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "ticket-107",
+            "_index": "field_note_support",
+            "_source": {
+              "assignee": "",
+              "channel": "email",
+              "reply_count": 0,
+              "status": "open",
+              "subject": "Missing invoice number",
+              "team": "billing"
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "unassigned first replies",
+        "method": "POST",
+        "path": "/field_note_support/_search",
+        "request": {
+          "size": 10,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "team": "billing"
+                  }
+                },
+                {
+                  "term": {
+                    "status": "open"
+                  }
+                },
+                {
+                  "term": {
+                    "reply_count": 0
+                  }
+                }
+              ],
+              "must_not": [
+                {
+                  "exists": {
+                    "field": "assignee"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "_shards": {
+              "failed": 0,
+              "skipped": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "hits": {
+              "hits": [
+                {
+                  "_id": "ticket-102",
+                  "_index": "field_note_support",
+                  "_score": null,
+                  "_source": {
+                    "assignee": null,
+                    "channel": "chat",
+                    "reply_count": 0,
+                    "status": "open",
+                    "subject": "Invoice address correction",
+                    "team": "billing"
+                  }
+                },
+                {
+                  "_id": "ticket-101",
+                  "_index": "field_note_support",
+                  "_score": null,
+                  "_source": {
+                    "channel": "email",
+                    "reply_count": 0,
+                    "status": "open",
+                    "subject": "Duplicate subscription charge",
+                    "team": "billing"
+                  }
+                }
+              ],
+              "max_score": 0.0,
+              "total": {
+                "relation": "eq",
+                "value": 2
+              }
+            },
+            "timed_out": false,
+            "took": 2
+          }
+        }
+      },
+      {
+        "name": "queue channels",
+        "method": "POST",
+        "path": "/field_note_support/_search",
+        "request": {
+          "size": 0,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "team": "billing"
+                  }
+                },
+                {
+                  "term": {
+                    "status": "open"
+                  }
+                },
+                {
+                  "term": {
+                    "reply_count": 0
+                  }
+                }
+              ],
+              "must_not": [
+                {
+                  "exists": {
+                    "field": "assignee"
+                  }
+                }
+              ]
+            }
+          },
+          "aggs": {
+            "channels": {
+              "terms": {
+                "field": "channel",
+                "size": 10
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "_shards": {
+              "failed": 0,
+              "skipped": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "aggregations": {
+              "channels": {
+                "buckets": [
+                  {
+                    "doc_count": 1,
+                    "key": "chat"
+                  },
+                  {
+                    "doc_count": 1,
+                    "key": "email"
+                  }
+                ],
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0
+              }
+            },
+            "hits": {
+              "hits": [],
+              "max_score": 0.0,
+              "total": {
+                "relation": "eq",
+                "value": 2
+              }
+            },
+            "timed_out": false,
+            "took": 1
+          }
+        }
+      },
+      {
+        "name": "assign ticket",
+        "method": "POST",
+        "path": "/field_note_support/_update/ticket-101?refresh=wait_for",
+        "request": {
+          "doc": {
+            "assignee": "agent-12"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "ticket-101",
+            "_index": "field_note_support",
+            "_shards": {
+              "failed": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "_version": 1,
+            "result": "updated"
+          }
+        }
+      },
+      {
+        "name": "read assigned ticket",
+        "method": "GET",
+        "path": "/field_note_support/_doc/ticket-101",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "_id": "ticket-101",
+            "_index": "field_note_support",
+            "_source": {
+              "assignee": "agent-12",
+              "channel": "email",
+              "reply_count": 0,
+              "status": "open",
+              "subject": "Duplicate subscription charge",
+              "team": "billing"
+            },
+            "_version": 1,
+            "found": true
+          }
+        }
+      },
+      {
+        "name": "assigned ticket excluded",
+        "method": "POST",
+        "path": "/field_note_support/_search",
+        "request": {
+          "size": 10,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "team": "billing"
+                  }
+                },
+                {
+                  "term": {
+                    "status": "open"
+                  }
+                },
+                {
+                  "term": {
+                    "reply_count": 0
+                  }
+                }
+              ],
+              "must_not": [
+                {
+                  "exists": {
+                    "field": "assignee"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "_shards": {
+              "failed": 0,
+              "skipped": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "hits": {
+              "hits": [
+                {
+                  "_id": "ticket-102",
+                  "_index": "field_note_support",
+                  "_score": null,
+                  "_source": {
+                    "assignee": null,
+                    "channel": "chat",
+                    "reply_count": 0,
+                    "status": "open",
+                    "subject": "Invoice address correction",
+                    "team": "billing"
+                  }
+                }
+              ],
+              "max_score": 0.0,
+              "total": {
+                "relation": "eq",
+                "value": 1
+              }
+            },
+            "timed_out": false,
+            "took": 2
+          }
+        }
+      },
+      {
+        "name": "remaining channels",
+        "method": "POST",
+        "path": "/field_note_support/_search",
+        "request": {
+          "size": 0,
+          "query": {
+            "bool": {
+              "filter": [
+                {
+                  "term": {
+                    "team": "billing"
+                  }
+                },
+                {
+                  "term": {
+                    "status": "open"
+                  }
+                },
+                {
+                  "term": {
+                    "reply_count": 0
+                  }
+                }
+              ],
+              "must_not": [
+                {
+                  "exists": {
+                    "field": "assignee"
+                  }
+                }
+              ]
+            }
+          },
+          "aggs": {
+            "channels": {
+              "terms": {
+                "field": "channel",
+                "size": 10
+              }
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "_shards": {
+              "failed": 0,
+              "skipped": 0,
+              "successful": 1,
+              "total": 1
+            },
+            "aggregations": {
+              "channels": {
+                "buckets": [
+                  {
+                    "doc_count": 1,
+                    "key": "chat"
+                  }
+                ],
+                "doc_count_error_upper_bound": 0,
+                "sum_other_doc_count": 0
+              }
+            },
+            "hits": {
+              "hits": [],
+              "max_score": 0.0,
+              "total": {
+                "relation": "eq",
+                "value": 1
+              }
+            },
+            "timed_out": false,
+            "took": 2
+          }
+        }
+      },
+      {
+        "name": "cleanup",
+        "method": "DELETE",
+        "path": "/field_note_support",
+        "request": null,
+        "response": {
+          "status": 200,
+          "body": {
+            "acknowledged": true
+          }
+        }
+      }
+    ],
+    "checks": [
+      {
+        "name": "create HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "bulk HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "bulk errors",
+        "ok": true,
+        "actual": false,
+        "expected": false
+      },
+      {
+        "name": "bulk items",
+        "ok": true,
+        "actual": [
+          {
+            "_id": "ticket-101",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "ticket-102",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "ticket-103",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "ticket-104",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "ticket-105",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "ticket-106",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "ticket-107",
+            "status": 201,
+            "result": "created"
+          }
+        ],
+        "expected": [
+          {
+            "_id": "ticket-101",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "ticket-102",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "ticket-103",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "ticket-104",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "ticket-105",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "ticket-106",
+            "status": 201,
+            "result": "created"
+          },
+          {
+            "_id": "ticket-107",
+            "status": 201,
+            "result": "created"
+          }
+        ]
+      },
+      {
+        "name": "read ticket-101 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read ticket-101 ID/source",
+        "ok": true,
+        "actual": [
+          "ticket-101",
+          {
+            "channel": "email",
+            "reply_count": 0,
+            "status": "open",
+            "subject": "Duplicate subscription charge",
+            "team": "billing"
+          }
+        ],
+        "expected": [
+          "ticket-101",
+          {
+            "subject": "Duplicate subscription charge",
+            "team": "billing",
+            "status": "open",
+            "channel": "email",
+            "reply_count": 0
+          }
+        ]
+      },
+      {
+        "name": "read ticket-102 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read ticket-102 ID/source",
+        "ok": true,
+        "actual": [
+          "ticket-102",
+          {
+            "assignee": null,
+            "channel": "chat",
+            "reply_count": 0,
+            "status": "open",
+            "subject": "Invoice address correction",
+            "team": "billing"
+          }
+        ],
+        "expected": [
+          "ticket-102",
+          {
+            "subject": "Invoice address correction",
+            "team": "billing",
+            "status": "open",
+            "channel": "chat",
+            "reply_count": 0,
+            "assignee": null
+          }
+        ]
+      },
+      {
+        "name": "read ticket-103 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read ticket-103 ID/source",
+        "ok": true,
+        "actual": [
+          "ticket-103",
+          {
+            "assignee": "agent-7",
+            "channel": "email",
+            "reply_count": 0,
+            "status": "open",
+            "subject": "Refund progress",
+            "team": "billing"
+          }
+        ],
+        "expected": [
+          "ticket-103",
+          {
+            "subject": "Refund progress",
+            "team": "billing",
+            "status": "open",
+            "channel": "email",
+            "reply_count": 0,
+            "assignee": "agent-7"
+          }
+        ]
+      },
+      {
+        "name": "read ticket-104 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read ticket-104 ID/source",
+        "ok": true,
+        "actual": [
+          "ticket-104",
+          {
+            "channel": "chat",
+            "reply_count": 1,
+            "status": "open",
+            "subject": "Receipt request",
+            "team": "billing"
+          }
+        ],
+        "expected": [
+          "ticket-104",
+          {
+            "subject": "Receipt request",
+            "team": "billing",
+            "status": "open",
+            "channel": "chat",
+            "reply_count": 1
+          }
+        ]
+      },
+      {
+        "name": "read ticket-105 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read ticket-105 ID/source",
+        "ok": true,
+        "actual": [
+          "ticket-105",
+          {
+            "channel": "email",
+            "reply_count": 0,
+            "status": "open",
+            "subject": "Cannot sign in",
+            "team": "technical"
+          }
+        ],
+        "expected": [
+          "ticket-105",
+          {
+            "subject": "Cannot sign in",
+            "team": "technical",
+            "status": "open",
+            "channel": "email",
+            "reply_count": 0
+          }
+        ]
+      },
+      {
+        "name": "read ticket-106 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read ticket-106 ID/source",
+        "ok": true,
+        "actual": [
+          "ticket-106",
+          {
+            "channel": "email",
+            "reply_count": 0,
+            "status": "closed",
+            "subject": "Payment confirmation",
+            "team": "billing"
+          }
+        ],
+        "expected": [
+          "ticket-106",
+          {
+            "subject": "Payment confirmation",
+            "team": "billing",
+            "status": "closed",
+            "channel": "email",
+            "reply_count": 0
+          }
+        ]
+      },
+      {
+        "name": "read ticket-107 HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "read ticket-107 ID/source",
+        "ok": true,
+        "actual": [
+          "ticket-107",
+          {
+            "assignee": "",
+            "channel": "email",
+            "reply_count": 0,
+            "status": "open",
+            "subject": "Missing invoice number",
+            "team": "billing"
+          }
+        ],
+        "expected": [
+          "ticket-107",
+          {
+            "subject": "Missing invoice number",
+            "team": "billing",
+            "status": "open",
+            "channel": "email",
+            "reply_count": 0,
+            "assignee": ""
+          }
+        ]
+      },
+      {
+        "name": "unassigned first replies HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "unassigned first replies exact total",
+        "ok": true,
+        "actual": {
+          "relation": "eq",
+          "value": 2
+        },
+        "expected": {
+          "value": 2,
+          "relation": "eq"
+        }
+      },
+      {
+        "name": "unassigned first replies IDs",
+        "ok": true,
+        "actual": [
+          "ticket-101",
+          "ticket-102"
+        ],
+        "expected": [
+          "ticket-101",
+          "ticket-102"
+        ]
+      },
+      {
+        "name": "unassigned first replies sources",
+        "ok": true,
+        "actual": {
+          "ticket-102": {
+            "assignee": null,
+            "channel": "chat",
+            "reply_count": 0,
+            "status": "open",
+            "subject": "Invoice address correction",
+            "team": "billing"
+          },
+          "ticket-101": {
+            "channel": "email",
+            "reply_count": 0,
+            "status": "open",
+            "subject": "Duplicate subscription charge",
+            "team": "billing"
+          }
+        },
+        "expected": {
+          "ticket-101": {
+            "subject": "Duplicate subscription charge",
+            "team": "billing",
+            "status": "open",
+            "channel": "email",
+            "reply_count": 0
+          },
+          "ticket-102": {
+            "subject": "Invoice address correction",
+            "team": "billing",
+            "status": "open",
+            "channel": "chat",
+            "reply_count": 0,
+            "assignee": null
+          }
+        }
+      },
+      {
+        "name": "queue channels HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "queue channels counts",
+        "ok": true,
+        "actual": {
+          "chat": 1,
+          "email": 1
+        },
+        "expected": {
+          "email": 1,
+          "chat": 1
+        }
+      },
+      {
+        "name": "queue channels zero hits",
+        "ok": true,
+        "actual": [],
+        "expected": []
+      },
+      {
+        "name": "assign ticket HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "assignment update ID/result",
+        "ok": true,
+        "actual": [
+          "ticket-101",
+          "updated"
+        ],
+        "expected": [
+          "ticket-101",
+          "updated"
+        ]
+      },
+      {
+        "name": "read assigned ticket HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "assignment preserves ticket source",
+        "ok": true,
+        "actual": [
+          "ticket-101",
+          {
+            "assignee": "agent-12",
+            "channel": "email",
+            "reply_count": 0,
+            "status": "open",
+            "subject": "Duplicate subscription charge",
+            "team": "billing"
+          }
+        ],
+        "expected": [
+          "ticket-101",
+          {
+            "subject": "Duplicate subscription charge",
+            "team": "billing",
+            "status": "open",
+            "channel": "email",
+            "reply_count": 0,
+            "assignee": "agent-12"
+          }
+        ]
+      },
+      {
+        "name": "assigned ticket excluded HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "assigned ticket excluded exact total",
+        "ok": true,
+        "actual": {
+          "relation": "eq",
+          "value": 1
+        },
+        "expected": {
+          "value": 1,
+          "relation": "eq"
+        }
+      },
+      {
+        "name": "assigned ticket excluded IDs",
+        "ok": true,
+        "actual": [
+          "ticket-102"
+        ],
+        "expected": [
+          "ticket-102"
+        ]
+      },
+      {
+        "name": "assigned ticket excluded sources",
+        "ok": true,
+        "actual": {
+          "ticket-102": {
+            "assignee": null,
+            "channel": "chat",
+            "reply_count": 0,
+            "status": "open",
+            "subject": "Invoice address correction",
+            "team": "billing"
+          }
+        },
+        "expected": {
+          "ticket-102": {
+            "subject": "Invoice address correction",
+            "team": "billing",
+            "status": "open",
+            "channel": "chat",
+            "reply_count": 0,
+            "assignee": null
+          }
+        }
+      },
+      {
+        "name": "remaining channels HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      },
+      {
+        "name": "remaining channels counts",
+        "ok": true,
+        "actual": {
+          "chat": 1
+        },
+        "expected": {
+          "chat": 1
+        }
+      },
+      {
+        "name": "remaining channels zero hits",
+        "ok": true,
+        "actual": [],
+        "expected": []
+      },
+      {
+        "name": "cleanup HTTP status",
+        "ok": true,
+        "actual": 200,
+        "expected": 200
+      }
+    ],
+    "reported_version": "8.15.0"
+  },
+  "identical_requests": true,
+  "passed": 74,
+  "total": 74,
+  "ok": true
+}

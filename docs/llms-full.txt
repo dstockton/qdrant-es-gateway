@@ -745,6 +745,74 @@ This is request-level compatibility evidence, not a performance result. It cover
 
 ---
 
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-17-energy-dispatch-shortlist.md
+
+# Which batteries belong on the dispatch shortlist?
+
+An energy cooperative needs northern battery sites marked ready with at least 100 kWh available. Six synthetic snapshots include a site exactly at the threshold, one just below it, a southern site, a held site, and an offline site. Operator facets count sites, not stored energy.
+
+Use a fresh `field_note_energy` index on running servers. Curl is the same client for native Elasticsearch, native OpenSearch, and qdrant-es-gateway: change only `ES` to the target endpoint URL.
+
+```sh
+ES=http://localhost:19200
+curl -fsS -X PUT "$ES/field_note_energy" \
+  -H 'Content-Type: application/json' -d '{"mappings":{"properties":{"site":{"type":"keyword"},"region":{"type":"keyword"},"operator":{"type":"keyword"},"state":{"type":"keyword"},"available_kwh":{"type":"integer"}}}}'
+curl -fsS -X POST "$ES/field_note_energy/_bulk?refresh=wait_for" \
+  -H 'Content-Type: application/x-ndjson' --data-binary @- <<'NDJSON'
+{"index":{"_id":"battery-101"}}
+{"site":"Moor Lane","region":"north","operator":"Aster","state":"ready","available_kwh":120}
+{"index":{"_id":"battery-102"}}
+{"site":"Quarry Farm","region":"north","operator":"Birch","state":"ready","available_kwh":100}
+{"index":{"_id":"battery-103"}}
+{"site":"Mill Yard","region":"north","operator":"Aster","state":"ready","available_kwh":99}
+{"index":{"_id":"battery-104"}}
+{"site":"South Meadow","region":"south","operator":"Birch","state":"ready","available_kwh":180}
+{"index":{"_id":"battery-105"}}
+{"site":"Hill Barn","region":"north","operator":"Cedar","state":"hold","available_kwh":200}
+{"index":{"_id":"battery-106"}}
+{"site":"Canal Depot","region":"north","operator":"Cedar","state":"offline","available_kwh":250}
+NDJSON
+sleep 5
+```
+
+Use the same five-second pause after bulk and update on all three servers; this tests settled data, not an immediate refresh guarantee. Find the eligible sites:
+
+```sh
+curl -fsS -X POST "$ES/field_note_energy/_search" \
+  -H 'Content-Type: application/json' -d '{"size":10,"query":{"bool":{"filter":[{"term":{"region":"north"}},{"term":{"state":"ready"}},{"range":{"available_kwh":{"gte":100}}}]}}}'
+```
+
+Expect `battery-101` and `battery-102`, total `2`, with complete sources; hit order is immaterial. The 100 kWh boundary is inclusive. Count operators over exactly that shortlist:
+
+```sh
+curl -fsS -X POST "$ES/field_note_energy/_search" \
+  -H 'Content-Type: application/json' -d '{"size":0,"query":{"bool":{"filter":[{"term":{"region":"north"}},{"term":{"state":"ready"}},{"range":{"available_kwh":{"gte":100}}}]}},"aggs":{"operators":{"terms":{"field":"operator","size":10}}}}'
+```
+
+Expect `Aster: 1` and `Birch: 1`, with no hits. Now place Moor Lane on hold without changing its reported capacity:
+
+```sh
+curl -fsS -X POST "$ES/field_note_energy/_update/battery-101?refresh=wait_for" \
+  -H 'Content-Type: application/json' -d '{"doc":{"state":"hold"}}'
+sleep 5
+curl -fsS "$ES/field_note_energy/_doc/battery-101"
+```
+
+The update returns `updated`; the read shows `state: "hold"` and preserves `site`, `region`, `operator`, and `available_kwh: 120`. Repeat both search requests: only `battery-102` remains, total `1`, with `Birch: 1`. A held site's sufficient energy must not keep it eligible. These snapshots support planning; they do not issue dispatch commands.
+
+Boundary: atomic concurrent energy reservations remain [unsupported](https://dstockton.github.io/qdrant-es-gateway/compatibility/).
+
+The [fixture](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/fixtures/energy.json) and [replay](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/energy.py) check statuses, bulk IDs/results, every source, exact search IDs/totals, operator counts, and hold exclusion. The [recorded run](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/evidence/energy-2026-10-17.json) passed **105/105** checks on Elasticsearch **8.15.0**, OpenSearch **3.9.0**, and gateway **0.2.0** with Qdrant **1.15.5**, using identical requests and embedded sources with synchronous writes. No OpenSearch-specific behavior or difference in these assertions was observed. The [article curl run](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/evidence/energy-curl-2026-10-17.json) independently checked all nine responses per engine. No gateway code change or performance claim is involved.
+
+Remove the example index when finished:
+
+```sh
+curl -fsS -X DELETE "$ES/field_note_energy"
+```
+
+
+---
+
 Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-17-aws-retail-demo-store-compatibility.md
 
 # AWS Retail Demo Store: compatible search requests, different trade-offs
@@ -948,6 +1016,78 @@ cargo test alias_removal_reports_when_no_action_can_succeed
 ```
 
 This is deliberately not a claim of identical partial-failure responses. The gateway retains the simpler OpenSearch-shaped success body for mixed batches and does not yet emit Elasticsearch per-action alias results. It also continues to reject `must_exist`, alias arrays and patterns, filters, routing, write-index flags, and multi-index final states rather than approximating them. The probe measures request semantics only; it is not a latency or resource benchmark.
+
+
+---
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-15-library-large-print-availability.md
+
+# Can I borrow the large-print edition today?
+
+A public-library reader wants a large-print book available at York today. A standard edition of the same title, an ebook, a copy at Leeds, and a fully borrowed title should stay out. These six synthetic holdings represent one title/format/branch combination per document; no borrower data is needed.
+
+Use running Elasticsearch-compatible servers and a fresh `field_note_library` index. Curl is the client: run these same commands against each server, changing only `ES` to the gateway URL (for example, `http://localhost:9200`).
+
+```sh
+ES=http://localhost:19200
+curl -fsS -X PUT "$ES/field_note_library" \
+  -H 'Content-Type: application/json' -d '{"mappings":{"properties":{"title":{"type":"text"},"branch":{"type":"keyword"},"format":{"type":"keyword"},"genre":{"type":"keyword"},"available_copies":{"type":"integer"}}}}'
+curl -fsS -X POST "$ES/field_note_library/_bulk?refresh=wait_for" \
+  -H 'Content-Type: application/x-ndjson' --data-binary @- <<'NDJSON'
+{"index":{"_id":"book-101"}}
+{"title":"The Harbour Mystery","branch":"York","format":"large-print","genre":"crime","available_copies":1}
+{"index":{"_id":"book-102"}}
+{"title":"A Garden in Winter","branch":"York","format":"large-print","genre":"fiction","available_copies":2}
+{"index":{"_id":"book-103"}}
+{"title":"The Harbour Mystery","branch":"York","format":"standard","genre":"crime","available_copies":3}
+{"index":{"_id":"book-104"}}
+{"title":"Mountain Letters","branch":"York","format":"large-print","genre":"biography","available_copies":0}
+{"index":{"_id":"book-105"}}
+{"title":"River Detectives","branch":"Leeds","format":"large-print","genre":"crime","available_copies":2}
+{"index":{"_id":"book-106"}}
+{"title":"Summer on the Moors","branch":"York","format":"ebook","genre":"fiction","available_copies":4}
+NDJSON
+sleep 5
+```
+
+The same five-second settling pause is used on both endpoints; it does not establish immediate gateway refresh visibility.
+
+Find the available large-print holdings at York:
+
+```sh
+curl -fsS -X POST "$ES/field_note_library/_search" \
+  -H 'Content-Type: application/json' -d '{"size":10,"query":{"bool":{"filter":[{"term":{"branch":"York"}},{"term":{"format":"large-print"}},{"range":{"available_copies":{"gte":1}}}]}}}'
+```
+
+Expect exactly `book-101` (The Harbour Mystery) and `book-102` (A Garden in Winter), total `2`, with their complete sources; hit order is immaterial. Count titles by genre over that same filtered selection:
+
+```sh
+curl -fsS -X POST "$ES/field_note_library/_search" \
+  -H 'Content-Type: application/json' -d '{"size":0,"query":{"bool":{"filter":[{"term":{"branch":"York"}},{"term":{"format":"large-print"}},{"range":{"available_copies":{"gte":1}}}]}},"aggs":{"genres":{"terms":{"field":"genre","size":10}}}}'
+```
+
+Expect `crime: 1` and `fiction: 1`, with no hits. These buckets count holdings records, not copies: the two available copies of A Garden in Winter contribute one fiction record.
+
+The lending system now reports that the final large-print copy of The Harbour Mystery has been borrowed. Publish its new availability and read the record back:
+
+```sh
+curl -fsS -X POST "$ES/field_note_library/_update/book-101?refresh=wait_for" \
+  -H 'Content-Type: application/json' -d '{"doc":{"available_copies":0}}'
+sleep 5
+curl -fsS "$ES/field_note_library/_doc/book-101"
+```
+
+The update returns `updated`; the read retains the title, branch, format and genre, with `available_copies: 0`. Repeat both searches above: only `book-102` remains, total `1`, and the sole genre bucket is `fiction: 1`. The standard edition of The Harbour Mystery must not substitute for the borrowed large-print edition.
+
+The [fixture](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/fixtures/library.json) and [replay](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/library.py) verify HTTP statuses, bulk IDs/results, every stored source, exact search totals, genre counts and last-copy exclusion. The [recorded run](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/evidence/library-2026-10-15.json) passed 70/70 checks on Elasticsearch 8.15.0 and gateway 0.2.0 with Qdrant 1.15.5, using identical requests, embedded sources and synchronous writes. The article's curl requests were also executed on both endpoints. No gateway code change or performance claim is involved.
+
+Boundary: updates are not [atomic concurrent reservations](https://dstockton.github.io/qdrant-es-gateway/compatibility/); the lending system remains authoritative for loans.
+
+Remove the example index when finished:
+
+```sh
+curl -fsS -X DELETE "$ES/field_note_library"
+```
 
 
 ---
@@ -1180,6 +1320,76 @@ The regression covers filters, all three routing forms, write-index and hidden f
 
 ---
 
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-13-support-first-reply-queue.md
+
+# Who is still waiting for a first reply?
+
+A support lead needs open billing tickets with no replies and no assigned agent. Seven synthetic tickets include assigned, answered, closed, and technical cases that must stay out of the queue. Missing and null assignees qualify; an empty string counts as present, so producers should normalize blank assignments to null.
+
+Use running Elasticsearch-compatible servers and a fresh `field_note_support` index. Curl is the client: run these commands on each server, changing only `ES` to the gateway URL (for example, `http://localhost:9200`).
+
+```sh
+ES=http://localhost:19200
+curl -fsS -X PUT "$ES/field_note_support" \
+  -H 'Content-Type: application/json' -d '{"mappings":{"properties":{"subject":{"type":"text"},"team":{"type":"keyword"},"status":{"type":"keyword"},"channel":{"type":"keyword"},"reply_count":{"type":"integer"},"assignee":{"type":"keyword"}}}}'
+curl -fsS -X POST "$ES/field_note_support/_bulk?refresh=wait_for" \
+  -H 'Content-Type: application/x-ndjson' --data-binary @- <<'NDJSON'
+{"index":{"_id":"ticket-101"}}
+{"subject":"Duplicate subscription charge","team":"billing","status":"open","channel":"email","reply_count":0}
+{"index":{"_id":"ticket-102"}}
+{"subject":"Invoice address correction","team":"billing","status":"open","channel":"chat","reply_count":0,"assignee":null}
+{"index":{"_id":"ticket-103"}}
+{"subject":"Refund progress","team":"billing","status":"open","channel":"email","reply_count":0,"assignee":"agent-7"}
+{"index":{"_id":"ticket-104"}}
+{"subject":"Receipt request","team":"billing","status":"open","channel":"chat","reply_count":1}
+{"index":{"_id":"ticket-105"}}
+{"subject":"Cannot sign in","team":"technical","status":"open","channel":"email","reply_count":0}
+{"index":{"_id":"ticket-106"}}
+{"subject":"Payment confirmation","team":"billing","status":"closed","channel":"email","reply_count":0}
+{"index":{"_id":"ticket-107"}}
+{"subject":"Missing invoice number","team":"billing","status":"open","channel":"email","reply_count":0,"assignee":""}
+NDJSON
+sleep 5
+```
+
+The same five-second settling pause follows writes on both endpoints; this does not establish immediate gateway refresh visibility. Find tickets needing an owner and a first reply:
+
+```sh
+curl -fsS -X POST "$ES/field_note_support/_search" \
+  -H 'Content-Type: application/json' -d '{"size":10,"query":{"bool":{"filter":[{"term":{"team":"billing"}},{"term":{"status":"open"}},{"term":{"reply_count":0}}],"must_not":[{"exists":{"field":"assignee"}}]}}}'
+```
+
+Expect exactly `ticket-101` (duplicate charge) and `ticket-102` (address correction), their complete sources, and total `2`; hit order is immaterial. Count contact channels over this same queue:
+
+```sh
+curl -fsS -X POST "$ES/field_note_support/_search" \
+  -H 'Content-Type: application/json' -d '{"size":0,"query":{"bool":{"filter":[{"term":{"team":"billing"}},{"term":{"status":"open"}},{"term":{"reply_count":0}}],"must_not":[{"exists":{"field":"assignee"}}]}},"aggs":{"channels":{"terms":{"field":"channel","size":10}}}}'
+```
+
+Expect `email: 1` and `chat: 1`, with no hits. Assign the duplicate-charge ticket:
+
+```sh
+curl -fsS -X POST "$ES/field_note_support/_update/ticket-101?refresh=wait_for" \
+  -H 'Content-Type: application/json' -d '{"doc":{"assignee":"agent-12"}}'
+sleep 5
+curl -fsS "$ES/field_note_support/_doc/ticket-101"
+```
+
+The update returns `updated`. The read shows `assignee: "agent-12"` while preserving the subject, team, status, channel, and zero replies. Repeat both search requests: only `ticket-102` remains, total `1`, and the sole channel bucket is `chat: 1`. Assignment alone removes a ticket from the unowned queue even before anyone replies.
+
+The [fixture](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/fixtures/support.json) and [replay](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/support.py) check statuses, bulk results, every stored ID/source, exact search totals, channel counts, and assignment exclusion. The [recorded run](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/evidence/support-2026-10-13.json) passed 74/74 checks on Elasticsearch 8.15.0 and gateway 0.2.0 with Qdrant 1.15.5, using identical requests and default embedded-source, synchronous writes. The curl blocks were also run on both endpoints. No gateway code change or performance claim is involved.
+
+Boundary: updates are read-merge-write, so atomic concurrent ticket claiming remains [unsupported](https://dstockton.github.io/qdrant-es-gateway/compatibility/).
+
+Remove the example index when finished:
+
+```sh
+curl -fsS -X DELETE "$ES/field_note_support"
+```
+
+
+---
+
 Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-13-creating-an-index-is-not-a-mapping-update.md
 
 # Creating an index is not a mapping update
@@ -1250,6 +1460,76 @@ Single-point reads now recognize that exact missing-point response as an absent 
 The sanitized [Elasticsearch 9.5.5, OpenSearch 3.9.0, and Qdrant 1.15.5 evidence](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/evidence/elasticsearch-9.5.5-opensearch-3.9-qdrant-missing-point-2026-10-12.json) records the native contract, Qdrant response shape, and live changed-gateway results. The gateway returned 404 for a missing GET, 201/`created` for the first PUT, 200/`updated` for the second PUT, and the replacement source on the final GET. Focused regressions use the observed Qdrant error body in both source-storage modes and prove that missing collections remain upstream errors.
 
 This is a single-document correctness check, not a concurrency or performance benchmark. The extra existence read was already part of the standalone index path, so the fix adds no request. That preflight still is not an atomic compare-and-write across gateway replicas, and the gateway's sequence-number, primary-term, and version fields remain approximate.
+
+
+---
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-11-travel-disruption-desk.md
+
+# Two passengers, one cancelled departure
+
+A travel disruption desk needs departures from York with at least two seats, either direct to London or to Peterborough for an onward connection. Six synthetic services include a one-seat departure, a different origin, an unsuitable destination, and an already cancelled train. These are illustrative inventory snapshots, not live timetables.
+
+Use running Elasticsearch-compatible servers and a fresh `field_note_travel` index. Curl is the client: run these commands on each server, changing only `ES` to the gateway URL (for example, `http://localhost:9200`).
+
+```sh
+ES=http://localhost:19200
+curl -fsS -X PUT "$ES/field_note_travel" \
+  -H 'Content-Type: application/json' -d '{"mappings":{"properties":{"title":{"type":"text"},"origin":{"type":"keyword"},"destination":{"type":"keyword"},"operator":{"type":"keyword"},"seats_available":{"type":"integer"},"status":{"type":"keyword"}}}}'
+curl -fsS -X POST "$ES/field_note_travel/_bulk?refresh=wait_for" \
+  -H 'Content-Type: application/x-ndjson' --data-binary @- <<'NDJSON'
+{"index":{"_id":"service-101"}}
+{"title":"York to London morning","origin":"York","destination":"London","operator":"North Rail","seats_available":4,"status":"scheduled"}
+{"index":{"_id":"service-102"}}
+{"title":"York to Peterborough connector","origin":"York","destination":"Peterborough","operator":"East Rail","seats_available":2,"status":"scheduled"}
+{"index":{"_id":"service-103"}}
+{"title":"York to London last seat","origin":"York","destination":"London","operator":"North Rail","seats_available":1,"status":"scheduled"}
+{"index":{"_id":"service-104"}}
+{"title":"Leeds to London morning","origin":"Leeds","destination":"London","operator":"East Rail","seats_available":8,"status":"scheduled"}
+{"index":{"_id":"service-105"}}
+{"title":"York to Edinburgh morning","origin":"York","destination":"Edinburgh","operator":"North Rail","seats_available":6,"status":"scheduled"}
+{"index":{"_id":"service-106"}}
+{"title":"York to London cancelled","origin":"York","destination":"London","operator":"East Rail","seats_available":9,"status":"cancelled"}
+NDJSON
+sleep 5
+```
+
+Both endpoints use the same five-second settling pause; this does not establish immediate gateway refresh visibility.
+
+Find departures that can accommodate both passengers. `terms` accepts either destination; all four filters must hold:
+
+```sh
+curl -fsS -X POST "$ES/field_note_travel/_search" \
+  -H 'Content-Type: application/json' -d '{"size":10,"query":{"bool":{"filter":[{"term":{"origin":"York"}},{"terms":{"destination":["London","Peterborough"]}},{"term":{"status":"scheduled"}},{"range":{"seats_available":{"gte":2}}}]}}}'
+```
+
+Expect exactly `service-101` and `service-102`, with complete sources and total `2`; hit order is immaterial. Count operators over that same eligible set:
+
+```sh
+curl -fsS -X POST "$ES/field_note_travel/_search" \
+  -H 'Content-Type: application/json' -d '{"size":0,"query":{"bool":{"filter":[{"term":{"origin":"York"}},{"terms":{"destination":["London","Peterborough"]}},{"term":{"status":"scheduled"}},{"range":{"seats_available":{"gte":2}}}]}},"aggs":{"operators":{"terms":{"field":"operator","size":10}}}}'
+```
+
+Expect `North Rail: 1` and `East Rail: 1`, with no hits. Now cancel the direct departure:
+
+```sh
+curl -fsS -X POST "$ES/field_note_travel/_update/service-101?refresh=wait_for" \
+  -H 'Content-Type: application/json' -d '{"doc":{"status":"cancelled"}}'
+sleep 5
+curl -fsS "$ES/field_note_travel/_doc/service-101"
+```
+
+The update returns `updated`. The read shows `status: "cancelled"`, preserving the title, origin, destination, operator, and four available seats. Repeat both search requests: only `service-102` remains, total `1`, and the sole operator bucket is `East Rail: 1`. Cancellation must exclude the service even when its seat count still looks sufficient. The booking system must separately validate the connection and reserve seats.
+
+The [fixture](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/fixtures/travel.json) and [replay](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/travel.py) check statuses, bulk results, every stored ID/source, search totals, operator facets, and cancellation exclusion. The [recorded run](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/evidence/travel-2026-10-11.json) passed 70/70 checks on Elasticsearch 8.15.0 and gateway 0.2.0 with Qdrant 1.15.5, using identical requests and default embedded-source, synchronous writes. The curl blocks were also executed on both endpoints. No gateway code change or performance claim is involved.
+
+Boundary: atomic seat reservations through concurrent updates remain [unsupported](https://dstockton.github.io/qdrant-es-gateway/compatibility/).
+
+Remove the example index when finished:
+
+```sh
+curl -fsS -X DELETE "$ES/field_note_travel"
+```
 
 
 ---
@@ -1483,6 +1763,75 @@ This is a semantic correction, not an exact-aggregation implementation. These ga
 
 ---
 
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-07-logistics-missing-tracking.md
+
+# Packed, but where is the tracking number?
+
+A dispatch coordinator in York needs packed parcels that still lack a tracking number before the carrier arrives. These five synthetic shipments include an omitted field, an explicit `null`, an already labelled parcel, another depot, and a dispatched parcel. Adding tracking must remove only the newly labelled parcel from the exception list.
+
+Start with a running Elasticsearch-compatible endpoint and an unused `field_note_parcels` index. The client is curl; run exactly the same commands on each server, changing only `ES` (`http://localhost:19200` for Elasticsearch, `http://localhost:9200` for the gateway).
+
+```sh
+ES=http://localhost:19200
+curl -fsS -X PUT "$ES/field_note_parcels" \
+  -H 'Content-Type: application/json' -d '{"mappings":{"properties":{"contents":{"type":"keyword"},"depot":{"type":"keyword"},"carrier":{"type":"keyword"},"status":{"type":"keyword"},"tracking":{"type":"keyword"}}}}'
+
+curl -fsS -X POST "$ES/field_note_parcels/_bulk?refresh=wait_for" \
+  -H 'Content-Type: application/x-ndjson' --data-binary @- <<'NDJSON'
+{"index":{"_id":"parcel-101"}}
+{"contents":"Ceramic mugs","depot":"York","carrier":"Parcel North","status":"packed"}
+{"index":{"_id":"parcel-102"}}
+{"contents":"Cotton towels","depot":"York","carrier":"City Express","status":"packed","tracking":null}
+{"index":{"_id":"parcel-103"}}
+{"contents":"Desk lamps","depot":"York","carrier":"Parcel North","status":"packed","tracking":"PN-103"}
+{"index":{"_id":"parcel-104"}}
+{"contents":"Plant pots","depot":"Leeds","carrier":"Parcel North","status":"packed"}
+{"index":{"_id":"parcel-105"}}
+{"contents":"Wool blankets","depot":"York","carrier":"City Express","status":"dispatched","tracking":"CE-105"}
+NDJSON
+sleep 5
+```
+
+Both servers get the same five-second settling pause after each write phase. Search the packed York parcels with no indexed tracking value:
+
+```sh
+curl -fsS -X POST "$ES/field_note_parcels/_search" \
+  -H 'Content-Type: application/json' -d '{"size":10,"query":{"bool":{"filter":[{"term":{"depot":"York"}},{"term":{"status":"packed"}}],"must_not":[{"exists":{"field":"tracking"}}]}}}'
+```
+
+Expect exactly `parcel-101` and `parcel-102`, with their complete sources and a total of `2`. An omitted field and JSON `null` both fail `exists`; an empty string would count as present, so ingest unknown tracking as `null` or omit it.
+
+Count that same exception list by carrier:
+
+```sh
+curl -fsS -X POST "$ES/field_note_parcels/_search" \
+  -H 'Content-Type: application/json' -d '{"size":0,"query":{"bool":{"filter":[{"term":{"depot":"York"}},{"term":{"status":"packed"}}],"must_not":[{"exists":{"field":"tracking"}}]}},"aggs":{"carriers":{"terms":{"field":"carrier","size":10}}}}'
+```
+
+Expect `Parcel North: 1` and `City Express: 1`, with no hits because `size` is zero. Assign the first parcel's tracking number and read it back:
+
+```sh
+curl -fsS -X POST "$ES/field_note_parcels/_update/parcel-101?refresh=wait_for" \
+  -H 'Content-Type: application/json' -d '{"doc":{"tracking":"PN-101"}}'
+sleep 5
+curl -fsS "$ES/field_note_parcels/_doc/parcel-101"
+```
+
+The update returns `updated`. The read must preserve `Ceramic mugs`, York, Parcel North, and `status: packed`, adding only `tracking: PN-101`. Repeat the search and facet commands: only `parcel-102` remains, the total is `1`, and only `City Express: 1` remains in the buckets. This records a label assignment, not proof of carrier collection.
+
+The [fixture](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/fixtures/logistics.json), [replay](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/logistics.py), and [recorded run](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/evidence/logistics-2026-10-07.json) verify identical requests, HTTP and bulk statuses, IDs, every source, totals, and carrier counts. Elasticsearch 8.15.0 and gateway 0.2.0 at `7e56704`, backed by Qdrant 1.15.5 in default embedded-source mode with synchronous writes, passed **66/66 checks**. No gateway code changed; this five-record check makes no performance claim.
+
+Boundary: refresh timing guarantees and atomic concurrent updates remain outside the gateway's [supported semantics](https://dstockton.github.io/qdrant-es-gateway/compatibility/).
+
+Remove only this example's index when finished:
+
+```sh
+curl -fsS -X DELETE "$ES/field_note_parcels"
+```
+
+
+---
+
 Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-06-keyword-multifields-need-one-route.md
 
 # Keyword multi-fields need one route
@@ -1539,6 +1888,79 @@ cargo test elasticsearch_sort_shapes_drive_order_and_search_after
 ```
 
 This does not turn response sorting into Qdrant-native global ordering. The gateway still sorts only the bounded candidate window it retrieves, and the cursor remains stable only while that ordered set is unchanged. Large collections or deep ordered pagination should use a native Qdrant ordering design rather than treating this compatibility layer as a distributed sort engine.
+
+
+---
+
+Source: https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-05-education-course-availability.md
+
+# An evening class with room for one more
+
+An adult learner wants an evening Python class in York. A full course, a daytime class, or a place in Leeds is no help. These six synthetic course listings test that distinction, including the moment the last introductory place disappears.
+
+Start with a running Elasticsearch-compatible endpoint and a fresh `field_note_courses` index. The client is curl; run the identical commands on each server, changing only `ES`: `http://localhost:19200` for Elasticsearch, `http://localhost:9200` for the gateway.
+
+```sh
+ES=http://localhost:19200
+curl -fsS -X PUT "$ES/field_note_courses" \
+  -H 'Content-Type: application/json' -d '{"mappings":{"properties":{"title":{"type":"text"},"campus":{"type":"keyword"},"session":{"type":"keyword"},"level":{"type":"keyword"},"places":{"type":"integer"}}}}'
+
+curl -fsS -X POST "$ES/field_note_courses/_bulk?refresh=wait_for" \
+  -H 'Content-Type: application/x-ndjson' --data-binary @- <<'NDJSON'
+{"index":{"_id":"course-101"}}
+{"title":"Python for beginners","campus":"York","session":"evening","level":"introductory","places":1}
+{"index":{"_id":"course-102"}}
+{"title":"Python data analysis","campus":"York","session":"evening","level":"intermediate","places":4}
+{"index":{"_id":"course-103"}}
+{"title":"Python automation","campus":"York","session":"evening","level":"intermediate","places":0}
+{"index":{"_id":"course-104"}}
+{"title":"Python for beginners","campus":"York","session":"daytime","level":"introductory","places":8}
+{"index":{"_id":"course-105"}}
+{"title":"Python for beginners","campus":"Leeds","session":"evening","level":"introductory","places":6}
+{"index":{"_id":"course-106"}}
+{"title":"Watercolour basics","campus":"York","session":"evening","level":"introductory","places":3}
+NDJSON
+sleep 5
+```
+
+Both runs use the same five-second settling pause. Find Python courses with at least one place, at the right campus and time:
+
+```sh
+curl -fsS -X POST "$ES/field_note_courses/_search" \
+  -H 'Content-Type: application/json' -d '{"size":10,"query":{"bool":{"must":{"match":{"title":"python"}},"filter":[{"term":{"campus":"York"}},{"term":{"session":"evening"}},{"range":{"places":{"gte":1}}}]}}}'
+```
+
+Expect exactly `course-101` and `course-102`, with complete sources; order and scores are not asserted. The full course, daytime class, Leeds class, and watercolour class must stay out.
+
+Separately, count **all available evening classes in York** by level, including watercolour:
+
+```sh
+curl -fsS -X POST "$ES/field_note_courses/_search" \
+  -H 'Content-Type: application/json' -d '{"size":0,"query":{"bool":{"filter":[{"term":{"campus":"York"}},{"term":{"session":"evening"}},{"range":{"places":{"gte":1}}}]}},"aggs":{"levels":{"terms":{"field":"level","size":10}}}}'
+```
+
+Expect `introductory: 2`, `intermediate: 1`, and no hits (`size: 0`). These are course counts, not a sum of available places.
+
+After the enrolment system reports that the last introductory place is taken, publish its new availability and read the listing back:
+
+```sh
+curl -fsS -X POST "$ES/field_note_courses/_update/course-101?refresh=wait_for" \
+  -H 'Content-Type: application/json' -d '{"doc":{"places":0}}'
+sleep 5
+curl -fsS "$ES/field_note_courses/_doc/course-101"
+```
+
+The update returns `updated`; the read keeps the title, campus, session, and level, with `places: 0`. Repeat both search requests: only `course-102` remains, and both level buckets are `1` (watercolour still has places). Discovery reflects availability while the full course remains readable by ID.
+
+The [replay](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/education.py) independently checks statuses, bulk results, every stored ID/source, matching IDs/sources, and level counts on both endpoints. The [recorded run](https://github.com/dstockton/qdrant-es-gateway/blob/main/validation/evidence/education-2026-10-05.json) passed 66/66 checks with identical requests on Elasticsearch 8.15.0 and gateway 0.2.0 backed by Qdrant 1.15.5. No gateway change or performance claim is involved.
+
+Boundary: text-scoped terms facets, atomic seat reservation, Lucene score equivalence, and refresh timing guarantees are outside this example's [supported semantics](https://dstockton.github.io/qdrant-es-gateway/compatibility/).
+
+Remove the example index afterward:
+
+```sh
+curl -fsS -X DELETE "$ES/field_note_courses"
+```
 
 
 ---
