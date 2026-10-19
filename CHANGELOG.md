@@ -53,6 +53,7 @@
 
 ## Unreleased
 
+- Reject search `version: true` and `seq_no_primary_term: true` before index lookup or Qdrant work instead of returning hits without the requested concurrency metadata; explicit `false` remains accepted.
 - Reject `profile: true` before index lookup or Qdrant work instead of returning search results without the requested query and collector timing trees; explicit `false` remains accepted.
 - Reject `explain: true` before index lookup or Qdrant work instead of returning hits without the requested per-hit score explanations; explicit `false` remains accepted.
 - Reject `highlight` before index lookup or Qdrant work instead of returning hits without the requested Elasticsearch/OpenSearch highlight snippets.

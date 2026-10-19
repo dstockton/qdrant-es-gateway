@@ -1,0 +1,85 @@
+{
+  "recorded_at": "2026-10-19T09:16:12+01:00",
+  "purpose": "Confirm that search version and sequence metadata flags add per-hit concurrency fields which the gateway must not silently omit or approximate",
+  "environment": "Separate single-node containers with security disabled",
+  "corpus": [
+    {
+      "_id": "1",
+      "initial_source": {
+        "title": "wireless headphones",
+        "category": "audio"
+      },
+      "update": {
+        "doc": {
+          "category": "travel-audio"
+        }
+      }
+    }
+  ],
+  "request_with_metadata": {
+    "version": true,
+    "seq_no_primary_term": true,
+    "query": {
+      "match": {
+        "title": "headphones"
+      }
+    }
+  },
+  "request_without_metadata": {
+    "version": false,
+    "seq_no_primary_term": false,
+    "query": {
+      "match": {
+        "title": "headphones"
+      }
+    }
+  },
+  "targets": [
+    {
+      "engine": "Elasticsearch",
+      "version": "8.15.0",
+      "image": "docker.elastic.co/elasticsearch/elasticsearch:8.15.0",
+      "status": 200,
+      "hit_with_metadata": {
+        "_id": "1",
+        "_version": 2,
+        "_seq_no": 1,
+        "_primary_term": 1
+      },
+      "false_flags_omit_version": true,
+      "false_flags_omit_seq_no": true,
+      "false_flags_omit_primary_term": true,
+      "string_true_was_coerced": true
+    },
+    {
+      "engine": "OpenSearch",
+      "version": "3.9.0",
+      "image": "opensearchproject/opensearch:3.9.0",
+      "status": 200,
+      "hit_with_metadata": {
+        "_id": "1",
+        "_version": 2,
+        "_seq_no": 1,
+        "_primary_term": 1
+      },
+      "false_flags_omit_version": true,
+      "false_flags_omit_seq_no": true,
+      "false_flags_omit_primary_term": true,
+      "string_true_was_coerced": true
+    }
+  ],
+  "reproduction": [
+    "Start each recorded image as an isolated single-node container with its security plugin disabled.",
+    "Create hit-metadata-probe with title mapped as text and category mapped as keyword.",
+    "Index document 1 with refresh=true, then update its category once with refresh=true.",
+    "POST hit-metadata-probe/_search with request_with_metadata and inspect each hit's _version, _seq_no, and _primary_term.",
+    "Repeat with request_without_metadata and verify those three fields are absent.",
+    "Send version as the JSON string true and record the observed coercion separately from the gateway's stricter validation policy."
+  ],
+  "limitations": [
+    "This is request and response compatibility evidence, not a concurrent-write or conditional-update test.",
+    "The numeric values come from one primary shard and one update; they establish field presence and change tracking but are not portable constants.",
+    "The probe does not claim that Elasticsearch and OpenSearch token histories remain identical under replication, failover, bulk writes, or other engine versions.",
+    "No Qdrant endpoint was involved in the native observations. Gateway rejection is validated separately with a mocked upstream that records calls."
+  ]
+}
