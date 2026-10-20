@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/dstockton/qdrant-es-gateway/compare/v0.3.1...v0.3.2) (2026-10-20)
+
+
+### Bug Fixes
+
+* reject unsupported search script fields ([#84](https://github.com/dstockton/qdrant-es-gateway/issues/84)) ([f025cf4](https://github.com/dstockton/qdrant-es-gateway/commit/f025cf48b5e3d747b082fb83e42be67daa2e4eaf))
+
 ## [0.3.1](https://github.com/dstockton/qdrant-es-gateway/compare/v0.3.0...v0.3.1) (2026-10-20)
 
 
