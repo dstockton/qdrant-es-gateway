@@ -1,0 +1,69 @@
+{
+  "recorded_at": "2026-10-19T21:14:16+01:00",
+  "purpose": "Confirm that docvalue_fields adds a per-hit fields object which the gateway must not silently omit or synthesize from _source",
+  "environment": "Separate single-node containers with security disabled",
+  "mapping": {
+    "properties": {
+      "sku": { "type": "keyword" },
+      "price": { "type": "integer" }
+    }
+  },
+  "document": {
+    "_id": "1",
+    "_source": { "sku": "A-1", "price": 42 }
+  },
+  "request_with_doc_values": {
+    "query": { "match_all": {} },
+    "docvalue_fields": ["price", "sku"]
+  },
+  "request_with_empty_list": {
+    "query": { "match_all": {} },
+    "docvalue_fields": []
+  },
+  "request_with_url_parameter": "GET /qeg_docvalue_query_probe_20261019/_search?docvalue_fields=price%2Csku",
+  "targets": [
+    {
+      "engine": "Elasticsearch",
+      "version": "8.15.0",
+      "image": "docker.elastic.co/elasticsearch/elasticsearch:8.15.0",
+      "build_hash": "1a77947f34deddb41af25e6f0ddb8e830159c179",
+      "status": 200,
+      "hit_with_doc_values": {
+        "_id": "1",
+        "_source": { "sku": "A-1", "price": 42 },
+        "fields": { "price": [42], "sku": ["A-1"] }
+      },
+      "url_parameter_fields": { "price": [42], "sku": ["A-1"] },
+      "empty_list_omitted_fields": true
+    },
+    {
+      "engine": "OpenSearch",
+      "version": "3.9.0",
+      "image": "opensearchproject/opensearch:3.9.0",
+      "build_hash": "4ee42a94e87f66fbf1e62a9871b1b87f91e02472",
+      "status": 200,
+      "hit_with_doc_values": {
+        "_id": "1",
+        "_source": { "sku": "A-1", "price": 42 },
+        "fields": { "price": [42], "sku": ["A-1"] }
+      },
+      "url_parameter_fields": { "price": [42], "sku": ["A-1"] },
+      "empty_list_omitted_fields": true
+    }
+  ],
+  "reproduction": [
+    "Start each recorded image as an isolated single-node container with security disabled.",
+    "Create qeg_docvalue_probe_20261019 with the recorded mapping.",
+    "Index document 1 with refresh=wait_for.",
+    "POST qeg_docvalue_probe_20261019/_search with request_with_doc_values and inspect the first hit's fields object.",
+    "Repeat with request_with_empty_list and verify the hit has no fields member.",
+    "Repeat with request_with_url_parameter and verify the first hit contains both requested fields.",
+    "Delete the temporary index from each engine."
+  ],
+  "limitations": [
+    "This is request and response compatibility evidence, not a storage, memory, or latency benchmark.",
+    "The probe covers one single-valued keyword and one integer; it does not cover date formatting, wildcards, nested fields, multivalued fields, missing values, or custom doc-value settings.",
+    "The observed agreement applies only to Elasticsearch 8.15.0 and OpenSearch 3.9.0; no behavior is inferred for other versions.",
+    "No Qdrant endpoint was involved in the native observations. Gateway rejection is validated separately with a mocked upstream that records calls."
+  ]
+}
