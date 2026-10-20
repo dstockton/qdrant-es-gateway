@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/dstockton/qdrant-es-gateway/compare/v0.3.0...v0.3.1) (2026-10-20)
+
+
+### Bug Fixes
+
+* reject unsupported doc value fields ([#82](https://github.com/dstockton/qdrant-es-gateway/issues/82)) ([3485d0d](https://github.com/dstockton/qdrant-es-gateway/commit/3485d0d8b1b52717673d3b40693e5382127ceccf))
+
 ## [0.3.0](https://github.com/dstockton/qdrant-es-gateway/compare/v0.2.0...v0.3.0) (2026-10-19)
 
 
