@@ -22,6 +22,7 @@
 
 ## Articles (Markdown)
 
+- [Script fields cannot be empty promises](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-20-script-fields-cannot-be-empty-promises.md)
 - [Hit concurrency metadata cannot be invented](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-19-hit-concurrency-metadata-cannot-be-invented.md)
 - [Requested doc values cannot silently disappear](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-19-doc-values-cannot-silently-disappear.md)
 - [Which dry plots need an irrigation inspection?](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-19-agriculture-irrigation-inspection.md)

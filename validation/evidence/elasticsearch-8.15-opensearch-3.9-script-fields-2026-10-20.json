@@ -1,0 +1,73 @@
+{
+  "recorded_at": "2026-10-20T09:11:07+01:00",
+  "purpose": "Confirm that script_fields executes a per-hit script and adds its result to fields, which the gateway must not silently omit",
+  "environment": "Separate single-node containers with security disabled",
+  "mapping": {
+    "properties": {
+      "sku": { "type": "keyword" },
+      "price": { "type": "integer" }
+    }
+  },
+  "document": {
+    "_id": "1",
+    "_source": { "sku": "A-1", "price": 42 }
+  },
+  "request_with_script_field": {
+    "_source": false,
+    "query": { "match_all": {} },
+    "script_fields": {
+      "next_price": {
+        "script": {
+          "lang": "painless",
+          "source": "doc[\"price\"].value + params.increment",
+          "params": { "increment": 1 }
+        }
+      }
+    }
+  },
+  "request_with_empty_object": {
+    "_source": false,
+    "query": { "match_all": {} },
+    "script_fields": {}
+  },
+  "targets": [
+    {
+      "engine": "Elasticsearch",
+      "version": "8.15.0",
+      "image": "docker.elastic.co/elasticsearch/elasticsearch:8.15.0",
+      "build_hash": "1a77947f34deddb41af25e6f0ddb8e830159c179",
+      "status": 200,
+      "hit_with_script_field": {
+        "_id": "1",
+        "fields": { "next_price": [43] }
+      },
+      "empty_object_omitted_fields": true
+    },
+    {
+      "engine": "OpenSearch",
+      "version": "3.9.0",
+      "image": "opensearchproject/opensearch:3.9.0",
+      "build_hash": "4ee42a94e87f66fbf1e62a9871b1b87f91e02472",
+      "status": 200,
+      "hit_with_script_field": {
+        "_id": "1",
+        "fields": { "next_price": [43] }
+      },
+      "empty_object_omitted_fields": true
+    }
+  ],
+  "reproduction": [
+    "Start each recorded image as an isolated single-node container with security disabled.",
+    "Create qeg_script_fields_probe_20261020 with the recorded mapping.",
+    "Index document 1 with refresh=true.",
+    "POST qeg_script_fields_probe_20261020/_search with request_with_script_field and inspect the first hit's fields object.",
+    "Repeat with request_with_empty_object and verify the hit has no fields member.",
+    "Delete the temporary index from each engine."
+  ],
+  "limitations": [
+    "This is request and response compatibility evidence, not a script latency, CPU, allocation, throughput, or sandbox-security benchmark.",
+    "The probe covers one Painless arithmetic script over one integer doc-value field; it does not cover stored scripts, source access, failures, multiple values, formatting, or other script contexts.",
+    "The observed agreement applies only to Elasticsearch 8.15.0 and OpenSearch 3.9.0; no behavior is inferred for other versions.",
+    "No Qdrant endpoint was involved in the native observations. Gateway rejection is validated separately with a mocked upstream that records calls."
+  ]
+}
