@@ -3182,6 +3182,17 @@ async fn ordered_numeric_hits(
 }
 
 fn validate_search_execution_controls(body: &Value) -> Result<(), GatewayError> {
+    if let Some(script_fields) = body.get("script_fields") {
+        let fields = script_fields
+            .as_object()
+            .ok_or_else(|| GatewayError::bad("script_fields", "script_fields must be an object"))?;
+        if !fields.is_empty() {
+            return Err(GatewayError::bad(
+                "script_fields",
+                "search-time scripted fields are not currently supported; the gateway cannot execute Elasticsearch or OpenSearch scripts or return their per-hit fields",
+            ));
+        }
+    }
     if let Some(docvalue_fields) = body.get("docvalue_fields") {
         let fields = docvalue_fields.as_array().ok_or_else(|| {
             GatewayError::bad("docvalue_fields", "docvalue_fields must be an array")
@@ -7602,6 +7613,11 @@ mod tests {
             (json!({"terminate_after":1}), "terminate_after"),
             (json!({"timeout":"1s"}), "timeout"),
             (json!({"highlight":{"fields":{"title":{}}}}), "highlight"),
+            (
+                json!({"script_fields":{"next_price":{"script":{"source":"doc['price'].value + 1"}}}}),
+                "script_fields",
+            ),
+            (json!({"script_fields":[]}), "script_fields"),
             (json!({"docvalue_fields":["price"]}), "docvalue_fields"),
             (json!({"docvalue_fields":"price"}), "docvalue_fields"),
             (json!({"from":-1}), "from"),
@@ -7643,13 +7659,14 @@ mod tests {
             "seq_no_primary_term": false,
             "profile": false,
             "explain": false,
+            "script_fields": {},
             "docvalue_fields": []
         }))
         .is_ok());
         let response = msearch_with_total_format(
             State(state.clone()),
             Some("products".into()),
-            "{}\n{\"highlight\":{\"fields\":{\"title\":{}}}}\n{}\n{\"explain\":true}\n{}\n{\"profile\":true}\n{}\n{\"version\":true}\n{}\n{\"seq_no_primary_term\":true}\n{}\n{\"docvalue_fields\":[\"price\"]}\n".into(),
+            "{}\n{\"highlight\":{\"fields\":{\"title\":{}}}}\n{}\n{\"explain\":true}\n{}\n{\"profile\":true}\n{}\n{\"version\":true}\n{}\n{\"seq_no_primary_term\":true}\n{}\n{\"docvalue_fields\":[\"price\"]}\n{}\n{\"script_fields\":{\"next_price\":{\"script\":{\"source\":\"doc['price'].value + 1\"}}}}\n".into(),
             false,
         )
         .await
@@ -7669,6 +7686,7 @@ mod tests {
             "seq_no_primary_term"
         );
         assert_eq!(body["responses"][5]["error"]["feature"], "docvalue_fields");
+        assert_eq!(body["responses"][6]["error"]["feature"], "script_fields");
         let error = search_with_total_format(
             State(state),
             Path("products".into()),
