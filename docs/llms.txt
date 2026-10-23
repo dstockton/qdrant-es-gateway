@@ -22,6 +22,7 @@
 
 ## Articles (Markdown)
 
+- [Qdrant 1.20.0 through the gateway: almost identical read performance and an auth upgrade check](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-23-qdrant-1-20-gateway-upgrade.md)
 - [Script fields cannot be empty promises](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-20-script-fields-cannot-be-empty-promises.md)
 - [Hit concurrency metadata cannot be invented](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-19-hit-concurrency-metadata-cannot-be-invented.md)
 - [Requested doc values cannot silently disappear](https://dstockton.github.io/qdrant-es-gateway/markdown/2026-10-19-doc-values-cannot-silently-disappear.md)

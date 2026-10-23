@@ -16,11 +16,14 @@ one correct document for tokens 0, 1, 32767, 32768, 40342, 65535, 65536 and 1058
 Only the endpoint differs. Every run deletes and recreates `explicit-sparse-demo`.
 Use dedicated disposable endpoints.
 
-`results.json` records a correctness smoke run on 2026-10-15: OpenSearch 3.9.0
-and Qdrant 1.19.2 in local containers; gateway debug build on the host. Both
+`results.json` records a historical correctness smoke run on 2026-10-15:
+OpenSearch 3.9.0 and Qdrant 1.19.2 in local containers; gateway debug build on
+the host. Both
 returned eight correct results. Timings are individual cold/warm mixed requests,
 not a throughput or comparative performance benchmark. Container settings are
 512 MiB OpenSearch JVM heap; no memory or CPU limits for Qdrant or gateway.
+The current Compose file uses Qdrant 1.20.0; rerun the script for results on that
+version.
 
 This uses OpenSearch's default Lucene sparse path on eight documents. It does
 **not** reproduce the SEISMIC approximate-path bug in neural-search issue #2048,
