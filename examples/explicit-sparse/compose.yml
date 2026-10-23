@@ -8,7 +8,7 @@ services:
       OPENSEARCH_JAVA_OPTS: '-Xms512m -Xmx512m'
     ports: ['127.0.0.1:19290:9200']
   qdrant:
-    image: qdrant/qdrant:v1.19.2
+    image: qdrant/qdrant:v1.20.0
   gateway:
     build: ../..
     environment:

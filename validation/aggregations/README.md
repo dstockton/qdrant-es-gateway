@@ -5,9 +5,11 @@ and the gateway. It checks min/max, exact terms and other-bucket counts, filter
 counts, London calendar days, global ordering, `search_after`, and `post_filter`.
 It deletes and recreates only `gateway-aggregation-demo`; use disposable services.
 
-Start Elasticsearch 8.15.0 and Qdrant 1.19.2 in containers, and the gateway with
+Start Elasticsearch 8.15.0 and Qdrant 1.20.0 in containers, and the gateway with
 `MAX_PAGE_SIZE=2`. The six records force three scroll pages. The Qdrant version is
 explicit: this harness does not establish compatibility with every older version.
+The checked-in `results.json` is a historical 1.19.2 run; rerun the harness to
+measure this 1.20.0 setup.
 
 ```sh
 docker run --rm --name aggregation-es -p 19293:9200 \
@@ -15,7 +17,7 @@ docker run --rm --name aggregation-es -p 19293:9200 \
   -e 'ES_JAVA_OPTS=-Xms512m -Xmx512m' \
   docker.elastic.co/elasticsearch/elasticsearch:8.15.0
 docker run --rm --name aggregation-qdrant -p 16393:6333 \
-  qdrant/qdrant:v1.19.2
+  qdrant/qdrant:v1.20.0
 ```
 
 In another terminal, with the containers ready:

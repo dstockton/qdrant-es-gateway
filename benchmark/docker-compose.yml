@@ -16,7 +16,7 @@ services:
       timeout: 5s
       retries: 40
   qdrant:
-    image: qdrant/qdrant:v1.19.2
+    image: qdrant/qdrant:v1.20.0
     cpus: "1.0"
     mem_limit: 4g
     volumes:

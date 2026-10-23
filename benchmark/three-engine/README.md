@@ -1,7 +1,7 @@
 # Three-engine correctness and latency comparison
 
 This deliberately small deterministic profile compares Elasticsearch 8.15.0,
-OpenSearch 3.9.0, and the gateway with Qdrant 1.19.2. All three receive the same
+OpenSearch 3.9.0, and the gateway with Qdrant 1.20.0. All three receive the same
 index name, mapping, documents, bulk request parameters, and read requests; only
 the endpoint changes. It measures keyword/integer document retrieval and
 filtering, **not full-text relevance or a general search-engine ranking**.
@@ -70,8 +70,9 @@ with 20 balanced categories and approximately 200 bytes of source text each.
 ## Retained comparison
 
 The October 15 comparison uses three trials of 40 measured requests per engine,
-workload and concurrency, plus warmups (`TRIALS=3 REQUESTS=40`). The default five
-trials above are useful for a longer rerun. Summarize every retained trial with:
+workload and concurrency, plus warmups (`TRIALS=3 REQUESTS=40`). Those retained
+results used Qdrant 1.19.2; the current Compose profile uses 1.20.0. The default
+five trials above are useful for a longer rerun. Summarize every retained trial with:
 
 ```sh
 python3 summarize.py results/baseline.json results/optimized.json
